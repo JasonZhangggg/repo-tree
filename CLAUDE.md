@@ -4,6 +4,7 @@ The plan is `docs/plans/repo-tree-v1.md`. Its Data shapes are the contracts betw
 
 ## Before pushing
 
+- Prove a visible change on the production build with the `verify-repo-tree` skill (`.claude/skills/verify-repo-tree/SKILL.md`). Its feature map lists every user path to check.
 - Run `npm run check` and `npm run e2e`.
 - Locally, set `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium` for Playwright. Never run `playwright install`.
 

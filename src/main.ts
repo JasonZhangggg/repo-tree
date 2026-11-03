@@ -2,12 +2,14 @@ import '@fontsource-variable/hanken-grotesk';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/600.css';
 import './app/app.css';
+import { distanceOf, frameTree } from './render/framing';
 import { createTreeView } from './render/tree-view';
 import { parseRepoRef, type RepoRef } from './repo/ref';
 import { nameOf, type App } from './app/app';
 import { debug } from './app/debug';
 import { byId } from './app/dom';
 import { count } from './app/format';
+import { freeRect, type Rect } from './app/free-rect';
 import { formatLink, parseLink, type ViewLink } from './app/link';
 import { createLoader } from './app/loader';
 import { rememberRecent } from './app/recent';
@@ -23,6 +25,7 @@ import { childrenOf, mountSide } from './app/ui/side';
 const SETTINGS_KEY = 'repo-tree:settings';
 const MEASURE_MS = 2000;
 const SMOOTH_FPS = 30;
+const PANEL_GAP = 12;
 
 const stored = (() => {
   try {
@@ -147,6 +150,7 @@ store.subscribe((state, prev) => {
     debug.timings.grown ??= performance.now();
     view.setTree(state.repo.tree);
     if (state.selection) view.frameFolder(state.selection.folder);
+    reframe();
     container.setAttribute('aria-label', describe(state));
     if (!state.repo.sample && repoKey(state) !== repoKey(prev)) rememberRecent(debug.repo);
   }
@@ -252,6 +256,57 @@ const placeTools = () => {
 };
 phone.addEventListener('change', placeTools);
 placeTools();
+
+/** A panel covers the union of its visible children, so a row holding two buttons covers just them. */
+function footprint(panel: HTMLElement, origin: DOMRect): Rect | null {
+  const shown = [...panel.children]
+    .map((child) => child.getBoundingClientRect())
+    .filter((r) => r.width > 0 && r.height > 0);
+  if (shown.length === 0) return null;
+  return {
+    left: Math.min(...shown.map((r) => r.left)) - origin.left,
+    top: Math.min(...shown.map((r) => r.top)) - origin.top,
+    right: Math.max(...shown.map((r) => r.right)) - origin.left,
+    bottom: Math.max(...shown.map((r) => r.bottom)) - origin.top,
+  };
+}
+
+const panels = [
+  document.querySelector<HTMLElement>('.bar')!,
+  byId('title'),
+  side,
+  controls,
+  byId('settings'),
+];
+let reframing = 0;
+/** Frames the tree into the largest region the panels leave uncovered. */
+function reframe() {
+  cancelAnimationFrame(reframing);
+  reframing = requestAnimationFrame(() => {
+    const origin = container.getBoundingClientRect();
+    const covered = panels.map((p) => footprint(p, origin)).filter((r): r is Rect => r !== null);
+    const bounds = store.get().repo?.tree.bounds;
+    const fit = (w: number, h: number) => {
+      if (!bounds) return Math.min(w, h);
+      const { position, target } = frameTree(bounds, w / h);
+      return h / distanceOf(position, target);
+    };
+    const free = freeRect(origin.width, origin.height, covered, PANEL_GAP, fit);
+    view.setInsets({
+      top: free.top,
+      right: origin.width - free.right,
+      bottom: origin.height - free.bottom,
+      left: free.left,
+    });
+  });
+}
+const panelObserver = new ResizeObserver(reframe);
+for (const panel of panels) {
+  panelObserver.observe(panel);
+  for (const child of panel.children) panelObserver.observe(child);
+}
+phone.addEventListener('change', reframe);
+addEventListener('resize', reframe);
 
 addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement;

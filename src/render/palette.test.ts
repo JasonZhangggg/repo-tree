@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { leafMapping, PALETTES } from './palette';
+import { leafMapping, PALETTES, slotColors } from './palette';
 
 const autumn = PALETTES.autumn;
 const ramp = autumn.leaves.length;
+const shown = slotColors(autumn);
 const langs = (...files: number[]) => files.map((n, i) => ({ label: `L${i}`, files: n }));
 
 describe('leafMapping', () => {
@@ -15,9 +16,9 @@ describe('leafMapping', () => {
 
     expect(slotOf).toEqual([2, 0, 1]);
     expect(legend).toEqual([
-      { color: autumn.leaves[0], label: 'L1', files: 40 },
-      { color: autumn.leaves[1], label: 'L2', files: 12 },
-      { color: autumn.leaves[2], label: 'L0', files: 5 },
+      { color: shown[0], label: 'L1', files: 40 },
+      { color: shown[1], label: 'L2', files: 12 },
+      { color: shown[2], label: 'L0', files: 5 },
     ]);
   });
 
@@ -30,7 +31,7 @@ describe('leafMapping', () => {
       autumn,
     );
 
-    expect(legend.map((l) => l.color)).toEqual([autumn.leaves[0], autumn.leaves[1]]);
+    expect(legend.map((l) => l.color)).toEqual([shown[0], shown[1]]);
   });
 
   test('folds the long tail into one muted slot with one legend row', () => {
@@ -40,7 +41,7 @@ describe('leafMapping', () => {
     expect(slotOf.slice(ramp)).toEqual([ramp, ramp, ramp]);
     expect(legend).toHaveLength(ramp + 1);
     expect(legend.at(-1)).toEqual({
-      color: autumn.rest,
+      color: shown[ramp],
       label: '3 more',
       files: counts.slice(ramp).reduce((sum, c) => sum + c.files, 0),
     });
@@ -59,3 +60,4 @@ describe('leafMapping', () => {
     expect(leafMapping(shuffled, autumn).legend).toEqual(leafMapping(counts, autumn).legend);
   });
 });
+

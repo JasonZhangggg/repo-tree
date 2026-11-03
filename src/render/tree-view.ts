@@ -26,6 +26,7 @@ import {
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MeshData, Quality, TreeModel, Vec3 } from '../grow/grow';
 import { distanceOf, FOV, frameFolder, frameTree, VIEW_DIRECTION } from './framing';
+import { LIGHT } from './color';
 import { leafMapping, PALETTES, type ColorBy, type LegendEntry, type PaletteId } from './palette';
 import {
   barkShader,
@@ -96,12 +97,6 @@ const QUALITY: Record<Quality, { pixelRatio: number; shadowMap: number; antialia
   high: { pixelRatio: 2, shadowMap: 2048, antialias: true },
 };
 
-/**
- * The mock's hemisphere light plus its room environment at 0.3. Generating that environment
- * blocked the main thread for 0.4 to 1.7 s on a software GL, so a stronger hemisphere stands
- * in for its diffuse fill; the lumen tree's trunk and leaf colors match the mock within 3%.
- */
-const SKY_LIGHT = 0.7 * Math.PI + 2.4;
 const GROW_MS = 2600;
 const BAKED = 1;
 const LABELS_FROM = 0.55;
@@ -148,12 +143,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   sky.frustumCulled = false;
   sky.renderOrder = -1;
 
-  const hemi = new HemisphereLight(0xffffff, 0xffffff, SKY_LIGHT);
-  const key = new DirectionalLight(0xffffff, 2.1 * Math.PI);
+  const hemi = new HemisphereLight(0xffffff, 0xffffff, LIGHT.sky);
+  const key = new DirectionalLight(0xffffff, LIGHT.key);
   key.castShadow = true;
   key.shadow.bias = -0.0006;
   key.shadow.radius = 4;
-  const fill = new DirectionalLight(0xdfe8ff, 0.45 * Math.PI);
+  const fill = new DirectionalLight(LIGHT.fillColor, LIGHT.fill);
   fill.position.set(6, 3, 2);
 
   const ground = new Mesh(

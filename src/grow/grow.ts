@@ -588,13 +588,19 @@ function emitLeaves(
         for (let v = first; v < out.vertices; v++) {
           lang[v] = langIndex;
           shade[v * 2] = dh;
-          shade[v * 2 + 1] = dl + ((v - first) % 6 < 3 ? -0.025 : 0.025);
+          shade[v * 2 + 1] = dl + ((v - first) % 6 < 3 ? -SHADE.facet : SHADE.facet);
         }
       }
     }
   }
   return { ...out.mesh(), lang, shade };
 }
+
+/**
+ * How far one leaf's color strays from its slot, as offsets the leaf shader applies in HSL: up to
+ * `hue` turns of hue and `light` of lightness per leaf, and `facet` lighter or darker per half.
+ */
+export const SHADE = { hue: 0.008, light: 0.06, facet: 0.04 };
 
 /** A faceted hexagonal leaf: six triangles fanned around a raised center. Returns its shade. */
 function leaf(
@@ -622,8 +628,8 @@ function leaf(
     q(0.3, 0.9, 0.03),
   ];
   const center = q(0.46, 0, 0.08);
-  const hue = (random() - 0.5) * 0.04;
-  const light = (random() - 0.5) * 0.1;
+  const hue = (random() - 0.5) * 2 * SHADE.hue;
+  const light = (random() - 0.5) * 2 * SHADE.light;
   const t1 = t0 + LEAF_UNFOLD;
   for (let k = 0; k < 6; k++) {
     const A = rim[k]!;

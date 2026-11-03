@@ -598,7 +598,8 @@ h1 a[aria-disabled] {
   padding: 2px;
   margin: -2px;
 }
-.sheet-handle {
+.sheet-handle,
+.sheet-clear {
   display: none;
 }
 .panel {
@@ -1340,21 +1341,32 @@ h1 a[aria-disabled] {
     height: 48px;
   }
   .title {
-    top: calc(env(safe-area-inset-top, 0px) + 70px);
+    top: calc(env(safe-area-inset-top, 0px) + 68px);
     left: max(12px, env(safe-area-inset-left, 0px));
     right: max(12px, env(safe-area-inset-right, 0px));
     max-width: none;
-    gap: 8px;
-    padding: 12px 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    padding: 6px 8px 6px 14px;
     border-radius: 14px;
   }
   h1 {
-    font-size: 22px;
+    font-size: 16px;
+    min-width: 0;
   }
   .meta {
+    margin: 0;
+    flex: 1;
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
     font-size: 12.5px;
   }
-  .meta .opt {
+  .meta .opt,
+  #samples {
     display: none;
   }
   .seg button {
@@ -1362,6 +1374,16 @@ h1 a[aria-disabled] {
     font-size: 13px;
     min-height: 36px;
     align-items: center;
+  }
+  .meta .icon-btn {
+    margin-left: auto;
+    order: 1;
+    width: 36px;
+    height: 36px;
+  }
+  #status {
+    flex-basis: 100%;
+    margin-bottom: 6px;
   }
   .status {
     width: 100%;
@@ -1372,7 +1394,7 @@ h1 a[aria-disabled] {
     left: 0;
     right: 0;
     width: auto;
-    max-height: 56%;
+    max-height: 60%;
     background: var(--card-solid);
     border-radius: 20px 20px 0 0;
     box-shadow: 0 -8px 30px rgba(60, 40, 20, 0.12);
@@ -1382,17 +1404,56 @@ h1 a[aria-disabled] {
   .side:not([data-open]) .side-body {
     display: none;
   }
+  .side[data-open] .side-body {
+    animation: rise 0.22s var(--ease);
+  }
   .sheet-handle {
     display: grid;
     justify-items: center;
-    gap: 6px;
+    gap: 8px;
     width: 100%;
-    min-height: 52px;
-    padding: 8px 16px 12px;
+    min-height: 64px;
+    padding: 8px 64px 12px;
     border: 0;
     background: none;
-    font-weight: 600;
+  }
+  .peek {
+    display: grid;
+    justify-items: center;
+    gap: 1px;
+    max-width: 100%;
+  }
+  .peek strong,
+  .peek small {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .peek strong {
+    font-weight: 650;
+    font-size: 15px;
+  }
+  .side:has(.sheet-clear:not([hidden])) .peek strong {
+    font-family: var(--mono);
     font-size: 14px;
+  }
+  .peek small {
+    color: var(--muted);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .sheet-clear {
+    display: grid;
+    top: 12px;
+    right: 10px;
+  }
+  .detail .close,
+  .side[data-open] .controls {
+    display: none;
+  }
+  body:has(.side[data-open], #settings:not([hidden])) #labels {
+    visibility: hidden;
   }
   .grip {
     width: 36px;
@@ -1480,7 +1541,7 @@ h1 a[aria-disabled] {
     left: 0;
     right: 0;
     width: auto;
-    max-height: 80%;
+    max-height: 60%;
     border-radius: 20px 20px 0 0;
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
     animation: sheet 0.25s var(--ease);

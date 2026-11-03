@@ -307,8 +307,8 @@ export function mountHeader(app: App): void {
         : null,
       repo.sample ? dot('dot opt') : null,
       h('span', {}, plural(folders.files[0]!, 'file')),
-      dot(),
-      h('span', {}, plural(folders.files.length - 1, 'folder')),
+      dot('dot opt'),
+      h('span', { class: 'opt' }, plural(folders.files.length - 1, 'folder')),
       dot('dot opt'),
       h('span', { class: 'opt' }, plural(langs, 'language')),
     );

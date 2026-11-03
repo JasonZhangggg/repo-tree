@@ -8,7 +8,6 @@ import type { AppState, Repo } from '../state';
 
 const FOLDER_ROWS = 10;
 const SUB_ROWS = 5;
-const PHONE = matchMedia('(max-width: 760px)');
 
 /** Children of a folder, most files first. */
 export function childrenOf(repo: Repo, folder: number): number[] {
@@ -32,6 +31,8 @@ export function mountSide(app: App): void {
   const side = byId('side');
   const toggle = byId('sheet-toggle');
   const sheetTitle = byId('sheet-title');
+  const sheetStat = byId('sheet-stat');
+  const sheetClear = byId('sheet-clear');
   const folders = byId('folders');
   const legend = byId('legend');
   const legendTitle = byId('legend-title');
@@ -42,6 +43,7 @@ export function mountSide(app: App): void {
     toggle.setAttribute('aria-expanded', String(open));
   };
   toggle.addEventListener('click', () => setOpen(!side.hasAttribute('data-open')));
+  sheetClear.addEventListener('click', () => app.select(null));
 
   const pick = (folder: number) => app.select({ folder }, true);
 
@@ -143,9 +145,13 @@ export function mountSide(app: App): void {
 
   const renderDetail = (state: AppState) => {
     const { repo, selection } = state;
+    sheetClear.hidden = !selection;
     if (!repo || !selection) {
       detail.hidden = true;
       sheetTitle.textContent = 'Folders and leaf colors';
+      sheetStat.textContent = repo
+        ? `${plural(childrenOf(repo, 0).length, 'top-level folder')} · ${plural(repo.index.langs.filter((l) => l !== 'Other').length, 'language')}`
+        : '';
       return;
     }
     const { folder, file } = selection;
@@ -302,7 +308,13 @@ export function mountSide(app: App): void {
     );
     detail.setAttribute('aria-label', `Pinned folder ${path[folder] || repoName}`);
     detail.hidden = false;
-    sheetTitle.textContent = `${label(folder)}/ · ${plural(files[folder]!, 'file')}`;
+    sheetTitle.textContent = `${label(folder)}/`;
+    sheetStat.textContent = [
+      plural(files[folder]!, 'file'),
+      ancestors.length > 1 ? `in ${path[parent[folder]!]}/` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
   };
 
   const render = (state: AppState, prev?: AppState) => {
@@ -315,7 +327,6 @@ export function mountSide(app: App): void {
     if (colorsChanged || state.selection !== prev?.selection) renderFolders(state);
     if (colorsChanged) renderLegend(state);
     if (colorsChanged || state.selection !== prev?.selection) renderDetail(state);
-    if (state.selection && state.selection !== prev?.selection && PHONE.matches) setOpen(true);
     if (repoChanged && !state.selection) side.scrollTop = 0;
   };
   store.subscribe(render);

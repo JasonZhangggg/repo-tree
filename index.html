@@ -104,7 +104,19 @@
         aria-controls="side-body"
       >
         <span class="grip" aria-hidden="true"></span>
-        <span id="sheet-title">Folders and leaf colors</span>
+        <span class="peek">
+          <strong id="sheet-title">Folders and leaf colors</strong>
+          <small id="sheet-stat"></small>
+        </span>
+      </button>
+      <button
+        type="button"
+        class="close sheet-clear"
+        id="sheet-clear"
+        aria-label="Clear selection"
+        hidden
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
       </button>
       <div class="side-body" id="side-body">
         <article class="panel detail" id="detail" hidden aria-label="Pinned folder"></article>

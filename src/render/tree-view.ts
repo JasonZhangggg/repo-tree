@@ -27,6 +27,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MeshData, Quality, TreeModel, Vec3 } from '../grow/grow';
 import { distanceOf, FOV, frameFolder, frameTree, VIEW_DIRECTION } from './framing';
 import { LIGHT } from './color';
+import { createGround } from './ground';
 import { leafMapping, PALETTES, type ColorBy, type LegendEntry, type PaletteId } from './palette';
 import {
   barkShader,
@@ -39,6 +40,8 @@ import {
   treeUniforms,
 } from './shaders';
 
+/** What a pixel shows: a folder's branch, or a rock lying for some of the root folder's files. */
+export type Picked = { folder: number; rock?: number };
 export type LabelPosition = { folder: number; x: number; y: number; visible: boolean };
 export type FrameInfo = { growth: number; labels: LabelPosition[] };
 /** CSS pixels along each edge of the container that panels cover. */
@@ -68,8 +71,10 @@ export interface TreeView {
   frameFolder(folder: number): void;
   /** Frames the tree into the part of the container the insets leave free, easing there. */
   setInsets(insets: Insets): void;
-  /** The folder under a point in CSS pixels relative to the container, from a GPU id pass. */
-  pickAt(x: number, y: number): number | null;
+  /** The folder or rock under a point in CSS pixels relative to the container, from a GPU id pass. */
+  pickAt(x: number, y: number): Picked | null;
+  /** Shows the mound, its rocks and its grass under the tree, or the bare shadow. */
+  setGround(on: boolean): void;
   setQuality(quality: Quality): void;
   setSpin(on: boolean): void;
   setReducedMotion(on: boolean): void;
@@ -89,6 +94,7 @@ export type TreeViewOptions = {
   colorBy: ColorBy;
   spin: boolean;
   reducedMotion: boolean;
+  ground: boolean;
 };
 
 const QUALITY: Record<Quality, { pixelRatio: number; shadowMap: number; antialias: boolean }> = {
@@ -118,6 +124,9 @@ type Shown = {
    * bark runs back to the fork it grew from, so a folder is framed on its leaves.
    */
   boxes: { leaves: Float32Array; bark: Float32Array };
+  /** The tree's bounds, with the ground's while it shows. */
+  bounds: TreeModel['bounds'];
+  groundBounds: TreeModel['bounds'];
 };
 
 export function createTreeView(container: HTMLElement, options: TreeViewOptions): TreeView {
@@ -188,6 +197,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   for (const object of [ground, contact]) object.layers.set(BAKED);
   key.layers.enable(BAKED);
   scene.add(sky, hemi, key, key.target, fill, ground, contact, baked);
+  const terrain = createGround();
+  scene.add(terrain.land, terrain.cover);
+  let groundOn = options.ground;
 
   const barkMaterial = barkShader(new MeshStandardMaterial({ roughness: 0.92, flatShading: true }));
   const leafMaterial = leafShader(
@@ -298,7 +310,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   /** Points the camera springs at what `aim` frames; `snap` jumps there. */
   const reaim = (snap: boolean) => {
     if (!shown || !aim) return;
-    const { bounds } = shown.model;
+    const { bounds } = shown;
     const whole = frameTree(bounds, camera.aspect);
     controls.minDistance = whole.minDistance;
     controls.maxDistance = whole.maxDistance;
@@ -412,6 +424,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     hemi.color.set(palette.light.sky);
     hemi.groundColor.set(palette.light.ground);
     key.color.set(palette.light.key);
+    terrain.setPalette(palette);
     ground.material.color.set(palette.shadow);
     contact.material.color.set(palette.shadow);
     renderer.shadowMap.needsUpdate = true;
@@ -453,6 +466,40 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       slot[v] = slotOf[nodeCategory ? nodeCategory[nodeId[v]!]! : lang[v]!]!;
     }
     shown.leaves.geometry.setAttribute('aSlot', new BufferAttribute(slot, 1));
+    renderer.shadowMap.needsUpdate = true;
+    requestRender();
+  };
+
+  /** Sizes the light, its shadow and the floor to the tree and, while it shows, its ground. */
+  const placeScene = () => {
+    if (!shown) return;
+    const { model, groundBounds } = shown;
+    shown.bounds = groundOn ? union(model.bounds, groundBounds) : model.bounds;
+    terrain.land.visible = terrain.cover.visible = groundOn;
+    for (const mesh of [ground, contact, baked]) mesh.visible = !groundOn;
+    const { min, max } = shown.bounds;
+    const center: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
+    const size = Math.max(max[0] - min[0], max[1] - min[1]);
+    key.position.set(center[0] - 3, 12, center[2] + 5);
+    key.target.position.set(...center);
+    Object.assign(key.shadow.camera, {
+      left: -size * 0.9,
+      right: size * 0.9,
+      top: size * 0.9,
+      bottom: -size * 0.9,
+      near: 0.1,
+      far: 40,
+    });
+    key.shadow.camera.updateProjectionMatrix();
+    contact.scale.setScalar(Math.max(1.6, (max[0] - min[0]) * 0.55));
+    const reach = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * 1.5;
+    baked.position.x = bakeCamera.position.x = center[0];
+    baked.position.z = bakeCamera.position.z = center[2];
+    baked.scale.setScalar(reach * 2);
+    bakeCamera.position.y = 20;
+    bakeCamera.lookAt(center[0], 0, center[2]);
+    Object.assign(bakeCamera, { left: -reach, right: reach, top: reach, bottom: -reach });
+    bakeCamera.updateProjectionMatrix();
     renderer.shadowMap.needsUpdate = true;
     requestRender();
   };
@@ -506,32 +553,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         bark,
         leaves,
         boxes: { leaves: nodeBoxes(model.leaves, nodes), bark: nodeBoxes(model.bark, nodes) },
+        bounds: model.bounds,
+        groundBounds: terrain.setTree(model, quality),
       };
       applyColorBy();
-
-      const { min, max } = model.bounds;
-      const center: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
-      const size = Math.max(max[0] - min[0], max[1] - min[1]);
-      key.position.set(center[0] - 3, 12, center[2] + 5);
-      key.target.position.set(...center);
-      Object.assign(key.shadow.camera, {
-        left: -size * 0.9,
-        right: size * 0.9,
-        top: size * 0.9,
-        bottom: -size * 0.9,
-        near: 0.1,
-        far: 40,
-      });
-      key.shadow.camera.updateProjectionMatrix();
-      contact.scale.setScalar(Math.max(1.6, (max[0] - min[0]) * 0.55));
-      const reach = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * 1.5;
-      baked.position.x = bakeCamera.position.x = center[0];
-      baked.position.z = bakeCamera.position.z = center[2];
-      baked.scale.setScalar(reach * 2);
-      bakeCamera.position.y = 20;
-      bakeCamera.lookAt(center[0], 0, center[2]);
-      Object.assign(bakeCamera, { left: -reach, right: reach, top: reach, bottom: -reach });
-      bakeCamera.updateProjectionMatrix();
+      placeScene();
       treeUniforms.uSel.value = [-1, -1];
       aim = { kind: 'tree' };
       gliding = false;
@@ -539,6 +565,13 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       reaim(true);
       controls.update();
       startGrowth();
+    },
+
+    setGround(on) {
+      groundOn = on;
+      if (!shown) return;
+      placeScene();
+      reaim(false);
     },
 
     grow() {
@@ -591,7 +624,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       if (!shown) return null;
       const { width, height, x: left, y: top, w, h } = freeRegion();
       if (x < 0 || y < 0 || x >= width || y >= height) return null;
-      const hidden = [sky, baked];
+      const hidden = [sky, baked, terrain.cover].filter((mesh) => mesh.visible);
       for (const mesh of hidden) mesh.visible = false;
       const shadowPending = renderer.shadowMap.needsUpdate;
       renderer.shadowMap.needsUpdate = false;
@@ -608,7 +641,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       renderer.shadowMap.needsUpdate = shadowPending;
       for (const mesh of hidden) mesh.visible = true;
       const id = pickPixel[0]! + pickPixel[1]! * 256 + pickPixel[2]! * 65536 - 1;
-      return id < 0 ? null : shown.model.nodes.folder[id]!;
+      const nodes = shown.model.nodes.folder.length;
+      if (id < 0) return null;
+      return id < nodes
+        ? { folder: shown.model.nodes.folder[id]! }
+        : { folder: 0, rock: id - nodes };
     },
 
     setQuality(next) {
@@ -692,6 +729,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       for (const material of [barkMaterial, leafMaterial, depthMaterial, pickMaterial]) {
         material.dispose();
       }
+      terrain.dispose();
       contactTexture.dispose();
       groundTarget.dispose();
       pickTarget.dispose();
@@ -711,6 +749,13 @@ function geometry(mesh: MeshData): BufferGeometry {
     .setAttribute('aT', new BufferAttribute(mesh.timing, 2))
     .setAttribute('aId', new BufferAttribute(mesh.nodeId, 1))
     .setIndex(new BufferAttribute(mesh.index, 1));
+}
+
+function union(a: TreeModel['bounds'], b: TreeModel['bounds']): TreeModel['bounds'] {
+  return {
+    min: [0, 1, 2].map((i) => Math.min(a.min[i]!, b.min[i]!)) as Vec3,
+    max: [0, 1, 2].map((i) => Math.max(a.max[i]!, b.max[i]!)) as Vec3,
+  };
 }
 
 function nodeBoxes({ position, nodeId }: MeshData, nodes: number): Float32Array {

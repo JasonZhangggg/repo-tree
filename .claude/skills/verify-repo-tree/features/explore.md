@@ -9,6 +9,7 @@ A user points at a branch to see which folder it is, clicks to pin that folder's
 - `explore-crumb` pins an ancestor from the crumbs.
 - `explore-side-list` pins a top-level folder from the side panel list.
 - `explore-label` pins a folder from its label pill over the tree.
+- `explore-rock` hovers a rock on the ground to see the root file it stands for (name and size, or `N more files` on the last rock past twelve), and clicks it to pin the root folder with that file's card. `view.pickAt` returns `{ folder: 0, rock }` there. e2e covers it in `a rock names its root file on hover and pins it on click`.
 - `explore-clear` clears the pin with Escape or `Clear selection`.
 - `explore-frame` frames the whole tree with `f`.
 - `explore-orbit` orbits by dragging and zooms by scrolling.

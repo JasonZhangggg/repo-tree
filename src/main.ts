@@ -57,6 +57,7 @@ const view = createTreeView(container, {
   colorBy: initial.settings.colorBy,
   spin: spinning(initial),
   reducedMotion: reducedMotion(initial.settings),
+  ground: initial.settings.ground,
 });
 motion.addEventListener('change', () => view.setReducedMotion(reducedMotion(store.get().settings)));
 debug.view = view;
@@ -156,6 +157,7 @@ store.subscribe((state, prev) => {
   }
   if (s.palette !== prev.settings.palette) view.setPalette(s.palette);
   if (s.colorBy !== prev.settings.colorBy) view.setColorBy(s.colorBy);
+  if (s.ground !== prev.settings.ground) view.setGround(s.ground);
   if (spinning(state) !== spinning(prev)) view.setSpin(spinning(state));
   if (reducedMotion(s) !== reducedMotion(prev.settings)) view.setReducedMotion(reducedMotion(s));
   if (qualityOf(state) !== qualityOf(prev)) view.setQuality(qualityOf(state));

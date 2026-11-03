@@ -155,12 +155,67 @@ test('a palette picked in settings survives a reload', async ({ page }) => {
   );
 });
 
+test('turning the ground off in settings survives a reload', async ({ page }) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const before = (await settle(page)).triangles;
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const ground = page.getByRole('switch', { name: 'Ground' });
+  await expect(ground).toBeChecked();
+  await ground.click();
+  await expect(ground).not.toBeChecked();
+  expect((await settle(page)).triangles, 'the mound, rocks and grass are gone').toBeLessThan(
+    before - 1000,
+  );
+  const stored = () => page.evaluate(() => localStorage.getItem('repo-tree:settings'));
+  expect(JSON.parse((await stored())!)).toMatchObject({ ground: false });
+
+  await page.reload();
+  await ready(page, 'vitejs/vite');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('switch', { name: 'Ground' })).not.toBeChecked();
+});
+
+test('a rock names its root file on hover and pins it on click', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'hover');
+  test.setTimeout(90_000);
+  await page.goto('./#/torvalds/linux');
+  await ready(page, 'torvalds/linux');
+  await settle(page);
+  const rock = await page.evaluate(() => {
+    const { view } = (window as unknown as Debug).__repoTree;
+    for (let y = innerHeight * 0.95; y > innerHeight * 0.45; y -= 12)
+      for (let x = innerWidth * 0.2; x < innerWidth * 0.8; x += 12) {
+        const picked = view.pickAt(x, y);
+        if (picked?.rock !== undefined) return { x, y, picked };
+      }
+    return null;
+  });
+  expect(rock, 'a rock under some pixel').not.toBeNull();
+  expect(rock!.picked.folder, 'rocks belong to the root folder').toBe(0);
+
+  await page.mouse.move(rock!.x, rock!.y);
+  const tip = page.locator('#tip');
+  await expect(tip).toBeVisible();
+  const root = ['MAINTAINERS', 'Makefile', 'CREDITS', 'COPYING', 'README', 'Kbuild', 'Kconfig'];
+  const name = (await tip.locator('code').textContent())!;
+  expect(name === 'linux/' || root.some((f) => name === f) || name.startsWith('.')).toBe(true);
+  await expect(tip).toContainText(/B|more files/);
+
+  await page.mouse.click(rock!.x, rock!.y);
+  await expectPinned(page, 'linux');
+  if (name !== 'linux/') {
+    await expect(detail(page).locator('.file-card code')).toHaveText(name);
+  }
+});
+
 type Debug = {
   __repoTree: {
     labels: { path: string; x: number; y: number }[];
+    tree: { folders: { path: string[] } };
     view: {
-      stats(): { distance: number; renders: number };
-      pickAt(x: number, y: number): number | null;
+      stats(): { distance: number; renders: number; triangles: number };
+      pickAt(x: number, y: number): { folder: number; rock?: number } | null;
     };
   };
 };
@@ -213,10 +268,22 @@ test('on a phone the tree stays in view as folders are pinned', async ({ page, i
   test.skip(!isMobile, 'phone layout');
   await page.goto('./');
   await ready(page, 'vitejs/vite');
+  await settle(page);
   const sheet = page.locator('#sheet-toggle');
   await expect(sheet).toHaveAttribute('aria-expanded', 'false');
 
-  const playground = (await labelsOf(page)).find((l) => l.path === 'playground')!;
+  const label = (await labelsOf(page)).find((l) => l.path === 'playground')!;
+  const playground = await page.evaluate(({ x, y }) => {
+    const { view, tree } = (window as unknown as Debug).__repoTree;
+    for (let r = 0; r < 16; r++)
+      for (let dx = -r; dx <= r; dx++)
+        for (const dy of [-r, r]) {
+          const picked = view.pickAt(x + dx, y + dy);
+          if (picked && tree.folders.path[picked.folder]!.startsWith('playground'))
+            return { x: x + dx, y: y + dy };
+        }
+    return { x, y };
+  }, label);
   await page.touchscreen.tap(playground.x, playground.y);
   await expect(sheet, 'the peek names the pinned folder').toContainText('playground');
   await expect(sheet).toHaveAttribute('aria-expanded', 'false');

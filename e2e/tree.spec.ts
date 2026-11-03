@@ -84,6 +84,35 @@ const hovered = (page: Page) =>
     () => (window as unknown as { __repoTree: { hovered: string | null } }).__repoTree.hovered,
   );
 
+/**
+ * Hovers the label's anchor, then the pixels around it. The anchor is a twig tip, a few pixels
+ * wide on screen, and the island sits just below the lowest limbs, so rasterization differences
+ * between GPUs can put the exact point a pixel off the twig.
+ */
+async function hoverNear(page: Page, at: { x: number; y: number }): Promise<string | null> {
+  const offsets = [
+    [0, 0],
+    [0, -4],
+    [-4, 0],
+    [4, 0],
+    [0, 4],
+    [-4, -4],
+    [4, -4],
+    [-4, 4],
+    [4, 4],
+  ];
+  for (const [dx, dy] of offsets) {
+    await page.mouse.move(at.x + dx!, at.y + dy!);
+    try {
+      await expect.poll(() => hovered(page), { timeout: 1_500 }).not.toBeNull();
+      return hovered(page);
+    } catch {
+      // Missed the twig: try the next pixel over.
+    }
+  }
+  return null;
+}
+
 for (const sample of Object.keys(SAMPLES) as Sample[]) {
   test(`grows the ${sample} tree in frame`, async ({ page }, testInfo) => {
     const errors: string[] = [];
@@ -106,9 +135,8 @@ test('hovering a limb reports a real folder of the sample', async ({ page }) => 
 
   const picked: string[] = [];
   for (const label of await labelsOf(page)) {
-    await page.mouse.move(label.x, label.y);
-    await expect.poll(() => hovered(page)).not.toBeNull();
-    const path = (await hovered(page))!;
+    const path = await hoverNear(page, label);
+    if (path === null) throw new Error(`no limb within a few pixels of the ${label.path} label`);
     expect(folders, `hovered ${path}`).toContain(path);
     if (path === label.path || path.startsWith(`${label.path}/`)) picked.push(label.path);
   }

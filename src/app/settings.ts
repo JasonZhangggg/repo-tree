@@ -10,6 +10,7 @@ export type Settings = {
   spin: boolean;
   labels: boolean;
   growAnim: boolean;
+  ground: boolean;
   hidden: string[];
   /** A GitHub token, kept in this browser and sent only to api.github.com. */
   token: string;
@@ -22,6 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   spin: true,
   labels: true,
   growAnim: true,
+  ground: true,
   hidden: [...DEFAULT_FILTERS.hidden],
   token: '',
 };
@@ -52,6 +54,7 @@ export function parseSettings(raw: string | null): Settings {
     spin: bool(stored.spin, d.spin),
     labels: bool(stored.labels, d.labels),
     growAnim: bool(stored.growAnim, d.growAnim),
+    ground: bool(stored.ground, d.ground),
     hidden: Array.isArray(hidden) && hidden.every((h) => typeof h === 'string') ? hidden : d.hidden,
     token: typeof stored.token === 'string' ? stored.token : d.token,
   };

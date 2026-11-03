@@ -46,6 +46,11 @@ export type TreeModel = {
   folders: { path: string[]; range: Uint32Array };
   /** One per top-level folder, anchored on the twig tip nearest the middle of its limb. */
   labels: { folder: number; files: number; anchor: Vec3 }[];
+  /**
+   * The root folder's own files lie on the ground as rocks, largest first, when the root also
+   * has subfolders. `files` index the root folder's own files; the last rock may hold the rest.
+   */
+  rocks: { files: number[]; bytes: number }[];
   bounds: { min: Vec3; max: Vec3 };
 };
 
@@ -72,6 +77,8 @@ const MIN_TWIG_FILES = 4;
 const LEAF_LENGTH = 0.16;
 const APPROVED_TWIGS = 150;
 const LEAF_UNFOLD = 0.12;
+/** Past this many root files, the smallest share the last rock. */
+const ROCKS = 12;
 
 type Node = {
   w: number;
@@ -97,11 +104,13 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
   };
   indexFolders(root);
 
+  const rocks = root.dirs.length > 0 ? rocksOf(root.files) : [];
   const build = (dir: Dir): Node => {
     const folder = folderOf.get(dir)!;
     const kids = dir.dirs.map(build);
-    for (const file of dir.files) kids.push(node(1, [], [file], folder, false));
-    const n = node(dir.fileCount, kids, null, folder, true);
+    const twigFiles = dir === root && rocks.length > 0 ? [] : dir.files;
+    for (const file of twigFiles) kids.push(node(1, [], [file], folder, false));
+    const n = node(dir.fileCount - dir.files.length + twigFiles.length, kids, null, folder, true);
     binarize(n);
     return n;
   };
@@ -133,10 +142,19 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
     }
   }
 
-  const trunkR = Math.min(0.24, Math.max(0.09, 0.2 * (root.fileCount / 527) ** 0.2));
+  const trunkR = Math.min(0.24, Math.max(0.09, 0.2 * (top.w / 527) ** 0.2));
   const skeleton = growSkeleton(top, nodeCount, trunkR, mulberry32(params.seed));
 
-  const langs = [...root.langs]
+  const treeLangs = new Map(root.langs);
+  if (rocks.length > 0) {
+    for (const file of root.files) {
+      const lang = langOf(file.path);
+      const left = treeLangs.get(lang)! - 1;
+      if (left > 0) treeLangs.set(lang, left);
+      else treeLangs.delete(lang);
+    }
+  }
+  const langs = [...treeLangs]
     .sort((a, b) => b[1] - a[1] || cmp(a[0], b[0]))
     .map(([lang, files]) => ({ lang, files }));
   const langIndex = new Map(langs.map(({ lang }, i) => [lang, i]));
@@ -177,8 +195,25 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
         anchor: labelAnchor(order, skeleton, range[2 * folder]!, range[2 * folder + 1]!),
       };
     }),
+    rocks,
     bounds: boundsOf([bark.position, leaves.position]),
   };
+}
+
+function rocksOf(files: readonly FileEntry[]): TreeModel['rocks'] {
+  const ranked = files
+    .map((file, i) => ({ i, bytes: file.size }))
+    .sort((a, b) => b.bytes - a.bytes || a.i - b.i);
+  const own = ranked.length > ROCKS ? ranked.slice(0, ROCKS - 1) : ranked;
+  const rocks = own.map(({ i, bytes }) => ({ files: [i], bytes }));
+  const rest = ranked.slice(own.length);
+  if (rest.length > 0) {
+    rocks.push({
+      files: rest.map(({ i }) => i),
+      bytes: rest.reduce((sum, { bytes }) => sum + bytes, 0),
+    });
+  }
+  return rocks;
 }
 
 const node = (

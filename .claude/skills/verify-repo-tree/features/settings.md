@@ -7,7 +7,7 @@ A user changes how the tree looks and loads from the Settings popover (a bottom 
 - `settings-palette` recolors leaves, bark and sky with Autumn, Spring blossom, Summer green or Winter without regrowing.
 - `settings-color-by` colors leaves by language or by top-level folder and retitles the legend.
 - `settings-quality` picks Auto, Low, Medium or High and regrows the tree.
-- `settings-toggles` switches spin, folder labels and the growth animation.
+- `settings-toggles` switches spin, folder labels, the ground (the island, its rocks and grass) and the growth animation.
 - `settings-hidden` hides folders by exact name at any depth and regrows the tree.
 - `settings-token` saves a GitHub token in this browser and sends it only to `api.github.com`.
 - `settings-persist` restores every setting after a reload.

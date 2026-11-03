@@ -24,7 +24,7 @@ const GROW_BEGIN = /* glsl */ `
 transformed = mix(aBase, transformed, smoothstep(aT.x, max(aT.y, aT.x + 0.0001), uGrow));
 vId = aId;
 `;
-const FADE = /* glsl */ `
+export const FADE = /* glsl */ `
 #include <dithering_fragment>
 if (uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5)) {
   float l = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));

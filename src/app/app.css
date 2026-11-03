@@ -719,6 +719,7 @@ h1 a[aria-disabled] {
   height: 8px;
   border-radius: 0 8px 0 8px;
   background: var(--c);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
   flex: none;
 }
 

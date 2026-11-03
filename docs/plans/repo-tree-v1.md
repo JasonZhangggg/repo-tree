@@ -88,6 +88,7 @@ type Palette = { id: PaletteId; name: string; bark: hex; sky: { center: hex; edg
 const PALETTES: Record<PaletteId, Palette>;
 type LegendEntry = { color: hex; label: string; files: number };
 // Categories ranked by files take leaves[] in order; the rest share `rest`. Same repo, same mapping.
+// Legend colors are slotColors(p): each slot as a lit leaf shows it on screen, not the raw albedo.
 function leafMapping(categories: { label: string; files: number }[], p: Palette): { slotOf: number[]; legend: LegendEntry[] };
 
 // render/tree-view.ts  (three.js, owns GPU state, the canvas and the orbit controls)

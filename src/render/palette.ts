@@ -1,3 +1,5 @@
+import { litColor } from './color';
+
 export type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
 export type ColorBy = 'language' | 'folder';
 
@@ -27,15 +29,15 @@ export const PALETTES: Record<PaletteId, Palette> = {
     leaves: [
       '#e5512c',
       '#f2c443',
-      '#c2302c',
-      '#f3a13a',
-      '#a8385c',
-      '#ead27c',
-      '#f07a36',
-      '#8f3b1d',
-      '#ff8f5a',
+      '#7a2246',
+      '#6f9036',
+      '#c8282c',
+      '#d9781c',
+      '#8a4a26',
+      '#4a5a2c',
+      '#c4688a',
     ],
-    rest: '#c9a98a',
+    rest: '#9c8c7c',
   },
   spring: {
     id: 'spring',
@@ -46,16 +48,16 @@ export const PALETTES: Record<PaletteId, Palette> = {
     light: { key: '#fff4f2', sky: '#ffffff', ground: '#c4b8bf' },
     leaves: [
       '#f29bbb',
-      '#fde8ef',
-      '#e0628f',
-      '#a8d26c',
-      '#f7c1d4',
-      '#c94f8a',
-      '#fff8fa',
-      '#f5b19c',
-      '#b98ad0',
+      '#80c45a',
+      '#9a7ad0',
+      '#6fb0e0',
+      '#d2407e',
+      '#f5864a',
+      '#fbe3ea',
+      '#f6cc4a',
+      '#3f8a5a',
     ],
-    rest: '#e6cbd3',
+    rest: '#867a84',
   },
   summer: {
     id: 'summer',
@@ -66,16 +68,16 @@ export const PALETTES: Record<PaletteId, Palette> = {
     light: { key: '#fff6dc', sky: '#ffffff', ground: '#b3b8a4' },
     leaves: [
       '#4f9a3a',
-      '#9cc84a',
-      '#2c7346',
-      '#c4d65a',
-      '#3c9b7c',
-      '#79a93a',
+      '#f2b632',
       '#1f5e37',
-      '#e3c548',
-      '#8fcf86',
+      '#2a8a8c',
+      '#e0603a',
+      '#5a80d0',
+      '#a82838',
+      '#c070b0',
+      '#7a7a2a',
     ],
-    rest: '#a8b98f',
+    rest: '#8c9886',
   },
   winter: {
     id: 'winter',
@@ -85,26 +87,32 @@ export const PALETTES: Record<PaletteId, Palette> = {
     shadow: '#1e2a3a',
     light: { key: '#eef4ff', sky: '#ffffff', ground: '#aeb8c4' },
     leaves: [
-      '#a9c8e4',
-      '#ffffff',
-      '#6f9cc6',
-      '#d6e4f0',
-      '#8fb0c8',
-      '#4f7aa6',
-      '#e9eef7',
-      '#c7bde0',
+      '#6aa2d8',
+      '#2f6b55',
       '#b23c52',
+      '#d9b04a',
+      '#5a6b80',
+      '#b4a3d8',
+      '#eef3f8',
+      '#2d4a7a',
+      '#58b4a8',
     ],
-    rest: '#bcc6cf',
+    rest: '#86827c',
   },
 };
+
+/** What each slot, then the rest, looks like on a typical leaf, so swatches match the tree. */
+export function slotColors(palette: Palette): string[] {
+  return [...palette.leaves, palette.rest].map((hex) => litColor(hex, palette));
+}
 
 /** One legend row: the color, what it stands for, and how many files carry it. */
 export type LegendEntry = { color: string; label: string; files: number };
 
 /**
  * Ranks categories by file count, most first, and gives the first `leaves.length` of them
- * the palette's leaf colors in order; the rest share `palette.rest`. `slotOf[i]` is the color
+ * the palette's leaf colors in order; the rest share `palette.rest`. Legend rows carry each slot's
+ * `slotColors`, as the leaves show it. `slotOf[i]` is the color
  * slot of `categories[i]` (the rest share slot `leaves.length`), so the same repo always maps
  * the same way and a palette switch only swaps the colors behind the slots.
  */
@@ -119,16 +127,17 @@ export function leafMapping(
   const slotOf = new Array<number>(categories.length);
   ranked.forEach((c, rank) => (slotOf[c.i] = Math.min(rank, ramp)));
 
+  const shown = slotColors(palette);
   const named = ranked.slice(0, ramp);
   const tail = ranked.slice(ramp);
   const legend = named.map((c, rank) => ({
-    color: palette.leaves[rank]!,
+    color: shown[rank]!,
     label: c.label,
     files: c.files,
   }));
   if (tail.length > 0) {
     legend.push({
-      color: palette.rest,
+      color: shown[ramp]!,
       label: tail.length === 1 ? tail[0]!.label : `${tail.length} more`,
       files: tail.reduce((sum, c) => sum + c.files, 0),
     });

@@ -32,7 +32,10 @@ if (uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5)) {
 }
 `;
 
-/** Leaves take their color from a palette slot, then shift it by their own [hue, lightness]. */
+/**
+ * Leaves take their color from a palette slot, then shift it by their own [hue, lightness]. The
+ * lightness shift scales rather than adds, so a dark slot varies as little as a light one.
+ */
 const LEAF_VERTEX = /* glsl */ `
 attribute float aSlot;
 attribute vec2 aShade;
@@ -51,7 +54,7 @@ vec3 offsetHSL(vec3 c, float dh, float dl) {
     : hi == c.r ? mod((c.g - c.b) / d, 6.0) / 6.0
     : hi == c.g ? ((c.b - c.r) / d + 2.0) / 6.0
     : ((c.r - c.g) / d + 4.0) / 6.0;
-  l = clamp(l + dl, 0.0, 1.0);
+  l = clamp(l * (1.0 + dl), 0.0, 1.0);
   return l + s * (hue2rgb(fract(h + dh)) - 0.5) * (1.0 - abs(2.0 * l - 1.0));
 }
 `;

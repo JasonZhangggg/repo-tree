@@ -1,5 +1,5 @@
 import { langOf } from '../../repo/languages';
-import { leafMapping, PALETTES, type PaletteId } from '../../render/palette';
+import { leafMapping, PALETTES, slotColors, type PaletteId } from '../../render/palette';
 import { TOP_LANGS } from '../../load/repo-index';
 import { githubUrl, nameOf, type App } from '../app';
 import { byId, fill, h, icon, ICONS } from '../dom';
@@ -23,7 +23,8 @@ function langColors(repo: Repo, palette: PaletteId): Map<string, string> {
     repo.tree.langs.map((l) => ({ label: l.lang, files: l.files })),
     p,
   );
-  return new Map(repo.tree.langs.map((l, i) => [l.lang, p.leaves[slotOf[i]!] ?? p.rest]));
+  const shown = slotColors(p);
+  return new Map(repo.tree.langs.map((l, i) => [l.lang, shown[slotOf[i]!]!]));
 }
 
 export function mountSide(app: App): void {
@@ -62,7 +63,7 @@ export function mountSide(app: App): void {
     const repo = state.repo!;
     const colors = langColors(repo, state.settings.palette);
     const byFolder = new Map(view.legend().map((e) => [e.label, e.color]));
-    const rest = PALETTES[state.settings.palette].rest;
+    const rest = slotColors(PALETTES[state.settings.palette]).at(-1)!;
     const { files, langs } = repo.index.folders;
     const tops = childrenOf(repo, 0);
     const most = files[tops[0] ?? 0] || 1;
@@ -164,7 +165,7 @@ export function mountSide(app: App): void {
     const sep = () => h('em', {}, '/');
     const subs = childrenOf(repo, folder);
     const colors = langColors(repo, state.settings.palette);
-    const rest = PALETTES[state.settings.palette].rest;
+    const rest = slotColors(PALETTES[state.settings.palette]).at(-1)!;
     const branch = repo.info.branch;
 
     const crumbs = h(

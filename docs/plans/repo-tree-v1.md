@@ -99,14 +99,15 @@ interface TreeView {
   setColorBy(by: ColorBy): void; // language, or top-level folder
   legend(): LegendEntry[];
   setHighlight(range: [number, number] | null): void; // fades nodes outside the id range
-  frameFolder(folder: number): void; // glides the camera; 0 frames the whole tree
+  frameFolder(folder: number): void; // eases the camera onto the folder's leaves, never nearer than half the whole tree's distance; 0 frames the whole tree
+  setInsets(insets: { top: number; right: number; bottom: number; left: number }): void; // CSS px the panels cover; the tree frames into the rest
   pickAt(x: number, y: number): number | null; // folder under a CSS pixel of the container
   setQuality(q: Quality): void; // pixel ratio, shadow map size, antialias (swaps the canvas)
   setSpin(on: boolean): void;
   setReducedMotion(on: boolean): void;
-  onFrame(listener: (info: { growth: number; labels: { folder: number; x: number; y: number; visible: boolean }[] }) => void): () => void;
+  onFrame(listener: (info: { growth: number; labels: { folder: number; x: number; y: number; visible: boolean }[] }) => void): () => void; // visible: grown, in front, inside the free region
   snapshotPNG(scale: number): Promise<Blob>;
-  stats(): { renders: number; calls: number; triangles: number; geometries: number; textures: number };
+  stats(): { renders: number; distance: number; calls: number; triangles: number; geometries: number; textures: number }; // distance: camera to orbit target
   dispose(): void;
 }
 

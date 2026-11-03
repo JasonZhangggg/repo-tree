@@ -3,66 +3,176 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f6f4f0" />
+    <meta
+      name="description"
+      content="Grow a low-poly tree from any public GitHub repository: folders fork, leaves are files."
+    />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <title>Repo Tree</title>
-    <style>
-      html,
-      body {
-        margin: 0;
-        height: 100%;
-        overflow: hidden;
-        background: #f6f4f0;
-        font:
-          14px/1.4 system-ui,
-          sans-serif;
-        color: #25221e;
-      }
-      #view {
-        position: absolute;
-        inset: 0;
-      }
-      header {
-        position: absolute;
-        top: 20px;
-        left: 24px;
-        pointer-events: none;
-      }
-      h1 {
-        margin: 0 0 10px;
-        font-size: 22px;
-        font-weight: 600;
-      }
-      ul {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px 12px;
-        max-width: 420px;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-        color: #7a746b;
-        font-size: 12.5px;
-      }
-      li::before {
-        content: '';
-        display: inline-block;
-        width: 12px;
-        height: 8px;
-        margin-right: 6px;
-        border-radius: 0 8px 0 8px;
-        background: var(--c);
-      }
-    </style>
   </head>
   <body>
-    <div
-      id="view"
-      aria-label="3D tree of the repository. Drag to orbit, hover a branch to see its folder."
-    ></div>
-    <header>
-      <h1 id="title"></h1>
-      <ul id="legend"></ul>
+    <div id="view" role="img" aria-label="3D tree of a repository"></div>
+    <div id="labels" aria-hidden="true"></div>
+
+    <header class="bar">
+      <a class="mark" href="./" aria-label="Repo Tree home">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 21V11m0 4-4-3m4 0 3-3" />
+          <path
+            class="leaf"
+            d="M6 9c0-3 2.5-6 6-6s6 3 6 6c0 2-1.5 3.5-3.5 3.5h-5C7.5 12.5 6 11 6 9Z"
+          />
+        </svg>
+        <span>Repo Tree</span>
+      </a>
+      <form class="repo" id="repo-form" role="search" novalidate>
+        <label class="sr-only" for="repo-input">GitHub repository</label>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M9 19c-4 1.5-4-2-6-2.5m12 4.5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12 12 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"
+          />
+        </svg>
+        <input
+          id="repo-input"
+          name="repo"
+          type="text"
+          placeholder="owner/repo or GitHub URL"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          enterkeyhint="go"
+          aria-describedby="repo-error"
+          aria-controls="suggest"
+          aria-expanded="false"
+        />
+        <button type="submit" class="go">Grow</button>
+        <p class="field-error" id="repo-error" role="alert"></p>
+        <div class="suggest" id="suggest" hidden></div>
+      </form>
+      <nav class="tools" aria-label="Tree actions">
+        <button type="button" class="tool" id="search-open" aria-keyshortcuts="/">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="m20 20-4.2-4.2" />
+          </svg>
+          <span class="label">Search</span><kbd>/</kbd>
+        </button>
+        <button type="button" class="tool" id="share" aria-label="Copy link to this view">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+            <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+          </svg>
+          <span class="label">Share</span>
+        </button>
+        <button type="button" class="tool" id="export" aria-label="Export PNG">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19h14" />
+          </svg>
+          <span class="label">PNG</span>
+        </button>
+        <button
+          type="button"
+          class="tool"
+          id="settings-open"
+          aria-label="Settings"
+          aria-expanded="false"
+          aria-controls="settings"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h10m4 0h2M4 17h2m4 0h10" />
+            <circle cx="16" cy="7" r="2" />
+            <circle cx="8" cy="17" r="2" />
+          </svg>
+        </button>
+      </nav>
     </header>
+
+    <section class="title" id="title" aria-live="polite">
+      <h1><a id="repo-link" target="_blank" rel="noopener"></a></h1>
+      <p class="meta" id="repo-meta"></p>
+      <div id="status"></div>
+      <div class="seg" role="group" aria-label="Sample repositories" id="samples"></div>
+    </section>
+
+    <aside class="side" id="side" aria-label="Repository details">
+      <button
+        type="button"
+        class="sheet-handle"
+        id="sheet-toggle"
+        aria-expanded="false"
+        aria-controls="side-body"
+      >
+        <span class="grip" aria-hidden="true"></span>
+        <span class="peek">
+          <strong id="sheet-title">Folders and leaf colors</strong>
+          <small id="sheet-stat"></small>
+        </span>
+      </button>
+      <button
+        type="button"
+        class="close sheet-clear"
+        id="sheet-clear"
+        aria-label="Clear selection"
+        hidden
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+      </button>
+      <div class="side-body" id="side-body">
+        <article class="panel detail" id="detail" hidden aria-label="Pinned folder"></article>
+        <section class="panel" id="overview">
+          <h2 class="h">Top-level folders</h2>
+          <ul id="folders" class="folders"></ul>
+          <h2 class="h" id="legend-title">Leaf colors</h2>
+          <ul id="legend" class="legend"></ul>
+        </section>
+      </div>
+    </aside>
+
+    <div class="controls">
+      <button
+        type="button"
+        class="pill-btn primary"
+        id="grow"
+        aria-keyshortcuts="g"
+        aria-label="Grow again"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 20v-8m0 2c-3 0-5-2-5-5 3 0 5 2 5 5Zm0-2c0-3 2-5 5-5 0 3-2 5-5 5Z" />
+        </svg>
+        <span>Grow again</span>
+      </button>
+      <button
+        type="button"
+        class="pill-btn"
+        id="spin"
+        aria-keyshortcuts="Space"
+        aria-pressed="true"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12m6-12v12" /></svg>
+        <span>Pause spin</span>
+      </button>
+      <p class="help">Drag to orbit · scroll to zoom · click a branch to pin</p>
+    </div>
+
+    <div id="tip" role="tooltip" hidden></div>
+    <div class="scrim" id="search-scrim" hidden></div>
+    <div
+      class="dialog search"
+      id="search"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Search folders and files"
+      hidden
+    ></div>
+    <div
+      class="dialog settings"
+      id="settings"
+      role="dialog"
+      aria-labelledby="settings-title"
+      hidden
+    ></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

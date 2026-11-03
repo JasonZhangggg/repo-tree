@@ -22,7 +22,8 @@ const browser = await chromium.launch({
 });
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-  await page.addInitScript(() => {
+  await page.addInitScript((q) => {
+    localStorage.setItem('repo-tree:settings', JSON.stringify({ quality: q }));
     /** @type {{ start: number; duration: number }[]} */
     const tasks = [];
     Object.assign(window, { __longTasks: tasks });
@@ -31,8 +32,13 @@ try {
         tasks.push({ start: startTime, duration });
       }
     }).observe({ type: 'longtask', buffered: true });
-  });
-  const url = `http://localhost:${PORT}/?sample=${sample}&quality=${quality}`;
+  }, quality);
+  const repos = {
+    dotfiles: 'mathiasbynens/dotfiles',
+    vite: 'vitejs/vite',
+    linux: 'torvalds/linux',
+  };
+  const url = `http://localhost:${PORT}/#/${repos[/** @type {keyof typeof repos} */ (sample)]}`;
   for (let attempt = 0; ; attempt++) {
     try {
       await page.goto(url);

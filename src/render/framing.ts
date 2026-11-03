@@ -3,7 +3,7 @@ import type { Vec3 } from '../grow/grow';
 export const FOV = 30;
 const TAN_HALF_FOV = Math.tan(((FOV / 2) * Math.PI) / 180);
 /** The approved three-quarter view: a little right of and above the crown. */
-const VIEW_DIRECTION: Vec3 = [0.3, 0.12, 0.95];
+export const VIEW_DIRECTION: Vec3 = [0.3, 0.12, 0.95];
 
 export type Box = { min: Vec3; max: Vec3 };
 export type Framing = { target: Vec3; position: Vec3; minDistance: number; maxDistance: number };
@@ -30,10 +30,30 @@ export function frameTree({ min, max }: Box, aspect: number): Framing {
   };
 }
 
-/** Camera distance that fits a sphere of `radius` inside both fields of view. */
-export function fitDistance(radius: number, aspect: number): number {
-  return (radius * 1.15) / (TAN_HALF_FOV * Math.min(1, aspect));
+/** A pinned folder's bounding sphere, padded by this much, fills the view. */
+const FOLDER_PADDING = 1.7;
+/**
+ * A pinned folder never brings the camera closer than this share of the whole tree's distance,
+ * so a small folder is seen on its branch, with the faded rest of the crown around it.
+ */
+export const FOLDER_MIN_SHARE = 0.5;
+
+/** Where the camera looks and how far it stands to frame a folder's bounding sphere. */
+export function frameFolder(
+  folder: { center: Vec3; radius: number },
+  tree: Box,
+  aspect: number,
+): { target: Vec3; distance: number } {
+  const whole = frameTree(tree, aspect);
+  const wholeDistance = distanceOf(whole.position, whole.target);
+  const fit = (folder.radius * FOLDER_PADDING) / (TAN_HALF_FOV * Math.min(1, aspect));
+  return {
+    target: folder.center,
+    distance: Math.min(wholeDistance, Math.max(fit, wholeDistance * FOLDER_MIN_SHARE)),
+  };
 }
+
+export const distanceOf = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
 export function along(from: Vec3, direction: Vec3, distance: number): Vec3 {
   const k = distance / Math.hypot(...direction);

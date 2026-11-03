@@ -25,7 +25,7 @@ import {
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MeshData, Quality, TreeModel, Vec3 } from '../grow/grow';
-import { fitDistance, FOV, frameTree } from './framing';
+import { distanceOf, FOV, frameFolder, frameTree, VIEW_DIRECTION } from './framing';
 import { leafMapping, PALETTES, type ColorBy, type LegendEntry, type PaletteId } from './palette';
 import {
   barkShader,
@@ -40,8 +40,12 @@ import {
 
 export type LabelPosition = { folder: number; x: number; y: number; visible: boolean };
 export type FrameInfo = { growth: number; labels: LabelPosition[] };
+/** CSS pixels along each edge of the container that panels cover. */
+export type Insets = { top: number; right: number; bottom: number; left: number };
 export type ViewStats = {
   renders: number;
+  /** How far the camera stands from the point it orbits. */
+  distance: number;
   calls: number;
   triangles: number;
   geometries: number;
@@ -51,20 +55,27 @@ export type ViewStats = {
 export interface TreeView {
   /** Shows a new tree, framed whole, growing unless reduced motion is on. */
   setTree(model: TreeModel): void;
+  /** Replays the growth of the tree on show, or shows it grown under reduced motion. */
+  grow(): void;
   setPalette(id: PaletteId): void;
   setColorBy(by: ColorBy): void;
   /** What each leaf color stands for under the current palette and color-by. */
   legend(): LegendEntry[];
   /** Fades every node outside [lo, hi]. */
   setHighlight(range: readonly [number, number] | null): void;
-  /** Glides the camera to a folder; the root folder (0) frames the whole tree. */
+  /** Glides the camera to a folder in context; the root folder (0) frames the whole tree. */
   frameFolder(folder: number): void;
+  /** Frames the tree into the part of the container the insets leave free, easing there. */
+  setInsets(insets: Insets): void;
   /** The folder under a point in CSS pixels relative to the container, from a GPU id pass. */
   pickAt(x: number, y: number): number | null;
   setQuality(quality: Quality): void;
   setSpin(on: boolean): void;
   setReducedMotion(on: boolean): void;
-  /** Called after every rendered frame with each top-level label's screen position. */
+  /**
+   * Called after every rendered frame with each top-level label's screen position; a label is
+   * visible once grown, in front of the camera and inside the free region.
+   */
   onFrame(listener: (info: FrameInfo) => void): () => void;
   snapshotPNG(scale: number): Promise<Blob>;
   stats(): ViewStats;
@@ -95,6 +106,11 @@ const GROW_MS = 2600;
 const BAKED = 1;
 const LABELS_FROM = 0.55;
 const SPIN_SPEED = 0.55;
+/** Spring rates: the camera settles in about a second, the free region in about a third. */
+const GLIDE_RATE = 6.5;
+const INSET_RATE = 16;
+/** The free region keeps at least this share of the container on each axis. */
+const MIN_FREE = 0.2;
 /** The ramp every palette shares, plus the slot for the rest. */
 const SLOTS = PALETTES.autumn.leaves.length + 1;
 
@@ -102,8 +118,11 @@ type Shown = {
   model: TreeModel;
   bark: Mesh<BufferGeometry, MeshStandardMaterial>;
   leaves: Mesh<BufferGeometry, MeshStandardMaterial>;
-  /** Per node: [minX, minY, minZ, maxX, maxY, maxZ] of its geometry. */
-  boxes: Float32Array;
+  /**
+   * Per node: [minX, minY, minZ, maxX, maxY, maxZ] of its leaves, and of its bark. A twig's
+   * bark runs back to the fork it grew from, so a folder is framed on its leaves.
+   */
+  boxes: { leaves: Float32Array; bark: Float32Array };
 };
 
 export function createTreeView(container: HTMLElement, options: TreeViewOptions): TreeView {
@@ -203,9 +222,16 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   let shown: Shown | null = null;
   let growStart = 0;
   let growingNow = false;
-  /** True until the user moves the camera, so a resize re-frames the whole tree. */
-  let homed = true;
-  let glide: { target: Vector3; distance: number } | null = null;
+  /**
+   * What the camera keeps framed as the free region changes: the whole tree, a folder's
+   * bounding sphere, or nothing once the user has moved the camera.
+   */
+  let aim: { kind: 'tree' } | { kind: 'folder'; center: Vec3; radius: number } | null = {
+    kind: 'tree',
+  };
+  const look = spring([0, 0, 0, 1]);
+  let gliding = false;
+  const insets = spring([0, 0, 0, 0]);
   let raf = 0;
   let lastFrame = 0;
   let renders = 0;
@@ -238,33 +264,71 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   const resize = () => {
+    renderer.setSize(
+      Math.max(1, container.clientWidth),
+      Math.max(1, container.clientHeight),
+      false,
+    );
+    applyView();
+    reaim(!gliding);
+    requestRender();
+  };
+
+  /** The free region in container pixels, never squeezed below MIN_FREE of either axis. */
+  const freeRegion = () => {
     const width = Math.max(1, container.clientWidth);
     const height = Math.max(1, container.clientHeight);
-    renderer.setSize(width, height, false);
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
-    if (shown && homed) home(false);
-    requestRender();
+    const [top, right, bottom, left] = insets.value as [number, number, number, number];
+    const w = Math.max(width * MIN_FREE, width - left - right);
+    const h = Math.max(height * MIN_FREE, height - top - bottom);
+    return {
+      width,
+      height,
+      x: Math.min(left, width - w),
+      y: Math.min(top, height - h),
+      w,
+      h,
+    };
   };
 
-  const home = (smooth: boolean) => {
-    if (!shown) return;
-    const framing = frameTree(shown.model.bounds, camera.aspect);
-    controls.minDistance = framing.minDistance;
-    controls.maxDistance = framing.maxDistance;
-    if (smooth) {
-      glideTo(new Vector3(...framing.target), distanceOf(framing.position, framing.target));
-      return;
+  /**
+   * Projects as if the free region were the whole view, and lets the canvas show the
+   * margins around it: the camera's aspect is the region's, and its center is the region's.
+   */
+  const applyView = () => {
+    const { width, height, x, y, w, h } = freeRegion();
+    camera.setViewOffset(w, h, -x, -y, width, height);
+  };
+
+  /** Points the camera springs at what `aim` frames; `snap` jumps there. */
+  const reaim = (snap: boolean) => {
+    if (!shown || !aim) return;
+    const { bounds } = shown.model;
+    const whole = frameTree(bounds, camera.aspect);
+    controls.minDistance = whole.minDistance;
+    controls.maxDistance = whole.maxDistance;
+    const goal =
+      aim.kind === 'tree'
+        ? { target: whole.target, distance: distanceOf(whole.position, whole.target) }
+        : frameFolder(aim, bounds, camera.aspect);
+    if (!gliding) {
+      look.value = [...controls.target.toArray(), camera.position.distanceTo(controls.target)];
+      look.velocity.fill(0);
     }
-    glide = null;
-    controls.target.set(...framing.target);
-    camera.position.set(...framing.position);
-    controls.update();
+    look.goal = [...goal.target, goal.distance];
+    if (snap) look.value = [...look.goal];
+    gliding = !snap;
+    placeCamera();
+    requestRender();
   };
 
-  const glideTo = (target: Vector3, distance: number) => {
-    glide = { target, distance };
-    requestRender();
+  /** Moves the camera to the spring's target and distance along its current direction. */
+  const placeCamera = () => {
+    const [x, y, z, distance] = look.value as [number, number, number, number];
+    const direction = camera.position.clone().sub(controls.target);
+    if (direction.lengthSq() < 1e-12) direction.set(...VIEW_DIRECTION);
+    controls.target.set(x, y, z);
+    camera.position.copy(controls.target).addScaledVector(direction.normalize(), distance);
   };
 
   const requestRender = () => {
@@ -284,16 +348,14 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       renderer.shadowMap.needsUpdate = true;
       busy = true;
     }
-    if (glide) {
-      const k = 1 - Math.exp(-dt * 5);
-      const offset = camera.position.clone().sub(controls.target);
-      controls.target.lerp(glide.target, k);
-      const distance = offset.length() + (glide.distance - offset.length()) * k;
-      camera.position.copy(controls.target).addScaledVector(offset.normalize(), distance);
-      const settled =
-        controls.target.distanceTo(glide.target) < 1e-3 &&
-        Math.abs(distance - glide.distance) < 1e-3;
-      if (settled) glide = null;
+    if (step(insets, dt, INSET_RATE, 0.25)) busy = true;
+    if (insets.moved) {
+      applyView();
+      reaim(!gliding);
+    }
+    if (gliding) {
+      gliding = step(look, dt, GLIDE_RATE, 1e-4);
+      placeCamera();
       busy = true;
     }
     if (controls.update(dt)) busy = true;
@@ -321,17 +383,14 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const anchor = new Vector3();
   const emitLabels = () => {
     if (!shown || listeners.size === 0) return;
-    const width = container.clientWidth;
-    const height = container.clientHeight;
+    const { width, height, x: left, y: top, w, h } = freeRegion();
     const growth = treeUniforms.uGrow.value;
-    const labels = shown.model.labels.map(({ folder, anchor: [x, y, z] }) => {
-      anchor.set(x, y, z).project(camera);
-      return {
-        folder,
-        x: ((anchor.x + 1) / 2) * width,
-        y: ((1 - anchor.y) / 2) * height,
-        visible: growth > LABELS_FROM && anchor.z < 1,
-      };
+    const labels = shown.model.labels.map(({ folder, anchor: [ax, ay, az] }) => {
+      anchor.set(ax, ay, az).project(camera);
+      const x = ((anchor.x + 1) / 2) * width;
+      const y = ((1 - anchor.y) / 2) * height;
+      const free = x >= left && x <= left + w && y >= top && y <= top + h;
+      return { folder, x, y, visible: growth > LABELS_FROM && anchor.z < 1 && free };
     });
     for (const listener of listeners) listener({ growth, labels });
   };
@@ -420,8 +479,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   const onStart = () => {
-    homed = false;
-    glide = null;
+    aim = null;
+    gliding = false;
   };
   controls.addEventListener('start', onStart);
   controls.addEventListener('change', requestRender);
@@ -446,7 +505,13 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         mesh.frustumCulled = false;
       }
       scene.add(bark, leaves);
-      shown = { model, bark, leaves, boxes: nodeBoxes(model) };
+      const nodes = model.nodes.folder.length;
+      shown = {
+        model,
+        bark,
+        leaves,
+        boxes: { leaves: nodeBoxes(model.leaves, nodes), bark: nodeBoxes(model.bark, nodes) },
+      };
       applyColorBy();
 
       const { min, max } = model.bounds;
@@ -473,9 +538,16 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       Object.assign(bakeCamera, { left: -reach, right: reach, top: reach, bottom: -reach });
       bakeCamera.updateProjectionMatrix();
       treeUniforms.uSel.value = [-1, -1];
-      homed = true;
-      home(false);
+      aim = { kind: 'tree' };
+      gliding = false;
+      camera.position.copy(controls.target).add(new Vector3(...VIEW_DIRECTION));
+      reaim(true);
+      controls.update();
       startGrowth();
+    },
+
+    grow() {
+      if (shown) startGrowth();
     },
 
     setPalette(id) {
@@ -500,39 +572,43 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
     frameFolder(folder) {
       if (!shown) return;
-      if (folder === 0) {
-        homed = true;
-        home(true);
-        return;
-      }
       const { range } = shown.model.folders;
-      const { center, radius } = folderSphere(
-        shown.boxes,
-        range[2 * folder]!,
-        range[2 * folder + 1]!,
-      );
-      homed = false;
-      glideTo(center, Math.max(controls.minDistance, fitDistance(radius, camera.aspect)));
+      aim =
+        folder === 0
+          ? { kind: 'tree' }
+          : {
+              kind: 'folder',
+              ...folderSphere(shown.boxes, range[2 * folder]!, range[2 * folder + 1]!),
+            };
+      reaim(false);
+    },
+
+    setInsets({ top, right, bottom, left }) {
+      insets.goal = [top, right, bottom, left];
+      if (!shown) {
+        insets.value = [...insets.goal];
+        applyView();
+      }
+      requestRender();
     },
 
     pickAt(x, y) {
       if (!shown) return null;
-      const width = container.clientWidth;
-      const height = container.clientHeight;
+      const { width, height, x: left, y: top, w, h } = freeRegion();
       if (x < 0 || y < 0 || x >= width || y >= height) return null;
       const hidden = [sky, baked];
       for (const mesh of hidden) mesh.visible = false;
       const shadowPending = renderer.shadowMap.needsUpdate;
       renderer.shadowMap.needsUpdate = false;
       scene.overrideMaterial = pickMaterial;
-      camera.setViewOffset(width, height, Math.floor(x), Math.floor(y), 1, 1);
+      camera.setViewOffset(w, h, Math.floor(x) - left, Math.floor(y) - top, 1, 1);
       renderer.setRenderTarget(pickTarget);
       renderer.setClearColor(0x000000, 0);
       renderer.clear();
       renderer.render(scene, camera);
       renderer.readRenderTargetPixels(pickTarget, 0, 0, 1, 1, pickPixel);
       renderer.setRenderTarget(null);
-      camera.clearViewOffset();
+      applyView();
       scene.overrideMaterial = null;
       renderer.shadowMap.needsUpdate = shadowPending;
       for (const mesh of hidden) mesh.visible = true;
@@ -582,7 +658,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     async snapshotPNG(scale) {
       const ratio = renderer.getPixelRatio();
       renderer.setPixelRatio(scale);
+      const { width, height } = freeRegion();
+      camera.setViewOffset(width, height, 0, 0, width, height);
       renderer.render(scene, camera);
+      applyView();
       const blob = await new Promise<Blob | null>((resolve) =>
         renderer.domElement.toBlob(resolve, 'image/png'),
       );
@@ -596,6 +675,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       const { render, memory } = renderer.info;
       return {
         renders,
+        distance: camera.position.distanceTo(controls.target),
         calls: render.calls,
         triangles: render.triangles,
         geometries: memory.geometries,
@@ -638,39 +718,80 @@ function geometry(mesh: MeshData): BufferGeometry {
     .setIndex(new BufferAttribute(mesh.index, 1));
 }
 
-function nodeBoxes(model: TreeModel): Float32Array {
-  const boxes = new Float32Array(model.nodes.folder.length * 6);
+function nodeBoxes({ position, nodeId }: MeshData, nodes: number): Float32Array {
+  const boxes = new Float32Array(nodes * 6);
   for (let n = 0; n < boxes.length; n += 6)
     boxes.set([Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity], n);
-  for (const { position, nodeId } of [model.bark, model.leaves]) {
-    for (let v = 0; v < nodeId.length; v++) {
-      const b = nodeId[v]! * 6;
-      for (let axis = 0; axis < 3; axis++) {
-        const p = position[v * 3 + axis]!;
-        if (p < boxes[b + axis]!) boxes[b + axis] = p;
-        if (p > boxes[b + 3 + axis]!) boxes[b + 3 + axis] = p;
-      }
+  for (let v = 0; v < nodeId.length; v++) {
+    const b = nodeId[v]! * 6;
+    for (let axis = 0; axis < 3; axis++) {
+      const p = position[v * 3 + axis]!;
+      if (p < boxes[b + axis]!) boxes[b + axis] = p;
+      if (p > boxes[b + 3 + axis]!) boxes[b + 3 + axis] = p;
     }
   }
   return boxes;
 }
 
+/** The sphere around the leaves of nodes lo..hi, or around their bark if they bear none. */
 function folderSphere(
-  boxes: Float32Array,
+  boxes: Shown['boxes'],
   lo: number,
   hi: number,
-): { center: Vector3; radius: number } {
+): { center: Vec3; radius: number } {
   const min = new Vector3(Infinity, Infinity, Infinity);
   const max = new Vector3(-Infinity, -Infinity, -Infinity);
   const corner = new Vector3();
-  for (let n = lo; n <= hi; n++) {
-    min.min(corner.fromArray(boxes, n * 6));
-    max.max(corner.fromArray(boxes, n * 6 + 3));
+  for (const kind of [boxes.leaves, boxes.bark]) {
+    for (let n = lo; n <= hi; n++) {
+      min.min(corner.fromArray(kind, n * 6));
+      max.max(corner.fromArray(kind, n * 6 + 3));
+    }
+    if (min.x !== Infinity) break;
   }
-  return { center: min.clone().add(max).multiplyScalar(0.5), radius: min.distanceTo(max) / 2 };
+  return {
+    center: min.clone().add(max).multiplyScalar(0.5).toArray(),
+    radius: min.distanceTo(max) / 2,
+  };
 }
 
-const distanceOf = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+type Spring = { value: number[]; velocity: number[]; goal: number[]; moved: boolean };
+
+const spring = (value: number[]): Spring => ({
+  value: [...value],
+  velocity: value.map(() => 0),
+  goal: [...value],
+  moved: false,
+});
+
+/**
+ * Advances a critically damped spring by `dt` seconds in closed form, so it eases out of rest
+ * and into its goal at any frame rate and can be retargeted mid-flight without a jolt.
+ * Returns whether it is still moving; `moved` says whether this step changed its value.
+ */
+function step(s: Spring, dt: number, rate: number, epsilon: number): boolean {
+  const decay = Math.exp(-rate * dt);
+  let moving = false;
+  s.moved = false;
+  for (let i = 0; i < s.value.length; i++) {
+    const offset = s.value[i]! - s.goal[i]!;
+    const v = s.velocity[i]!;
+    if (offset === 0 && v === 0) continue;
+    s.moved = true;
+    const k = v + rate * offset;
+    const next = (offset + k * dt) * decay;
+    const velocity = (v - rate * k * dt) * decay;
+    if (Math.abs(next) < epsilon && Math.abs(velocity) < epsilon * rate) {
+      s.value[i] = s.goal[i]!;
+      s.velocity[i] = 0;
+    } else {
+      s.value[i] = s.goal[i]! + next;
+      s.velocity[i] = velocity;
+      moving = true;
+    }
+  }
+  return moving;
+}
 
 /** A soft round shadow under the trunk, white so the material color tints it. */
 function radialTexture(): CanvasTexture {

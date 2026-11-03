@@ -51,9 +51,13 @@ export async function fetchSnapshot(
   }
 }
 
-export async function loadSample(id: string): Promise<Snapshot | LoadError> {
+/** `base` is the URL of the folder that holds `samples/`. */
+export async function loadSample(
+  id: string,
+  base: string = import.meta.env.BASE_URL,
+): Promise<Snapshot | LoadError> {
   try {
-    const res = await fetch(`${import.meta.env.BASE_URL}samples/${id}.json.gz`);
+    const res = await fetch(`${base}samples/${id}.json.gz`);
     if (!res.ok) return NETWORK;
     const fixture: unknown = JSON.parse(await decode(await res.arrayBuffer()));
     if (!isRecord(fixture) || !hasDefaultBranch(fixture.repo)) return NETWORK;

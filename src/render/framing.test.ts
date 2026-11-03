@@ -1,7 +1,7 @@
 import { PerspectiveCamera, Vector3 } from 'three';
 import { describe, expect, test } from 'vitest';
 import type { Vec3 } from '../grow/grow';
-import { FOV, frameTree, type Box } from './framing';
+import { distanceOf, FOLDER_MIN_SHARE, FOV, frameFolder, frameTree, type Box } from './framing';
 
 const TREES: Record<string, Box> = {
   'wide crown': { min: [-1.4, -0.06, -1.1], max: [1.3, 2.2, 1.2] },
@@ -62,5 +62,30 @@ describe.each(Object.entries(TREES))('frameTree on a %s', (_, box) => {
     expect(offset[0]).toBeGreaterThan(0);
     expect(offset[1]).toBeGreaterThan(0);
     expect(offset[2]).toBeGreaterThan(Math.abs(offset[0]));
+  });
+});
+
+describe('frameFolder', () => {
+  const tree = TREES['wide crown']!;
+  const whole = (aspect: number) => {
+    const { position, target } = frameTree(tree, aspect);
+    return distanceOf(position, target);
+  };
+
+  test.each(Object.entries(ASPECTS))('keeps a small folder in context on a %s', (_, aspect) => {
+    const twig = frameFolder({ center: [0.9, 1.8, 0.4], radius: 0.05 }, tree, aspect);
+    expect(twig.target).toEqual([0.9, 1.8, 0.4]);
+    expect(twig.distance).toBeGreaterThanOrEqual(whole(aspect) * FOLDER_MIN_SHARE);
+  });
+
+  test('stands back further for a bigger folder', () => {
+    const limb = frameFolder({ center: [0.5, 1.4, 0], radius: 0.9 }, tree, 1.6);
+    const twig = frameFolder({ center: [0.5, 1.4, 0], radius: 0.4 }, tree, 1.6);
+    expect(limb.distance).toBeGreaterThan(twig.distance);
+  });
+
+  test('never stands further back than the whole tree', () => {
+    const crown = frameFolder({ center: [0, 1.1, 0], radius: 3 }, tree, 1.6);
+    expect(crown.distance).toBeCloseTo(whole(1.6));
   });
 });

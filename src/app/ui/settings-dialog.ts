@@ -221,6 +221,7 @@ export function mountSettings(app: App): {
         { class: 'field' },
         toggle('Spin', null, settings.spin, (spin) => set({ spin })),
         toggle('Folder labels', null, settings.labels, (labels) => set({ labels })),
+        toggle('Ground', null, settings.ground, (ground) => set({ ground })),
         toggle(
           'Growth animation',
           reducedMotion.matches ? 'Off while your system asks for reduced motion' : null,

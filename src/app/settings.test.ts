@@ -19,6 +19,7 @@ describe('parseSettings', () => {
         quality: 'low',
         spin: 'yes',
         labels: false,
+        ground: false,
         hidden: ['dist', 7],
         token: 'ghp_x',
       }),
@@ -28,6 +29,7 @@ describe('parseSettings', () => {
       palette: 'winter',
       quality: 'low',
       labels: false,
+      ground: false,
       token: 'ghp_x',
     });
   });

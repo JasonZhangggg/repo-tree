@@ -23,7 +23,7 @@ export const PALETTES: Record<PaletteId, Palette> = {
     bark: '#6b5d53',
     sky: { center: '#fdfcfa', edge: '#dedad3' },
     shadow: '#3c2d1e',
-    light: { key: '#fff3e6', sky: '#ffffff', ground: '#b9b2a8' },
+    light: { key: '#fff3e6', sky: '#ffffff', ground: '#afaba4' },
     leaves: [
       '#e5512c',
       '#f2c443',

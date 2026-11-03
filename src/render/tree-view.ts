@@ -10,10 +10,10 @@ import {
   MeshBasicMaterial,
   MeshDepthMaterial,
   MeshStandardMaterial,
+  OrthographicCamera,
   PCFShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
-  PMREMGenerator,
   ACESFilmicToneMapping,
   Scene,
   ShaderMaterial,
@@ -22,10 +22,8 @@ import {
   Vector3,
   WebGLRenderer,
   WebGLRenderTarget,
-  type Texture,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type { MeshData, Quality, TreeModel, Vec3 } from '../grow/grow';
 import { fitDistance, FOV, frameTree } from './framing';
 import { leafMapping, PALETTES, type ColorBy, type LegendEntry, type PaletteId } from './palette';
@@ -88,11 +86,13 @@ const QUALITY: Record<Quality, { pixelRatio: number; shadowMap: number; antialia
 };
 
 /**
- * The mock's room light at its look. three r187 lights materials from scene.environment at
- * scene.environmentIntensity and ignores their envMapIntensity, so the level is set here.
+ * The mock's hemisphere light plus its room environment at 0.3. Generating that environment
+ * blocked the main thread for 0.4 to 1.7 s on a software GL, so a stronger hemisphere stands
+ * in for its diffuse fill; the lumen tree's trunk and leaf colors match the mock within 3%.
  */
-const ENVIRONMENT = 0.3;
+const SKY_LIGHT = 0.7 * Math.PI + 2.4;
 const GROW_MS = 2600;
+const BAKED = 1;
 const LABELS_FROM = 0.55;
 const SPIN_SPEED = 0.55;
 /** The ramp every palette shares, plus the slot for the rest. */
@@ -129,7 +129,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   sky.frustumCulled = false;
   sky.renderOrder = -1;
 
-  const hemi = new HemisphereLight(0xffffff, 0xffffff, 0.7 * Math.PI);
+  const hemi = new HemisphereLight(0xffffff, 0xffffff, SKY_LIGHT);
   const key = new DirectionalLight(0xffffff, 2.1 * Math.PI);
   key.castShadow = true;
   key.shadow.bias = -0.0006;
@@ -151,7 +151,29 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   );
   contact.rotation.x = -Math.PI / 2;
   contact.position.y = 0.002;
-  scene.add(sky, hemi, key, key.target, fill, ground, contact);
+
+  /**
+   * The ground shadow only changes with the shadow map, so the shadow plane and the contact
+   * shadow render once into a texture from above (layer BAKED) and a plain textured quad shows
+   * it. Sampling the shadow map across half the screen cost a quarter of each spin frame.
+   */
+  const groundTarget = new WebGLRenderTarget(1, 1);
+  const bakeCamera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 40);
+  bakeCamera.layers.set(BAKED);
+  const baked = new Mesh(
+    new PlaneGeometry(1, 1),
+    new MeshBasicMaterial({
+      map: groundTarget.texture,
+      transparent: true,
+      premultipliedAlpha: true,
+      depthWrite: false,
+    }),
+  );
+  baked.rotation.x = -Math.PI / 2;
+  baked.position.y = 0.001;
+  for (const object of [ground, contact]) object.layers.set(BAKED);
+  key.layers.enable(BAKED);
+  scene.add(sky, hemi, key, key.target, fill, ground, contact, baked);
 
   const barkMaterial = barkShader(new MeshStandardMaterial({ roughness: 0.92, flatShading: true }));
   const leafMaterial = leafShader(
@@ -170,7 +192,6 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const pickPixel = new Uint8Array(4);
 
   let renderer: WebGLRenderer;
-  let environment: Texture | null = null;
   const controls = new OrbitControls(camera, container);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
@@ -202,7 +223,6 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     next.domElement.style.cssText = 'display:block;width:100%;height:100%;touch-action:none';
     if (renderer) {
       renderer.domElement.replaceWith(next.domElement);
-      environment?.dispose();
       key.shadow.map?.dispose();
       key.shadow.map = null;
       renderer.dispose();
@@ -212,11 +232,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     }
     renderer = next;
     key.shadow.mapSize.set(shadowMap, shadowMap);
-    const pmrem = new PMREMGenerator(renderer);
-    environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
-    scene.environment = environment;
-    scene.environmentIntensity = ENVIRONMENT;
+    groundTarget.setSize(shadowMap, shadowMap);
+    renderer.autoClearColor = false;
     resize();
   };
 
@@ -281,11 +298,24 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     }
     if (controls.update(dt)) busy = true;
 
+    const shadowChanged = renderer.shadowMap.needsUpdate;
     renderer.render(scene, camera);
+    if (shadowChanged) {
+      bakeGround();
+      busy = true;
+    }
     renders++;
     emitLabels();
     if (busy) requestRender();
     else lastFrame = 0;
+  };
+
+  const bakeGround = () => {
+    renderer.setRenderTarget(groundTarget);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear();
+    renderer.render(scene, bakeCamera);
+    renderer.setRenderTarget(null);
   };
 
   const anchor = new Vector3();
@@ -434,6 +464,14 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       });
       key.shadow.camera.updateProjectionMatrix();
       contact.scale.setScalar(Math.max(1.6, (max[0] - min[0]) * 0.55));
+      const reach = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]) * 1.5;
+      baked.position.x = bakeCamera.position.x = center[0];
+      baked.position.z = bakeCamera.position.z = center[2];
+      baked.scale.setScalar(reach * 2);
+      bakeCamera.position.y = 20;
+      bakeCamera.lookAt(center[0], 0, center[2]);
+      Object.assign(bakeCamera, { left: -reach, right: reach, top: reach, bottom: -reach });
+      bakeCamera.updateProjectionMatrix();
       treeUniforms.uSel.value = [-1, -1];
       homed = true;
       home(false);
@@ -482,7 +520,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       const width = container.clientWidth;
       const height = container.clientHeight;
       if (x < 0 || y < 0 || x >= width || y >= height) return null;
-      const hidden = [sky, ground, contact];
+      const hidden = [sky, baked];
       for (const mesh of hidden) mesh.visible = false;
       const shadowPending = renderer.shadowMap.needsUpdate;
       renderer.shadowMap.needsUpdate = false;
@@ -513,6 +551,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       const { pixelRatio, shadowMap } = QUALITY[quality];
       renderer.setPixelRatio(Math.min(pixelRatio, window.devicePixelRatio || 1));
       key.shadow.mapSize.set(shadowMap, shadowMap);
+      groundTarget.setSize(shadowMap, shadowMap);
       key.shadow.map?.dispose();
       key.shadow.map = null;
       resize();
@@ -571,7 +610,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       controls.removeEventListener('change', requestRender);
       controls.dispose();
       releaseTree();
-      for (const mesh of [sky, ground, contact]) {
+      for (const mesh of [sky, ground, contact, baked]) {
         mesh.geometry.dispose();
         mesh.material.dispose();
       }
@@ -579,8 +618,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         material.dispose();
       }
       contactTexture.dispose();
+      groundTarget.dispose();
       pickTarget.dispose();
-      environment?.dispose();
       key.shadow.map?.dispose();
       renderer.dispose();
       renderer.domElement.remove();

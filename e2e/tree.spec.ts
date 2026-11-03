@@ -7,6 +7,7 @@ const SAMPLES = {
   vite: 'vitejs-vite',
   linux: 'torvalds-linux',
 } as const;
+const REPOS = { dotfiles: 'mathiasbynens/dotfiles', vite: 'vitejs/vite', linux: 'torvalds/linux' };
 type Sample = keyof typeof SAMPLES;
 type Label = { path: string; x: number; y: number };
 
@@ -31,8 +32,15 @@ async function open(page: Page, sample: Sample, errors: string[]) {
     if (msg.type() === 'error') errors.push(msg.text());
   });
   page.on('pageerror', (err) => errors.push(err.message));
-  await page.goto(`./?sample=${sample}&spin=0`);
-  await page.waitForSelector('body[data-ready]', { state: 'attached', timeout: 60_000 });
+  await page.addInitScript(() =>
+    localStorage.setItem('repo-tree:settings', JSON.stringify({ spin: false, quality: 'high' })),
+  );
+  await page.goto(`./#/${REPOS[sample]}`);
+  await page.waitForSelector(`body[data-ready="${REPOS[sample]}"]`, {
+    state: 'attached',
+    timeout: 60_000,
+  });
+  await page.addStyleTag({ content: '.bar, .title, .side, .controls, #labels { display: none }' });
 }
 
 /** Shares of the frame that are tree (dark bark or saturated leaves) and vivid leaves. */

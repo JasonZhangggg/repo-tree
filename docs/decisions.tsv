@@ -1,0 +1,5 @@
+ts	phase	decision	why	evidence	result
+2026-11-03T19:45:44Z	frame	routed to figure-it-out with a 6-PR stack plan	greenfield app with no grilling, large and cross-cutting	docs/plans/repo-tree-v1.md	open
+2026-11-03T19:45:44Z	frame	chose Vite + TS + three.js over Next.js	fully client-side app, static deploy to GitHub Pages, no server needs	thread reply to Jason	decided
+2026-11-03T19:45:44Z	frame	architect skipped	shape fixed by approved mock and the Data shapes section of the plan	docs/plans/repo-tree-v1.md	decided
+2026-11-03T19:45:44Z	frame	test against fixtures built from shallow clones, not live API	api.github.com is blocked from this sandbox; git clone of public repos works	curl 403 on api.github.com	decided

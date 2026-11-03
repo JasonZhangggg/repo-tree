@@ -1,0 +1,549 @@
+<title>Repo Tree</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+/* Layout: full-bleed 3D studio stage; title and repo switcher float top-left, an inspector column floats right (bottom sheet on phones). One deliberate light look: a paper-white photo studio. */
+:root {
+  --stage: #f6f4f0; --stage-edge: #dedad3; --ink: #25221e; --muted: #7a746b; --faint: #a59e94; --card: rgba(255,255,255,0.86); --line: rgba(37,34,30,0.1); --accent: #c2462a;
+  --sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif; --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: light;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body { background: var(--stage); color: var(--ink); font-family: var(--sans); font-size: 14px; overflow: hidden; }
+#app { position: relative; height: 100%; background: radial-gradient(120% 90% at 50% 40%, #fdfcfa 0%, var(--stage) 45%, var(--stage-edge) 100%); }
+#c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+.top { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 22px); left: max(24px, env(safe-area-inset-left, 0px)); display: grid; gap: 12px; max-width: min(520px, calc(100% - 48px)); pointer-events: none; }
+.top > * { pointer-events: auto; }
+h1 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.1; }
+.sub { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.45; text-wrap: balance; }
+.seg { display: inline-flex; gap: 2px; padding: 3px; background: rgba(37,34,30,0.06); border-radius: 999px; width: max-content; max-width: 100%; }
+.seg button { border: 0; background: transparent; font: inherit; color: var(--muted); padding: 7px 14px; border-radius: 999px; cursor: pointer; white-space: nowrap; display: flex; gap: 6px; align-items: baseline; }
+.seg button small { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.05); font-weight: 600; }
+.seg button:focus-visible, .ctl button:focus-visible, .pill:focus-visible, #folders button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.side { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 22px); right: max(24px, env(safe-area-inset-right, 0px)); width: 272px; display: grid; gap: 12px; max-height: calc(100% - 120px); overflow: auto; }
+.panel { background: var(--card); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-radius: 14px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 30px rgba(60,40,20,0.06); display: grid; gap: 14px; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stats div { display: grid; gap: 2px; }
+.stats b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.stats span, .h { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+.h { margin: 0 0 -6px; }
+ul { list-style: none; margin: 0; padding: 0; }
+#folders { display: grid; gap: 2px; }
+#folders button { width: 100%; display: grid; grid-template-columns: minmax(0, 92px) 1fr auto; gap: 10px; align-items: center; border: 0; background: transparent; font: inherit; color: var(--ink); padding: 5px 6px; margin: 0 -6px; border-radius: 8px; cursor: pointer; text-align: left; width: calc(100% + 12px); }
+#folders button:hover { background: rgba(37,34,30,0.05); }
+.fn { font-family: var(--mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar, .lb { height: 6px; background: rgba(37,34,30,0.07); border-radius: 3px; overflow: hidden; }
+.bar i, .lb i { display: block; height: 100%; background: var(--c); border-radius: 3px; }
+#folders b, #legend b, .langs b { font-weight: 500; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; }
+#legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+#legend li { display: flex; align-items: center; gap: 7px; min-width: 0; }
+#legend span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#legend i, .langs li > i { width: 12px; height: 8px; border-radius: 0 8px 0 8px; background: var(--c); flex: none; }
+.key { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+#detail { position: relative; }
+.close { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(37,34,30,0.06); font-size: 18px; line-height: 1; cursor: pointer; color: var(--muted); }
+.crumb { font-family: var(--mono); font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px; padding-right: 28px; }
+.crumb strong { color: var(--ink); font-weight: 400; }
+.crumb button { border: 0; background: none; padding: 0; font: inherit; color: var(--muted); cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.crumb button:hover { color: var(--ink); }
+.crumb em { font-style: normal; color: var(--faint); }
+.meta { margin: 0; font-size: 15px; font-weight: 600; }
+.langs { display: grid; gap: 5px; }
+.langs li { display: grid; grid-template-columns: 12px 84px 1fr 36px; gap: 8px; align-items: center; }
+.langs b { text-align: right; }
+.sprig { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+code { font-family: var(--mono); font-size: 11.5px; background: rgba(37,34,30,0.06); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+.hint { margin: 0; font-size: 11.5px; color: var(--faint); }
+#tip { position: fixed; left: 0; top: 0; width: 264px; pointer-events: none; z-index: 5; display: grid; gap: 10px; padding: 14px; background: rgba(255,255,255,0.95); border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05), 0 12px 32px rgba(60,40,20,0.12); }
+#labels { position: absolute; inset: 0; pointer-events: none; transition: opacity 0.4s; }
+.pill { position: absolute; left: 0; top: 0; pointer-events: auto; display: flex; gap: 7px; align-items: baseline; border: 0; font: inherit; font-size: 13px; font-weight: 600; color: var(--ink); background: rgba(255,255,255,0.92); padding: 6px 11px; border-radius: 999px; box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 4px 14px rgba(60,40,20,0.08); cursor: pointer; white-space: nowrap; }
+.pill b { font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pill::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: max(0px, calc(var(--dy, 14px) - 14px)); background: rgba(37,34,30,0.25); }
+.pill.on { background: var(--ink); color: #fff; }
+.pill.on b { color: rgba(255,255,255,0.7); }
+.ctl { position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); left: max(24px, env(safe-area-inset-left, 0px)); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; right: 320px; }
+.ctl button { border: 0; font: inherit; font-weight: 600; background: #fff; color: var(--ink); padding: 9px 15px; border-radius: 999px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 4px 14px rgba(60,40,20,0.08); }
+.ctl button.primary { background: var(--ink); color: #fff; }
+.ctl p { margin: 0 0 0 6px; color: var(--muted); font-size: 12.5px; }
+@media (max-width: 760px) {
+  .top { left: max(16px, env(safe-area-inset-left, 0px)); max-width: calc(100% - 32px); top: calc(env(safe-area-inset-top, 0px) + 14px); gap: 8px; }
+  h1 { font-size: 22px; }
+  .sub { font-size: 13px; }
+  .seg button { padding: 6px 10px; font-size: 13px; }
+  .seg button small { display: none; }
+  .side { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 66px); left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: auto; max-height: 38%; }
+  .side .panel:not(#detail) { padding: 12px 14px; }
+  .side .panel:not(#detail) > :not(.stats) { display: none; }
+  .ctl { bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); }
+  .ctl p { display: none; }
+  .pill { font-size: 12px; padding: 5px 9px; }
+  #tip { display: none !important; }
+}
+@media (prefers-reduced-motion: reduce) { #labels { transition: none; } }
+</style>
+<div id="app">
+  <canvas id="c" aria-label="3D tree of the repository. Drag to orbit, hover a branch to inspect a folder."></canvas>
+  <div id="labels"></div>
+  <header class="top">
+    <h1 id="repoName">lumen-web</h1>
+    <p class="sub">Every fork is a folder splitting, branch thickness is everything above it, and each sprig of leaves is a file colored by language.</p>
+    <div class="seg" role="group" aria-label="Sample repository">
+      <button id="r-dotfiles" data-repo="dotfiles" aria-pressed="false">dotfiles <small>37</small></button>
+      <button id="r-lumen" data-repo="lumen" aria-pressed="true">lumen-web <small>527</small></button>
+      <button id="r-atlas" data-repo="atlas" aria-pressed="false">atlas <small>20.7k</small></button>
+    </div>
+  </header>
+  <aside class="side">
+    <div class="panel" id="detail" hidden></div>
+    <div class="panel">
+      <div class="stats"><div><b id="statFiles">0</b><span>Files</span></div><div><b id="statFolders">0</b><span>Folders</span></div><div><b id="statLangs">0</b><span>Languages</span></div></div>
+      <p class="h">Top-level folders</p>
+      <ul id="folders"></ul>
+      <p class="h">Leaf colors</p>
+      <ul id="legend"></ul>
+    </div>
+  </aside>
+  <div class="ctl">
+    <button id="grow" class="primary">Grow again</button>
+    <button id="spin" aria-pressed="true">Pause spin</button>
+    <p>Drag to orbit · scroll to zoom · hover a branch · click to pin</p>
+  </div>
+  <div id="tip" hidden></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/environments/RoomEnvironment.js"></script>
+<script>
+/* ---------- utilities ---------- */
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+const EXT_LANG = { ts: 'TypeScript', tsx: 'TypeScript', js: 'JavaScript', css: 'CSS', go: 'Go', py: 'Python', rs: 'Rust', md: 'Markdown',
+  sh: 'Shell', zsh: 'Shell', zshrc: 'Shell', yml: 'YAML', yaml: 'YAML', json: 'JSON', svg: 'SVG', hcl: 'HCL', lua: 'Lua', toml: 'TOML', html: 'HTML' };
+// GitHub Linguist hues, lightly desaturated and value-matched
+const LANG_HEX = { TypeScript: '#4a80c4', JavaScript: '#e2cd55', CSS: '#7b5bab', Go: '#4aa6bd', Python: '#4f78ad', Rust: '#d49a68',
+  Markdown: '#7f93b8', Shell: '#7fbf52', YAML: '#c95058', JSON: '#a3a88f', SVG: '#e3a23e', HCL: '#8a66c8', Lua: '#5566c4', TOML: '#b8664a', HTML: '#e0663f' };
+
+function langOf(name) { const i = name.lastIndexOf('.'); if (i < 0) return 'Other'; return EXT_LANG[name.slice(i + 1)] || 'Other'; }
+function fmtBytes(b) { if (b < 1024) return b + ' B'; if (b < 1048576) return (b / 1024).toFixed(b < 10240 ? 1 : 0) + ' KB'; return (b / 1048576).toFixed(1) + ' MB'; }
+function fmtAge(d) { d = Math.round(d); if (d <= 0) return 'today'; if (d === 1) return 'yesterday'; if (d < 14) return d + ' days ago';
+  if (d < 60) return Math.round(d / 7) + ' weeks ago'; if (d < 365) return Math.round(d / 30) + ' months ago'; const y = d / 365; return (y < 1.5 ? '1 year' : Math.round(y) + ' years') + ' ago'; }
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/* ---------- sample repositories (synthetic, deterministic) ---------- */
+const DIR_WORDS = ['auth','billing','search','editor','canvas','sync','cache','router','store','theme','forms','table','charts','upload','notify','settings',
+  'profile','media','layout','i18n','metrics','flags','session','export','importer','graph','query','schema','worker','queue','mail','assets','utils','hooks',
+  'types','core','api','client','server','model','views','icons','fixtures','mocks','plugins','compiler','parser','runtime','codegen','cli','config',
+  'adapters','events','storage','crypto','telemetry','permissions','webhooks','payments','reports'];
+const FILE_WORDS = ['index','utils','types','client','server','handler','service','store','config','constants','helpers','model','view','controller',
+  'parser','schema','reducer','context','provider','adapter','mapper','validator','logger','errors','cache','queue','router','middleware','format','hooks',
+  'state','selectors','actions','api','events','retry','auth','session','encode','decode','diff','merge','plan','apply'];
+const VENDOR = ['react','react-dom','zod','vite','esbuild','rollup','lodash','date-fns','clsx','axios','tslib','postcss','autoprefixer','eslint','prettier',
+  'typescript','vitest','jsdom','msw','immer','zustand','recharts','d3-scale','uuid','nanoid','semver','chalk','debug','ms','yaml','glob','minimatch',
+  'picomatch','fast-glob','ws','undici','cookie','qs','mime','tar'];
+const REPOS = {
+  dotfiles: { name: 'dotfiles', start: [2023, 0], span: 1400, pr: { num: 12, title: 'Switch plugin manager to lazy.nvim' } },
+  lumen: { name: 'lumen-web', start: [2021, 4], span: 2000, pr: { num: 482, title: 'Saved searches' } },
+  atlas: { name: 'atlas', start: [2019, 2], span: 2800, pr: { num: 9134, title: 'Billing v2 migration' } }
+};
+
+function makeTree(kind) {
+  const R = mulberry32(hashStr(kind) + 7);
+  const ri = (a, b) => a + Math.floor(R() * (b - a + 1));
+  const pick = a => a[Math.floor(R() * a.length)];
+  const gauss = () => { let u = 0, v = 0; while (!u) u = R(); while (!v) v = R(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const F = (name, size) => ({ name, isDir: false, lang: langOf(name), size: size || Math.max(80, Math.round(Math.exp(7.8 + gauss() * 0.95))) });
+  const D = (name, kids) => ({ name, isDir: true, children: kids || [] });
+  const many = (n, fn) => Array.from({ length: n }, (_, i) => fn(i));
+  const wpick = list => { let s = 0; for (const x of list) s += x[1]; let r = R() * s; for (const x of list) { r -= x[1]; if (r <= 0) return x[0]; } return list[0][0]; };
+  function gen(name, depth, o) {
+    const d = D(name); const used = new Set();
+    const nf = ri(o.files[0], o.files[1]);
+    for (let i = 0; i < nf; i++) {
+      const b = pick(FILE_WORDS); if (used.has(b)) continue; used.add(b);
+      const e = wpick(o.exts); d.children.push(F(b + '.' + e));
+      if (o.tests && R() < o.tests) d.children.push(F(e === 'go' ? b + '_test.go' : e === 'py' ? 'test_' + b + '.py' : b + '.test.' + e));
+    }
+    if (depth < o.maxDepth) {
+      const nd = Math.max(0, ri(o.dirs[0], o.dirs[1]) - depth); const ud = new Set();
+      for (let i = 0; i < nd; i++) { const w = pick(DIR_WORDS); if (ud.has(w)) continue; ud.add(w); d.children.push(gen(w, depth + 1, o)); }
+    }
+    return d;
+  }
+  const vend = name => D(name, [F('package.json', 900), F('README.md'), F('LICENSE', 1100),
+    D('dist', many(ri(4, 14), i => F(pick(FILE_WORDS) + i + '.js'))), D('lib', many(ri(3, 10), i => F(pick(FILE_WORDS) + i + '.js')))]);
+
+  if (kind === 'dotfiles') {
+    return D('dotfiles', [F('README.md', 3400), F('install.sh', 2100), F('Brewfile', 1300),
+      D('zsh', [F('.zshrc', 2600), F('aliases.zsh', 1800), F('functions.zsh', 3900), F('prompt.zsh', 1500)]),
+      D('nvim', [F('init.lua', 600),
+        D('lua', [D('config', ['options', 'keymaps', 'autocmds', 'lazy'].map(n => F(n + '.lua'))),
+          D('plugins', ['lsp', 'treesitter', 'telescope', 'cmp', 'git', 'ui', 'format', 'dap'].map(n => F(n + '.lua')))]),
+        D('after', [D('ftplugin', ['go', 'python', 'markdown'].map(n => F(n + '.lua', 300)))])]),
+      D('git', [F('.gitconfig', 1400), F('.gitignore_global', 400)]),
+      D('tmux', [F('tmux.conf', 2300)]),
+      D('scripts', ['backup.sh', 'brew-sync.sh', 'clean-docker.sh', 'gpg-setup.sh', 'mac-defaults.sh', 'new-project.py'].map(n => F(n))),
+      D('terminal', [F('alacritty.toml', 1600), F('kitty.conf', 2200)]),
+      D('vscode', [F('settings.json', 2800), F('keybindings.json', 1300), F('extensions.json', 500)])]);
+  }
+  if (kind === 'lumen') {
+    const comps = ['Button','Modal','Avatar','Table','DatePicker','Dropdown','Toast','Tabs','Sidebar','Navbar','Card','Chart','Editor','FileUpload',
+      'Tooltip','Menu','Badge','Breadcrumbs','SearchBar','Pagination','Toggle','Slider','Stepper','Calendar','CommandPalette','EmptyState',
+      'ErrorBoundary','Form','Input','Select','Skeleton','Spinner','Popover','Accordion','Banner','Kanban'];
+    const pages = ['Home','Login','Signup','Dashboard','Settings','Billing','Team','Profile','Search','Results','Project','Projects','Inbox','Reports',
+      'Report','Integrations','Admin','Audit','Onboarding','Invite','Help','NotFound','Pricing','Changelog'];
+    return D('lumen-web', [F('README.md', 6200), F('package.json', 2400), F('tsconfig.json', 700), F('vite.config.ts', 1300), F('Makefile', 900), F('go.mod', 1100),
+      D('src', [F('App.tsx', 3800), F('main.tsx', 700),
+        D('components', comps.map(c => { const k = [F(c + '.tsx'), F('index.ts', 120)]; if (R() < 0.7) k.push(F(c + '.test.tsx')); if (R() < 0.6) k.push(F(c + '.module.css')); if (R() < 0.25) k.push(F(c + '.stories.tsx')); return D(c, k); })),
+        D('pages', pages.map(p => F(p + '.tsx'))),
+        D('hooks', many(16, i => F('use' + FILE_WORDS[i][0].toUpperCase() + FILE_WORDS[i].slice(1) + '.ts'))),
+        D('lib', [D('api', many(18, i => F(FILE_WORDS[i] + '.ts'))), D('utils', many(26, i => F(FILE_WORDS[i + 10] + '.ts')))]),
+        D('styles', ['base', 'tokens', 'reset', 'typography', 'layout', 'print', 'themes', 'motion'].map(n => F(n + '.css'))),
+        D('store', many(12, i => F(FILE_WORDS[i + 20] + '.ts')))]),
+      D('server', [D('cmd', [D('api', [F('main.go', 2600)])]),
+        D('internal', ['auth', 'billing', 'search', 'db', 'mail', 'jobs'].map(n => gen(n, 2, { exts: [['go', 1]], files: [5, 13], dirs: [0, 0], maxDepth: 2, tests: 0.6 })))]),
+      D('public', [D('icons', many(120, i => F(DIR_WORDS[i % DIR_WORDS.length] + (i >= DIR_WORDS.length ? '-alt' : '') + '.svg', ri(300, 1800)))), F('favicon.svg', 900), F('robots.txt', 60)]),
+      gen('docs', 1, { exts: [['md', 1]], files: [6, 10], dirs: [3, 4], maxDepth: 2 }),
+      D('tests', [D('e2e', many(28, i => F(DIR_WORDS[i] + '.spec.ts'))), D('fixtures', many(30, i => F('fixture-' + i + '.json')))]),
+      D('scripts', ['seed.py', 'deploy.sh', 'release.sh', 'lint-staged.py', 'bump.sh', 'gen-icons.sh', 'check-env.py', 'db-reset.sh', 'analyze.sh', 'backup.py'].map(n => F(n))),
+      D('node_modules', VENDOR.slice(0, 26).map(vend))]);
+  }
+  // atlas monorepo
+  const TS = { exts: [['ts', 6], ['tsx', 3], ['css', 0.6], ['json', 0.3]], files: [4, 15], dirs: [3, 7], maxDepth: 4, tests: 0.25 };
+  const GO = { exts: [['go', 1]], files: [4, 12], dirs: [3, 6], maxDepth: 3, tests: 0.5 };
+  const RS = { exts: [['rs', 1]], files: [3, 10], dirs: [3, 5], maxDepth: 3 };
+  const PY = { exts: [['py', 1]], files: [3, 9], dirs: [2, 4], maxDepth: 2, tests: 0.3 };
+  const HCL = { exts: [['hcl', 3], ['yml', 1]], files: [3, 8], dirs: [3, 5], maxDepth: 3 };
+  const YML = { exts: [['yml', 1]], files: [3, 10], dirs: [3, 5], maxDepth: 3 };
+  const MD = { exts: [['md', 1]], files: [4, 12], dirs: [3, 5], maxDepth: 3 };
+  return D('atlas', [F('README.md', 9800), F('package.json', 3100), F('pnpm-workspace.yaml', 300), F('turbo.json', 800), F('BUILD.bazel', 1400),
+    D('packages', DIR_WORDS.slice(0, 44).map(n => D(n, [F('package.json', 700), F('README.md'), gen('src', 1, TS), D('test', many(ri(4, 16), i => F(pick(FILE_WORDS) + i + '.test.ts')))]))),
+    D('services', ['gateway', 'billing', 'ledger', 'search-indexer', 'notifier', 'scheduler', 'auth', 'ingest', 'exporter'].map(n => D(n, [F('go.mod', 600), F('Dockerfile', 700), gen('internal', 1, GO), D('cmd', [F('main.go', 2400)])]))),
+    D('crates', ['atlas-core', 'atlas-query', 'atlas-wire', 'atlas-diff', 'atlas-store', 'atlas-cli'].map(n => D(n, [F('Cargo.toml', 700), gen('src', 1, RS)]))),
+    D('tools', [gen('codemods', 1, PY), gen('release', 1, PY), gen('lint', 1, PY)]),
+    D('infra', [gen('terraform', 1, HCL), gen('k8s', 1, YML)]),
+    gen('docs', 1, MD),
+    D('third_party', VENDOR.map(vend))]);
+}
+
+/* ================= Repo Tree: live mock ================= */
+THREE.ColorManagement.legacyMode = false;
+const V3 = THREE.Vector3, Y = new V3(0, 1, 0), GOLD = Math.PI * (3 - Math.sqrt(5));
+const LEAF = { TypeScript: '#e5512c', JavaScript: '#f2c443', CSS: '#a8385c', Go: '#c2302c', Python: '#dd8a2c', Rust: '#8f3b1d', Markdown: '#f07a36',
+  Shell: '#b4a03a', YAML: '#d65f3e', JSON: '#ead27c', SVG: '#f3a13a', HCL: '#9a4a6c', Lua: '#c4553a', TOML: '#b07a4a', HTML: '#ff8f5a', Other: '#d4b28a' };
+const REPO_KEYS = ['dotfiles', 'lumen', 'atlas'];
+
+/* ---------- data ---------- */
+function loadRepo(kind) {
+  const root = makeTree(kind);
+  root.children = root.children.filter(c => c.name !== 'node_modules');
+  const files = [], dirs = [];
+  (function walk(n, p) {
+    n.parent = p; n.path = p ? (p.path + '/' + n.name) : n.name;
+    if (n.isDir) { let fc = 0; const t = {}; for (const c of n.children) { walk(c, n); if (c.isDir) { fc += c.fileCount; for (const k in c.langs) t[k] = (t[k] || 0) + c.langs[k]; } else { fc++; t[c.lang] = (t[c.lang] || 0) + 1; } } n.fileCount = fc; n.langs = t; dirs.push(n); }
+    else files.push(n);
+  })(root, null);
+  return { root, files, dirs, name: REPOS[kind].name };
+}
+
+/* ---------- generator: binary forks, pipe-model taper, leaves on twig tips ---------- */
+function generate(D) {
+  const R = mulberry32(42), NF = D.files.length;
+  const P = { trunkLen: 1.0, spread: 1.25, lenExp: 0.3, lenK: 0.7, tropism: 0.08, pipe: 2.4, sprig: 3 };
+  P.twig = Math.max(4, Math.ceil(NF / 150));
+  P.trunkR = Math.min(0.24, Math.max(0.09, 0.2 * Math.pow(NF / 527, 0.2)));
+  P.leafL = 0.16 * Math.min(2.0, Math.max(0.85, Math.pow(527 / NF, 0.3)));
+  function build(n) {
+    const kids = [];
+    for (const c of n.children) if (c.isDir && c.fileCount) kids.push(build(c));
+    const fs = n.children.filter(c => !c.isDir);
+    for (let i = 0; i < fs.length; i += P.twig) { const sl = fs.slice(i, i + P.twig); kids.push({ w: sl.length, kids: [], files: sl, folder: n }); }
+    const node = { w: kids.reduce((s, k) => s + k.w, 0), kids, src: n, folder: n };
+    return node;
+  }
+  const allFiles = n => n.files ? n.files : n.kids.reduce((a, k) => a.concat(allFiles(k)), []);
+  const thr = NF / 140;
+  function collapse(n, depth) { n.kids = n.kids.map(k => (!k.files && k.w < thr && depth > 0) ? { w: k.w, kids: [], files: allFiles(k), folder: k.src, src: k.src, collapsed: true } : k); n.kids.forEach(k => { if (!k.files) collapse(k, depth + 1); }); }
+  function binarize(n) {
+    n.kids.forEach(binarize);
+    while (n.kids.length > 2) { n.kids.sort((a, b) => a.w - b.w); const a = n.kids.shift(), b = n.kids.shift(); n.kids.push({ w: a.w + b.w, kids: [a, b], virtual: true, folder: n.folder }); }
+  }
+  const root = build(D.root); if (NF > 1500) collapse(root, 0); binarize(root);
+  // ids in preorder, so every folder's subtree is one contiguous id range
+  const nodes = [];
+  (function number(n) { n.id = nodes.length; nodes.push(n); n.kids.forEach(number); n.hi = nodes.length - 1; })(root);
+  const folderRange = new Map();
+  for (const n of nodes) if (n.src && !n.virtual) { const r = folderRange.get(n.src); if (!r) folderRange.set(n.src, [n.id, n.hi]); }
+  const W0 = root.w, lenOf = w => P.lenK * P.trunkLen * Math.pow(w / W0, P.lenExp);
+  const perp = d => new V3().crossVectors(d, Math.abs(d.y) < 0.95 ? Y : new V3(1, 0, 0)).normalize();
+  const bark = buf(), leaves = buf(), labels = [], tipsAt = [];
+  let maxPath = 0;
+  // pass 1: geometry with path lengths (growth timing is normalized afterwards)
+  function grow(n, start, dir, len, r0, roll, depth, path) {
+    const side = perp(dir).applyAxisAngle(dir, R() * 6.28);
+    const end = start.clone().addScaledVector(dir, len);
+    const mid = start.clone().lerp(end, 0.5).addScaledVector(side, len * 0.06 * (R() - 0.3));
+    const ks = n.files ? [] : n.kids.slice().sort((a, b) => b.w - a.w);
+    const rChild = k => r0 * Math.pow(k.w / n.w, 1 / P.pipe) * 0.92;
+    const r1 = n.files ? Math.max(0.004, r0 * 0.35) : Math.max(0.005, rChild(ks[0]));
+    const p0 = path, p1 = path + len; maxPath = Math.max(maxPath, p1);
+    tube(bark, start, mid, end, r0, r1, depth === 0 ? 4 : 2, r0 > 0.03 ? 7 : 5, depth === 0 ? 0.55 : 0, n.id, p0, p1);
+    if (n.files) {
+      const T = new V3().subVectors(end, start).normalize(), sd = perp(T);
+      const nsp = Math.min(n.files.length, 5);
+      const reps = Array.from({ length: nsp }, (_, i) => n.files[Math.floor(i * n.files.length / nsp)]);
+      reps.forEach((f, i) => {
+        const tip = i >= nsp - 2, t = tip ? 1 : 0.35 + 0.6 * i / Math.max(1, nsp - 2);
+        const Pt = start.clone().lerp(end, t), s2 = sd.clone().applyAxisAngle(T, i * 2.4);
+        const ld = T.clone().multiplyScalar(tip ? 0.8 : 0.45).addScaledVector(s2, tip ? 0.6 : 0.9).add(new V3(0, 0.2, 0)).normalize();
+        for (let k = 0; k < P.sprig; k++) {
+          const lk = k === 0 ? ld.clone() : ld.clone().applyAxisAngle(T, (k % 2 ? 1 : -1) * (0.9 + 0.5 * R())).lerp(T, 0.2).normalize();
+          leaf(leaves, Pt.clone().addScaledVector(lk, k ? 0.02 : 0), lk, f.lang, n.id, p0 + len * t, P.leafL, R);
+        }
+      });
+      tipsAt.push({ id: n.id, p: end.clone() });
+      return;
+    }
+    if (ks.length === 1) {
+      const d = dir.clone().add(new V3(R() - 0.5, 0, R() - 0.5).multiplyScalar(0.25)).lerp(Y, P.tropism).normalize();
+      return grow(ks[0], end, d, lenOf(ks[0].w), rChild(ks[0]), roll + GOLD, depth + 1, p1);
+    }
+    const [a, b] = ks, tot = a.w + b.w, theta = P.spread * (0.85 + 0.3 * R());
+    const angA = theta * b.w / tot, angB = Math.max(0.42, theta * a.w / tot);
+    const ax = perp(dir).applyAxisAngle(dir, roll);
+    const trop = (d, w) => { d.lerp(Y, P.tropism); if (w < 4) d.y -= 0.12; return d.normalize(); };
+    grow(a, end, trop(dir.clone().applyAxisAngle(ax, angA), a.w), lenOf(a.w), rChild(a), roll + GOLD, depth + 1, p1);
+    grow(b, end, trop(dir.clone().applyAxisAngle(ax, -angB), b.w), lenOf(b.w), rChild(b), roll + GOLD, depth + 1, p1);
+  }
+  grow(root, new V3(0, -0.06, 0), new V3(0.05, 1, 0.02).normalize(), P.trunkLen, P.trunkR, 0, 0, 0);
+  // labels sit at the middle of each top-level folder's part of the crown
+  for (const c of D.root.children) {
+    const r = c.isDir && folderRange.get(c); if (!r) continue;
+    const pts = tipsAt.filter(t => t.id >= r[0] && t.id <= r[1]); if (!pts.length) continue;
+    const m = new V3(); pts.forEach(t => m.add(t.p)); m.multiplyScalar(1 / pts.length);
+    let best = pts[0], bd = 1e9; for (const t of pts) { const d = t.p.distanceToSquared(m); if (d < bd) { bd = d; best = t; } }
+    labels.push({ folder: c, p: best.p.clone() });
+  }
+  // normalize growth timing to 0..0.86, leaves unfold in the last stretch
+  const norm = B => { for (let i = 0; i < B.t.length; i += 2) { B.t[i] = B.t[i] / maxPath * 0.86; B.t[i + 1] = B.t[i + 1] / maxPath * 0.86; } };
+  norm(bark); norm(leaves);
+  for (let i = 0; i < leaves.t.length; i += 2) leaves.t[i + 1] = leaves.t[i] + 0.12;
+  return { nodes, folderRange, bark: geo(bark), leaves: geo(leaves), labels };
+}
+function buf() { return { pos: [], nrm: [], col: [], base: [], t: [], id: [], idx: [] }; }
+function geo(B) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(B.pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(B.nrm, 3));
+  if (B.col.length) g.setAttribute('color', new THREE.Float32BufferAttribute(B.col, 3));
+  g.setAttribute('aBase', new THREE.Float32BufferAttribute(B.base, 3));
+  g.setAttribute('aT', new THREE.Float32BufferAttribute(B.t, 2));
+  g.setAttribute('aId', new THREE.Float32BufferAttribute(B.id, 1));
+  g.setIndex(B.idx); g.computeBoundingSphere(); return g;
+}
+function vtx(B, p, n, base, id, t0, t1, c) { B.pos.push(p.x, p.y, p.z); B.nrm.push(n.x, n.y, n.z); B.base.push(base.x, base.y, base.z); B.id.push(id); B.t.push(t0, t1); if (c) B.col.push(c.r, c.g, c.b); }
+function tube(B, a, m, b, r0, r1, segs, radial, flare, id, t0, t1) {
+  const curve = new THREE.QuadraticBezierCurve3(a, m, b), fr = curve.computeFrenetFrames(segs, false), base = B.pos.length / 3;
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs, P = curve.getPointAt(t); let r = r0 + (r1 - r0) * Math.pow(t, 0.8); if (flare) r *= 1 + flare * Math.pow(1 - t, 4);
+    const N = fr.normals[i], Bn = fr.binormals[i];
+    for (let j = 0; j <= radial; j++) { const an = j / radial * Math.PI * 2, n = N.clone().multiplyScalar(Math.cos(an)).addScaledVector(Bn, Math.sin(an)); vtx(B, P.clone().addScaledVector(n, r), n, a, id, t0, t1); }
+  }
+  for (let i = 0; i < segs; i++) for (let j = 0; j < radial; j++) { const p = base + i * (radial + 1) + j, q = p + radial + 1; B.idx.push(p, q, p + 1, q, q + 1, p + 1); }
+  const T0 = fr.tangents[0], s0 = B.pos.length / 3; vtx(B, a.clone().addScaledVector(T0, -r0 * 0.5), T0.clone().negate(), a, id, t0, t1);
+  if (!flare) for (let j = 0; j < radial; j++) B.idx.push(base + j + 1, s0, base + j);
+  const T = fr.tangents[segs], tip = B.pos.length / 3; vtx(B, b.clone().addScaledVector(T, r1 * 1.1), T, a, id, t0, t1);
+  for (let j = 0; j < radial; j++) { const p = base + segs * (radial + 1) + j; B.idx.push(p, tip, p + 1); }
+}
+function leaf(B, Pt, ld, lang, id, t0, Lk, R) {
+  const up = new V3(0, 1, 0).add(new V3(R() - 0.5, R() * 0.4, R() - 0.5).multiplyScalar(0.9));
+  const nrm = up.addScaledVector(ld, -up.dot(ld)).normalize(), yv = new V3().crossVectors(nrm, ld).normalize();
+  const L = Lk * (0.8 + 0.45 * R()), w = L * 0.42;
+  const q = (u, v, h) => Pt.clone().addScaledVector(ld, u * L).addScaledVector(yv, v * w).addScaledVector(nrm, h * L);
+  const pts = [q(0, 0, 0), q(0.3, -0.9, 0.03), q(0.66, -0.7, 0), q(1, 0, -0.05), q(0.66, 0.7, 0), q(0.3, 0.9, 0.03)], cen = q(0.46, 0, 0.08);
+  const col = new THREE.Color(LEAF[lang] || LEAF.Other).offsetHSL((R() - 0.5) * 0.04, 0, (R() - 0.5) * 0.1);
+  for (let k = 0; k < 6; k++) {
+    const A = pts[k], B2 = pts[(k + 1) % 6], fn = new V3().subVectors(B2, A).cross(new V3().subVectors(cen, A)).normalize(); if (fn.dot(nrm) < 0) fn.negate();
+    const cj = col.clone().offsetHSL(0, 0, k % 2 ? 0.025 : -0.025), s = B.pos.length / 3;
+    for (const v of [A, B2, cen]) vtx(B, v, fn, Pt, id, t0, t0, cj);
+    B.idx.push(s, s + 1, s + 2);
+  }
+}
+
+/* ---------- renderer ---------- */
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.outputEncoding = THREE.sRGBEncoding; renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 200);
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.08; controls.autoRotate = true; controls.autoRotateSpeed = 0.55;
+controls.maxPolarAngle = Math.PI * 0.53; controls.enablePan = false;
+scene.add(new THREE.HemisphereLight(0xffffff, 0xb9b2a8, 0.7));
+const key = new THREE.DirectionalLight(0xfff3e6, 2.1); key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0006; key.shadow.radius = 4;
+scene.add(key, key.target);
+const fill = new THREE.DirectionalLight(0xdfe8ff, 0.45); fill.position.set(6, 3, 2); scene.add(fill);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ opacity: 0.13 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const contact = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 256; const g = cv.getContext('2d'); const gr = g.createRadialGradient(128, 128, 0, 128, 128, 128); gr.addColorStop(0, 'rgba(60,45,30,0.28)'); gr.addColorStop(1, 'rgba(60,45,30,0)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false })); m.rotation.x = -Math.PI / 2; m.position.y = 0.002; scene.add(m); return m; })();
+
+const U = { uGrow: { value: 1 }, uSel: { value: new THREE.Vector2(-1, -1) } };
+function patch(mat, highlight) {
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uGrow = U.uGrow; sh.uniforms.uSel = U.uSel;
+    sh.vertexShader = 'attribute vec3 aBase;\nattribute vec2 aT;\nattribute float aId;\nuniform float uGrow;\nvarying float vId;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      '#include <begin_vertex>\nfloat gk = smoothstep(aT.x, max(aT.y, aT.x + 0.0001), uGrow);\ntransformed = mix(aBase, transformed, gk);\nvId = aId;');
+    if (highlight) sh.fragmentShader = 'uniform vec2 uSel;\nvarying float vId;\n' + sh.fragmentShader.replace('#include <dithering_fragment>',
+      '#include <dithering_fragment>\nif (uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5)) { float l = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114)); gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.93, 0.92, 0.9) * (0.75 + 0.25 * l), 0.78); }');
+    else sh.fragmentShader = 'varying float vId;\n' + sh.fragmentShader;
+  };
+  return mat;
+}
+const barkMat = patch(new THREE.MeshStandardMaterial({ color: 0x6b5d53, roughness: 0.92, flatShading: true, envMapIntensity: 0.35 }), true);
+const leafMat = patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide, envMapIntensity: 0.35 }), true);
+const depthMat = () => patch(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), false);
+let T = null, barkMesh = null, leafMesh = null, D = null;
+
+/* ---------- UI refs ---------- */
+const $ = s => document.querySelector(s);
+const tip = $('#tip'), labelsEl = $('#labels');
+let pinned = null, hovered = null, labelEls = [];
+
+function setRepo(kind) {
+  D = loadRepo(kind);
+  if (barkMesh) { scene.remove(barkMesh, leafMesh); barkMesh.geometry.dispose(); leafMesh.geometry.dispose(); }
+  T = generate(D);
+  barkMesh = new THREE.Mesh(T.bark, barkMat); barkMesh.customDepthMaterial = depthMat();
+  leafMesh = new THREE.Mesh(T.leaves, leafMat); leafMesh.customDepthMaterial = depthMat();
+  for (const m of [barkMesh, leafMesh]) { m.castShadow = true; m.receiveShadow = true; scene.add(m); }
+  // frame
+  const bb = new THREE.Box3().setFromBufferAttribute(T.leaves.attributes.position).union(new THREE.Box3().setFromBufferAttribute(T.bark.attributes.position));
+  const ctr = bb.getCenter(new V3()), sz = bb.getSize(new V3()), rad = Math.max(sz.x, sz.y, sz.z) * 0.62;
+  controls.target.set(ctr.x, ctr.y * 0.92, ctr.z);
+  const tn = Math.tan(THREE.MathUtils.degToRad(15)), asp = Math.max(0.3, canvas.clientWidth / Math.max(1, canvas.clientHeight));
+  const dist = Math.max(rad / tn, (sz.x * 0.6) / (tn * asp)) * (asp < 1 ? 0.98 : 1.05);
+  camera.position.set(ctr.x + dist * 0.3, ctr.y * 0.92 + dist * 0.12, ctr.z + dist * 0.95);
+  controls.minDistance = dist * 0.35; controls.maxDistance = dist * 2.2; controls.update();
+  key.position.set(ctr.x - 3, 12, ctr.z + 5); key.target.position.copy(ctr);
+  const S = Math.max(sz.x, sz.y) * 0.9; Object.assign(key.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near: 0.1, far: 40 }); key.shadow.camera.updateProjectionMatrix();
+  contact.scale.setScalar(Math.max(1.6, sz.x * 0.55));
+  // UI
+  pinned = null; hovered = null; applySel();
+  document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.repo === kind));
+  $('#repoName').textContent = D.name;
+  $('#statFiles').textContent = D.files.length.toLocaleString();
+  $('#statFolders').textContent = (D.dirs.length - 1).toLocaleString();
+  const langs = {}; D.files.forEach(f => { langs[f.lang] = (langs[f.lang] || 0) + 1; });
+  const ls = Object.entries(langs).sort((a, b) => b[1] - a[1]);
+  $('#statLangs').textContent = ls.filter(l => l[0] !== 'Other').length;
+  $('#legend').innerHTML = ls.slice(0, 8).map(([l, n]) => `<li><i style="--c:${LEAF[l] || LEAF.Other}"></i><span>${l}</span><b>${pct(n, D.files.length)}</b></li>`).join('');
+  const tops = D.root.children.filter(c => c.isDir && c.fileCount).sort((a, b) => b.fileCount - a.fileCount);
+  const maxF = tops[0] ? tops[0].fileCount : 1;
+  $('#folders').innerHTML = tops.slice(0, 9).map((f, i) => `<li><button data-i="${i}"><span class="fn">${f.name}/</span><span class="bar"><i style="width:${Math.max(3, f.fileCount / maxF * 100)}%;--c:${LEAF[mainLang(f)] || LEAF.Other}"></i></span><b>${f.fileCount.toLocaleString()}</b></button></li>`).join('');
+  $('#folders').querySelectorAll('button').forEach(b => {
+    const f = tops[+b.dataset.i];
+    b.addEventListener('mouseenter', () => { if (!pinned) { hovered = { folder: f }; applySel(); } });
+    b.addEventListener('mouseleave', () => { if (!pinned) { hovered = null; applySel(); } });
+    b.addEventListener('click', () => pin({ folder: f }));
+  });
+  labelsEl.innerHTML = ''; labelEls = T.labels.sort((a, b) => b.folder.fileCount - a.folder.fileCount).slice(0, 6).map(l => {
+    const el = document.createElement('button'); el.className = 'pill'; el.innerHTML = `<span>${l.folder.name}</span><b>${l.folder.fileCount.toLocaleString()}</b>`;
+    el.addEventListener('mouseenter', () => { if (!pinned) { hovered = { folder: l.folder }; applySel(); } });
+    el.addEventListener('mouseleave', () => { if (!pinned) { hovered = null; applySel(); } });
+    el.addEventListener('click', () => pin({ folder: l.folder }));
+    labelsEl.appendChild(el); return { el, l, x: 0, y: 0 };
+  });
+  replay();
+}
+const pct = (n, t) => { const p = n / t * 100; return (p < 1 ? '<1' : Math.round(p)) + '%'; };
+const mainLang = f => Object.entries(f.langs).filter(e => e[0] !== 'Other').sort((a, b) => b[1] - a[1])[0]?.[0] || 'Other';
+
+/* ---------- selection ---------- */
+function applySel() {
+  const s = pinned || hovered;
+  const r = s && T.folderRange.get(s.folder);
+  U.uSel.value.set(r ? r[0] : -1, r ? r[1] : -1);
+  labelEls.forEach(o => o.el.classList.toggle('on', !!s && o.l.folder === s.folder));
+  const card = $('#detail');
+  if (pinned) { card.hidden = false; card.innerHTML = detailHTML(pinned, true); card.querySelector('.close').addEventListener('click', () => pin(null));
+    const anc = []; for (let a = pinned.folder.parent; a; a = a.parent) anc.unshift(a);
+    card.querySelectorAll('.crumb button').forEach(b => b.addEventListener('click', () => pin({ folder: anc[+b.dataset.a] }))); }
+  else card.hidden = true;
+}
+function pin(s) { pinned = s; if (s) { tip.hidden = true; controls.autoRotate = false; } applySel(); }
+function detailHTML(s, isCard) {
+  const f = s.folder, path = f.path.split('/');
+  const langs = Object.entries(f.langs).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  const subs = f.children.filter(c => c.isDir).length;
+  const anc = []; for (let a = f.parent; a; a = a.parent) anc.unshift(a);
+  let h = `<div class="crumb">${anc.map((a, i) => isCard ? `<button data-a="${i}">${a.name}</button>` : `<span>${a.name}</span>`).join('<em>/</em>')}${anc.length ? '<em>/</em>' : ''}<strong>${f.name}</strong></div>`;
+  h += `<p class="meta">${f.fileCount.toLocaleString()} file${f.fileCount === 1 ? '' : 's'}${subs ? ` · ${subs} sub-folder${subs === 1 ? '' : 's'}` : ''}</p>`;
+  h += `<ul class="langs">${langs.map(([l, n]) => `<li><i style="--c:${LEAF[l] || LEAF.Other}"></i><span>${l}</span><span class="lb"><i style="width:${n / f.fileCount * 100}%;--c:${LEAF[l] || LEAF.Other}"></i></span><b>${pct(n, f.fileCount)}</b></li>`).join('')}</ul>`;
+  if (s.files) { const fs = s.files; h += `<p class="sprig">${s.collapsed ? 'Folded into this twig' : 'On this twig'}: ${fs.slice(0, 4).map(x => `<code>${x.name}</code>`).join(' ')}${fs.length > 4 ? ` and ${fs.length - 4} more` : ''}</p>`; }
+  if (isCard) h = `<button class="close" aria-label="Clear selection">×</button>` + h;
+  else h += `<p class="hint">Click to pin</p>`;
+  return h;
+}
+
+/* ---------- picking ---------- */
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+let downAt = null;
+function pick(ev) {
+  const r = canvas.getBoundingClientRect(); ndc.set((ev.clientX - r.left) / r.width * 2 - 1, -(ev.clientY - r.top) / r.height * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObjects([leafMesh, barkMesh], false)[0];
+  if (!hit) return null;
+  const g = hit.object.geometry, vi = g.index.array[hit.faceIndex * 3], id = g.attributes.aId.array[vi], n = T.nodes[id];
+  return { folder: n.folder, files: n.files, collapsed: n.collapsed };
+}
+canvas.addEventListener('pointermove', ev => {
+  if (ev.buttons) { tip.hidden = true; return; }
+  const s = pick(ev);
+  if (!s) { tip.hidden = true; canvas.style.cursor = ''; if (!pinned && hovered) { hovered = null; applySel(); } return; }
+  canvas.style.cursor = 'pointer';
+  if (!pinned && (!hovered || hovered.folder !== s.folder)) { hovered = s; applySel(); } else if (!pinned) hovered = s;
+  tip.innerHTML = detailHTML(s, false); tip.hidden = false;
+  const W = window.innerWidth, x = Math.min(ev.clientX + 16, W - tip.offsetWidth - 12), y = Math.min(ev.clientY + 16, window.innerHeight - tip.offsetHeight - 12);
+  tip.style.transform = `translate(${x}px, ${y}px)`;
+});
+canvas.addEventListener('pointerleave', () => { tip.hidden = true; if (!pinned && hovered) { hovered = null; applySel(); } });
+canvas.addEventListener('pointerdown', ev => { downAt = [ev.clientX, ev.clientY]; controls.autoRotate = false; });
+canvas.addEventListener('pointerup', ev => {
+  if (!downAt || Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 5) return;
+  const s = pick(ev); pin(s ? { folder: s.folder, files: s.files, collapsed: s.collapsed } : null);
+});
+window.addEventListener('keydown', e => { if (e.key === 'Escape') pin(null); });
+
+/* ---------- growth ---------- */
+const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let growStart = 0, growing = false;
+function replay() { if (reduce) { U.uGrow.value = 1; return; } U.uGrow.value = 0; growStart = performance.now(); growing = true; }
+$('#grow').addEventListener('click', replay);
+$('#spin').addEventListener('click', () => { controls.autoRotate = !controls.autoRotate; syncSpin(); });
+function syncSpin() { $('#spin').setAttribute('aria-pressed', controls.autoRotate); $('#spin').textContent = controls.autoRotate ? 'Pause spin' : 'Spin'; }
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => setRepo(b.dataset.repo)));
+
+/* ---------- loop ---------- */
+function resize() { const w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+window.addEventListener('resize', resize);
+const pv = new V3();
+function frame(now) {
+  if (growing) { const k = Math.min(1, (now - growStart) / 2600); U.uGrow.value = 1 - Math.pow(1 - k, 2.2); if (k >= 1) growing = false; }
+  controls.update(); syncSpinLazy();
+  renderer.render(scene, camera);
+  // labels follow their limbs, nudged apart so they never overlap
+  const w = canvas.clientWidth, h = canvas.clientHeight, show = U.uGrow.value > 0.55;
+  labelsEl.style.opacity = show ? 1 : 0;
+  for (const o of labelEls) { pv.copy(o.l.p).project(camera); o.ax = (pv.x + 1) / 2 * w; o.ay = (1 - pv.y) / 2 * h; o.x = o.ax; o.y = o.ay - 30; o.w = o.el.offsetWidth; }
+  for (let it = 0; it < 30; it++) for (const a of labelEls) for (const b of labelEls) { if (a === b) continue; const ox = (a.w + b.w) / 2 + 6 - Math.abs(a.x - b.x), oy = 34 - Math.abs(a.y - b.y); if (ox > 0 && oy > 0) { const sg = a.y <= b.y ? -1 : 1; a.y += sg * oy * 0.5; b.y -= sg * oy * 0.5; } }
+  for (const o of labelEls) { o.el.style.transform = `translate(${o.x - o.w / 2}px, ${o.y - 14}px)`; o.el.style.setProperty('--dy', (o.ay - o.y - 14) + 'px'); }
+  requestAnimationFrame(frame);
+}
+let lastSpin = null; function syncSpinLazy() { if (lastSpin !== controls.autoRotate) { lastSpin = controls.autoRotate; syncSpin(); } }
+resize(); setRepo('lumen'); requestAnimationFrame(frame);
+</script>

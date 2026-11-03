@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, test } from 'vitest';
 import { buildHierarchy, DEFAULT_FILTERS, type Dir } from '../repo/hierarchy';
+import { langOf, type Lang } from '../repo/languages';
 import { sample, type SampleId } from '../test/samples';
 import { growTree, type GrowParams, type MeshData, type TreeModel } from './grow';
 
@@ -36,9 +37,23 @@ describe.each(SAMPLES)('growTree on %s', (id) => {
     tree = growTree(dirOf(id), HIGH);
   });
 
-  test('represents every file in exactly one twig', () => {
-    const total = tree.nodes.files.reduce((sum, n) => sum + n, 0);
-    expect(total).toBe(dirOf(id).fileCount);
+  test('represents every file in exactly one twig or rock', () => {
+    const twigs = tree.nodes.files.reduce((sum, n) => sum + n, 0);
+    const onRocks = tree.rocks.flatMap((r) => r.files);
+    expect(new Set(onRocks).size).toBe(onRocks.length);
+    expect(onRocks.every((i) => i >= 0 && i < dirOf(id).files.length)).toBe(true);
+    expect(twigs + onRocks.length).toBe(dirOf(id).fileCount);
+  });
+
+  test('lays the root files on rocks, largest first, each rock weighing its files', () => {
+    const root = dirOf(id).files;
+    expect(tree.rocks.length).toBe(Math.min(12, root.length));
+    expect(tree.rocks.flatMap((r) => r.files).sort((a, b) => a - b)).toEqual(root.map((_, i) => i));
+    for (const rock of tree.rocks) {
+      expect(rock.bytes).toBe(rock.files.reduce((sum, i) => sum + root[i]!.size, 0));
+    }
+    const single = tree.rocks.filter((r) => r.files.length === 1).map((r) => r.bytes);
+    expect(single).toEqual([...single].sort((a, b) => b - a));
   });
 
   test('lists every folder in preorder with the root first', () => {
@@ -111,8 +126,14 @@ describe.each(SAMPLES)('growTree on %s', (id) => {
     }
   });
 
-  test('colors leaves by an index into the languages present, most files first', () => {
-    expect(new Map(tree.langs.map((l) => [l.lang, l.files]))).toEqual(dirOf(id).langs);
+  test('colors leaves by an index into the languages on twigs, most files first', () => {
+    const onTwigs = new Map(dirOf(id).langs);
+    for (const i of tree.rocks.flatMap((r) => r.files)) {
+      const lang = langOf(dirOf(id).files[i]!.path);
+      onTwigs.set(lang, onTwigs.get(lang)! - 1);
+      if (onTwigs.get(lang) === 0) onTwigs.delete(lang);
+    }
+    expect(new Map(tree.langs.map((l) => [l.lang, l.files]))).toEqual(onTwigs);
     const files = tree.langs.map((l) => l.files);
     expect(files).toEqual(files.toSorted((a, b) => b - a));
     const invalid = tree.leaves.lang.findIndex(
@@ -208,6 +229,16 @@ test('refuses a folder with no files', () => {
     langs: new Map(),
   };
   expect(() => growTree(empty, HIGH)).toThrow(RangeError);
+});
+
+test('keeps the files of a repo with no subfolders on twigs, with no rocks', () => {
+  const files = ['a.ts', 'b.ts', 'README.md'].map((path) => ({ path, size: 10 }));
+  const langs = new Map<Lang, number>();
+  for (const { path } of files) langs.set(langOf(path), (langs.get(langOf(path)) ?? 0) + 1);
+  const flat: Dir = { path: '', name: 'r', dirs: [], files, fileCount: 3, bytes: 30, langs };
+  const tree = growTree(flat, HIGH);
+  expect(tree.rocks).toEqual([]);
+  expect(tree.nodes.files.reduce((sum, n) => sum + n, 0)).toBe(3);
 });
 
 test('grows the linux tree from its snapshot within the budget', async () => {

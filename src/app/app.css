@@ -707,7 +707,7 @@ h1 a[aria-disabled] {
 .legend button:hover {
   background: var(--hover);
 }
-.legend span {
+.legend span:not(.num) {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -933,6 +933,7 @@ h1 a[aria-disabled] {
   width: 1px;
   height: var(--stem, 0px);
   background: rgba(37, 34, 30, 0.28);
+  pointer-events: none;
 }
 .pill.on {
   background: var(--ink);
@@ -975,7 +976,7 @@ h1 a[aria-disabled] {
 .dialog {
   position: fixed;
   z-index: 8;
-  background: var(--card-solid);
+  background: #fff;
   border-radius: 16px;
   box-shadow: var(--shadow-lift);
   animation: pop 0.16s var(--ease);

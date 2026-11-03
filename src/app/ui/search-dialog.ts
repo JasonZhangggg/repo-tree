@@ -154,6 +154,7 @@ export function mountSearch(app: App): { open(): void; close(): boolean } {
 
   function close(): boolean {
     if (dialog.hidden) return false;
+    input.blur();
     dialog.hidden = true;
     scrim.hidden = true;
     returnFocus?.focus?.();

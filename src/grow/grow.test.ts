@@ -125,6 +125,18 @@ describe.each(SAMPLES)('growTree on %s', (id) => {
     const top = dirOf(id).dirs.map((d) => [d.path, d.fileCount]);
     expect(tree.labels.map((l) => [tree.folders.path[l.folder], l.files])).toEqual(top);
   });
+
+  test('keeps the crown open with at most 200 twigs', () => {
+    const twigs = tree.nodes.files.filter((n) => n > 0).length;
+    expect(twigs).toBeLessThanOrEqual(200);
+  });
+
+  test('gives every top-level folder a limb of its own', () => {
+    for (const { folder } of tree.labels) {
+      const lo = tree.folders.range[2 * folder]!;
+      expect(tree.nodes.folder[lo], tree.folders.path[folder]).toBe(folder);
+    }
+  });
 });
 
 describe('growTree determinism', () => {

@@ -1,0 +1,20 @@
+[
+  {
+    "label": "Small",
+    "repo": "mathiasbynens/dotfiles",
+    "file": "mathiasbynens-dotfiles.json.gz",
+    "files": 36
+  },
+  {
+    "label": "Medium",
+    "repo": "vitejs/vite",
+    "file": "vitejs-vite.json.gz",
+    "files": 2916
+  },
+  {
+    "label": "Large",
+    "repo": "torvalds/linux",
+    "file": "torvalds-linux.json.gz",
+    "files": 97359
+  }
+]

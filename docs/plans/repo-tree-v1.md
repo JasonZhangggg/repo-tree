@@ -52,16 +52,22 @@ const DEFAULT_FILTERS: Filters; // node_modules, vendor, third_party, dist, buil
 function buildHierarchy(snapshot: Snapshot, filters: Filters): Dir; // folders left without files are dropped
 
 // grow/grow.ts  (pure, deterministic, runs in a worker)
-type GrowParams = { seed: number; leafDensity: number; quality: Quality };
-type MeshData = { position: Float32Array; normal: Float32Array; base: Float32Array; timing: Float32Array; nodeId: Float32Array; color?: Float32Array; index: Uint32Array };
+type Quality = 'low' | 'medium' | 'high'; // leaves per sprig, sprigs per twig, tube facets; never the skeleton
+type GrowParams = { seed: number; quality: Quality };
+type MeshData = { position: Float32Array; normal: Float32Array; base: Float32Array; timing: Float32Array; nodeId: Float32Array; index: Uint32Array };
+type LeafMeshData = MeshData & { lang: Float32Array /* index into TreeModel.langs */; shade: Float32Array /* [hue, lightness] offsets */ };
 type TreeModel = {
-  bark: MeshData; leaves: MeshData;
-  nodes: { folderPath: Uint32Array /* node -> folder index */ };
-  folders: { path: string[]; range: Uint32Array /* [lo, hi] node-id range per folder */ };
+  bark: MeshData; leaves: LeafMeshData; langs: Lang[];
+  nodes: { folder: Uint32Array; parent: Int32Array; radius: Float32Array /* [start, end] */; files: Uint32Array /* twig file count */ };
+  folders: { path: string[]; range: Uint32Array /* [lo, hi] node-id range per folder, preorder, root first */ };
   labels: { folder: number; anchor: [number, number, number] }[];
-  bounds: { center: [number, number, number]; radius: number; height: number };
+  bounds: { min: [number, number, number]; max: [number, number, number] };
 };
-function growTree(root: Dir, params: GrowParams): TreeModel;
+function growTree(root: Dir, params: GrowParams): TreeModel; // throws RangeError when root has no files
+
+// grow/grow-in-worker.ts
+type GrowRequest = { snapshot: Snapshot; filters: Filters; params: GrowParams } | { dir: Dir; params: GrowParams };
+function growInWorker(request: GrowRequest, signal?: AbortSignal): Promise<TreeModel>;
 
 // render/  (three.js, owns GPU state)
 interface TreeView {
@@ -80,7 +86,7 @@ type LoadState =
   | { phase: 'ready'; snapshot: Snapshot; tree: TreeModel; dir: Dir }
   | { phase: 'error'; ref: RepoRef; error: LoadError };
 type Settings = { palette: PaletteId; colorBy: 'language' | 'folder'; quality: Quality; spin: boolean; labels: boolean; hidden: string[]; growAnim: boolean };
-type Quality = 'low' | 'medium' | 'high'; // 'auto' resolves to one of these at startup from device signals and measured frame time
+// Quality comes from grow/grow.ts. 'auto' resolves to one of its values at startup from device signals and measured frame time
 ```
 
 Palettes are a table: `PaletteId -> { bark, ground, sky, leafByLang: Record<Lang, hex>, folderRamp: hex[] }`. Autumn is the approved default. Spring blossom, summer green and winter are the other three.

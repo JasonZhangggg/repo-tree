@@ -51,6 +51,8 @@ export type ViewStats = {
 export interface TreeView {
   /** Shows a new tree, framed whole, growing unless reduced motion is on. */
   setTree(model: TreeModel): void;
+  /** Replays the growth of the tree on show, or shows it grown under reduced motion. */
+  grow(): void;
   setPalette(id: PaletteId): void;
   setColorBy(by: ColorBy): void;
   /** What each leaf color stands for under the current palette and color-by. */
@@ -476,6 +478,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       homed = true;
       home(false);
       startGrowth();
+    },
+
+    grow() {
+      if (shown) startGrowth();
     },
 
     setPalette(id) {

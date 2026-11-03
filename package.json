@@ -13,6 +13,7 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run",
+    "e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm test"
   },
   "dependencies": {

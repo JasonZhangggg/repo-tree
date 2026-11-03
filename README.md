@@ -12,3 +12,5 @@ npm run dev     # Vite dev server
 npm test        # unit tests (Vitest)
 npm run e2e     # Playwright against a production build served by `vite preview`
 ```
+
+`npm run check` runs typecheck, lint and unit tests. `npm run e2e` builds first, then tests the desktop Chromium and Pixel 7 projects. If your Playwright browser revision is missing and another Chromium is installed, point `PW_CHROMIUM_PATH` at it.

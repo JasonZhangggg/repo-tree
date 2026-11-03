@@ -111,17 +111,19 @@ describe.each(SAMPLES)('growTree on %s', (id) => {
     }
   });
 
-  test('colors leaves by an index into the languages present', () => {
-    expect(new Set(tree.langs)).toEqual(new Set(dirOf(id).langs.keys()));
+  test('colors leaves by an index into the languages present, most files first', () => {
+    expect(new Map(tree.langs.map((l) => [l.lang, l.files]))).toEqual(dirOf(id).langs);
+    const files = tree.langs.map((l) => l.files);
+    expect(files).toEqual(files.toSorted((a, b) => b - a));
     const invalid = tree.leaves.lang.findIndex(
       (lang) => !Number.isInteger(lang) || lang < 0 || lang >= tree.langs.length,
     );
     expect(invalid).toBe(-1);
   });
 
-  test('labels each top-level folder once', () => {
-    const top = dirOf(id).dirs.map((d) => d.path);
-    expect(tree.labels.map((l) => tree.folders.path[l.folder])).toEqual(top);
+  test('labels each top-level folder once with its file count', () => {
+    const top = dirOf(id).dirs.map((d) => [d.path, d.fileCount]);
+    expect(tree.labels.map((l) => [tree.folders.path[l.folder], l.files])).toEqual(top);
   });
 });
 

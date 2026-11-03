@@ -31,7 +31,8 @@ export type LeafMeshData = MeshData & { lang: Float32Array; shade: Float32Array 
 export type TreeModel = {
   bark: MeshData;
   leaves: LeafMeshData;
-  langs: Lang[];
+  /** Languages present, most files first. */
+  langs: { lang: Lang; files: number }[];
   /** Node ids are preorder, so every folder's nodes form one contiguous id range. */
   nodes: {
     folder: Uint32Array;
@@ -43,7 +44,8 @@ export type TreeModel = {
   };
   /** Folders in preorder, root first. `range` holds [lo, hi] node ids per folder. */
   folders: { path: string[]; range: Uint32Array };
-  labels: { folder: number; anchor: Vec3 }[];
+  /** One per top-level folder, anchored on the twig tip nearest the middle of its limb. */
+  labels: { folder: number; files: number; anchor: Vec3 }[];
   bounds: { min: Vec3; max: Vec3 };
 };
 
@@ -147,8 +149,10 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
 
   const skeleton = growSkeleton(top, nodeCount, trunkR, mulberry32(params.seed));
 
-  const langs = [...root.langs].sort((a, b) => b[1] - a[1] || cmp(a[0], b[0])).map(([l]) => l);
-  const langIndex = new Map(langs.map((l, i) => [l, i]));
+  const langs = [...root.langs]
+    .sort((a, b) => b[1] - a[1] || cmp(a[0], b[0]))
+    .map(([lang, files]) => ({ lang, files }));
+  const langIndex = new Map(langs.map((l, i) => [l.lang, i]));
 
   const bark = emitBark(skeleton, quality);
   const leaves = emitLeaves(
@@ -182,6 +186,7 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
       const folder = folderOf.get(dir)!;
       return {
         folder,
+        files: dir.fileCount,
         anchor: labelAnchor(order, skeleton, range[2 * folder]!, range[2 * folder + 1]!),
       };
     }),

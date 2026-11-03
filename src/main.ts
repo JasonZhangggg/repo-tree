@@ -1,6 +1,5 @@
 import type { Quality, TreeModel } from './grow/grow';
-import { growInWorker } from './grow/grow-in-worker';
-import { loadSample } from './repo/github';
+import { loadInWorker } from './load/load-in-worker';
 import { DEFAULT_FILTERS } from './repo/hierarchy';
 import { PALETTES, type ColorBy, type PaletteId } from './render/palette';
 import { createTreeView, type TreeView } from './render/tree-view';
@@ -41,14 +40,19 @@ const view = createTreeView(container, {
 motion.addEventListener('change', () => view.setReducedMotion(motion.matches));
 debug.view = view;
 
-const snapshot = await loadSample(sample);
-if ('kind' in snapshot) throw new Error(`sample ${sample} did not load: ${snapshot.kind}`);
-debug.timings.loaded = performance.now();
-const tree = await growInWorker({
-  snapshot,
-  filters: DEFAULT_FILTERS,
-  params: { seed: 42, quality },
-});
+const loaded = await loadInWorker(
+  {
+    source: { kind: 'sample', id: sample, base: new URL('./', location.href).href },
+    filters: DEFAULT_FILTERS,
+    params: { seed: 42, quality },
+  },
+  (step) => {
+    if (step === 'build') debug.timings.loaded = performance.now();
+  },
+  new AbortController().signal,
+);
+if ('kind' in loaded) throw new Error(`sample ${sample} did not load: ${loaded.kind}`);
+const { info: snapshot, tree } = loaded;
 debug.timings.grown = performance.now();
 view.setTree(tree);
 debug.tree = tree;

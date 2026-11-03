@@ -14,3 +14,7 @@ npm run e2e     # Playwright against a production build served by `vite preview`
 ```
 
 `npm run check` runs typecheck, lint and unit tests. `npm run e2e` builds first, then tests the desktop Chromium and Pixel 7 projects. If your Playwright browser revision is missing and another Chromium is installed, point `PW_CHROMIUM_PATH` at it.
+
+## Samples
+
+`public/samples/` holds three repos as fixtures shaped like the GitHub REST API (`GET /repos/{o}/{r}` and the recursive trees response), so they render with no network. `node scripts/make-samples.mjs` regenerates them and `index.json`. `node scripts/make-fixture.mjs owner/repo out.json[.gz] [--slim]` makes one from a shallow clone. `--slim` drops each entry's `sha` and `url`.

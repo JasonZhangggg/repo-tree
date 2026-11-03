@@ -1,11 +1,13 @@
 import {
   BufferAttribute,
   BufferGeometry,
-  CanvasTexture,
   Color,
+  DataTexture,
   DirectionalLight,
   DoubleSide,
   HemisphereLight,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   Mesh,
   MeshBasicMaterial,
   MeshDepthMaterial,
@@ -869,17 +871,26 @@ function step(s: Spring, dt: number, rate: number, epsilon: number): boolean {
   return moving;
 }
 
-/** A soft round shadow under the trunk, white so the material color tints it. */
-function radialTexture(): CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
-  const g = canvas.getContext('2d')!;
-  const gradient = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-  gradient.addColorStop(0, 'rgba(255,255,255,0.28)');
-  gradient.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = gradient;
-  g.fillRect(0, 0, 256, 256);
-  const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
+/**
+ * A soft round shadow under the trunk, white so the material color tints it. Filled in JS: a
+ * 2D canvas for it started a second GPU context, a 130 to 180 ms wait at startup.
+ */
+function radialTexture(): DataTexture {
+  const size = 256;
+  const data = new Uint8Array(size * size * 4).fill(255);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const t = Math.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) / (size / 2);
+      data[(y * size + x) * 4 + 3] = Math.round(255 * 0.28 * Math.max(0, 1 - t));
+    }
+  }
+  const texture = new DataTexture(data, size, size);
+  Object.assign(texture, {
+    colorSpace: SRGBColorSpace,
+    magFilter: LinearFilter,
+    minFilter: LinearMipmapLinearFilter,
+    generateMipmaps: true,
+    needsUpdate: true,
+  });
   return texture;
 }

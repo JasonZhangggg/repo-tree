@@ -148,7 +148,7 @@ type SearchHit = { kind: 'folder' | 'file'; id: number; path: string; marks: num
 function createSearch(folders: readonly string[], files: readonly string[]): (query: string, limit?: number) => SearchHit[];
 ```
 
-Palettes are a table (`render/palette.ts` above). Autumn is the approved default. Spring blossom, summer green and winter are the other three. Leaf colors come from rank, not from a per-language table, so a repo of languages no table knows is as colorful as any other.
+Palettes are a table (`render/palette.ts` above). Autumn is the approved default. Spring blossom, summer green and winter are the other three. Leaf colors come from rank, not from a per-language table, so a repo of languages no table knows is as colorful as any other. Each ramp keeps to its season's hues, close neighbours included: a twig carries files of several languages, so no ramp makes every category readable at a glance. Clicking a legend entry highlights that category's leaves instead. `scripts/palette-check.mjs` reports how far apart the slots show; it informs a palette change and gates nothing.
 
 ## Rendering decisions
 

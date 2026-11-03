@@ -57,10 +57,10 @@ type GrowParams = { seed: number; quality: Quality };
 type MeshData = { position: Float32Array; normal: Float32Array; base: Float32Array; timing: Float32Array; nodeId: Float32Array; index: Uint32Array };
 type LeafMeshData = MeshData & { lang: Float32Array /* index into TreeModel.langs */; shade: Float32Array /* [hue, lightness] offsets */ };
 type TreeModel = {
-  bark: MeshData; leaves: LeafMeshData; langs: Lang[];
+  bark: MeshData; leaves: LeafMeshData; langs: { lang: Lang; files: number }[]; // most files first
   nodes: { folder: Uint32Array; parent: Int32Array; radius: Float32Array /* [start, end] */; files: Uint32Array /* twig file count */ };
   folders: { path: string[]; range: Uint32Array /* [lo, hi] node-id range per folder, preorder, root first */ };
-  labels: { folder: number; anchor: [number, number, number] }[];
+  labels: { folder: number; files: number; anchor: [number, number, number] }[]; // one per top-level folder
   bounds: { min: [number, number, number]; max: [number, number, number] };
 };
 function growTree(root: Dir, params: GrowParams): TreeModel; // throws RangeError when root has no files
@@ -69,15 +69,33 @@ function growTree(root: Dir, params: GrowParams): TreeModel; // throws RangeErro
 type GrowRequest = { snapshot: Snapshot; filters: Filters; params: GrowParams } | { dir: Dir; params: GrowParams };
 function growInWorker(request: GrowRequest, signal?: AbortSignal): Promise<TreeModel>;
 
-// render/  (three.js, owns GPU state)
+// render/palette.ts  (table)
+type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
+type ColorBy = 'language' | 'folder';
+type Palette = { id: PaletteId; name: string; bark: hex; sky: { center: hex; edge: hex }; shadow: hex;
+  light: { key: hex; sky: hex; ground: hex }; leaves: hex[] /* 9, same length in every palette */; rest: hex };
+const PALETTES: Record<PaletteId, Palette>;
+type LegendEntry = { color: hex; label: string; files: number };
+// Categories ranked by files take leaves[] in order; the rest share `rest`. Same repo, same mapping.
+function leafMapping(categories: { label: string; files: number }[], p: Palette): { slotOf: number[]; legend: LegendEntry[] };
+
+// render/tree-view.ts  (three.js, owns GPU state, the canvas and the orbit controls)
+function createTreeView(container: HTMLElement, options: { quality: Quality; palette: PaletteId; colorBy: ColorBy; spin: boolean; reducedMotion: boolean }): TreeView;
 interface TreeView {
-  setTree(model: TreeModel, palette: Palette): void; // starts the grow animation
-  setPalette(p: Palette): void;
-  setHighlight(range: [number, number] | null): void;
-  frameFolder(folder: number): void;
-  pickAt(x: number, y: number): number | null; // folder index under the pointer
-  setQuality(q: Quality): void;
+  setTree(model: TreeModel): void; // frames the whole tree, grows unless reduced motion
+  setPalette(id: PaletteId): void; // recolors without regrowing
+  setColorBy(by: ColorBy): void; // language, or top-level folder
+  legend(): LegendEntry[];
+  setHighlight(range: [number, number] | null): void; // fades nodes outside the id range
+  frameFolder(folder: number): void; // glides the camera; 0 frames the whole tree
+  pickAt(x: number, y: number): number | null; // folder under a CSS pixel of the container
+  setQuality(q: Quality): void; // pixel ratio, shadow map size, antialias (swaps the canvas)
+  setSpin(on: boolean): void;
+  setReducedMotion(on: boolean): void;
+  onFrame(listener: (info: { growth: number; labels: { folder: number; x: number; y: number; visible: boolean }[] }) => void): () => void;
   snapshotPNG(scale: number): Promise<Blob>;
+  stats(): { renders: number; calls: number; triangles: number; geometries: number; textures: number };
+  dispose(): void;
 }
 
 // app/state.ts  (one store, a reducer, no scattered flags)
@@ -89,14 +107,16 @@ type Settings = { palette: PaletteId; colorBy: 'language' | 'folder'; quality: Q
 // Quality comes from grow/grow.ts. 'auto' resolves to one of its values at startup from device signals and measured frame time
 ```
 
-Palettes are a table: `PaletteId -> { bark, ground, sky, leafByLang: Record<Lang, hex>, folderRamp: hex[] }`. Autumn is the approved default. Spring blossom, summer green and winter are the other three.
+Palettes are a table (`render/palette.ts` above). Autumn is the approved default. Spring blossom, summer green and winter are the other three. Leaf colors come from rank, not from a per-language table, so a repo of languages no table knows is as colorful as any other.
 
 ## Rendering decisions
 
+- The crown is capped at 200 twigs (`TWIG_BUDGET` in `grow.ts`). The heaviest branches open first; each branch left closed folds into one twig owned by the deepest folder that still owns a node. Forks between top-level folders always open. This keeps large repos as open as the approved tree and bounds geometry at any repo size.
 - One merged `BufferGeometry` for bark and one for leaves, so the whole tree is two draw calls. The mock's `onBeforeCompile` patch does grow animation and highlight on the GPU. Keep that approach.
 - Picking by a GPU id pass that renders one pixel under the pointer into a 1x1 target, not a CPU raycast. Raycasting 100k-file geometry on every pointer move is too slow.
 - Render on demand. The loop runs only while growing, spinning, damping or after input, so an idle tab costs nothing.
-- Spin orbits the camera and leaves the tree still, so the shadow map renders once per tree, not per frame.
+- Spin orbits the camera and leaves the tree still, so the shadow map renders once per tree, palette or quality change (and each frame of the grow animation), not per frame. The ground shadow is baked into a texture after each shadow map update.
+- No environment map: generating the mock's RoomEnvironment blocked the main thread for up to 1.7 s on a software GL. A calibrated hemisphere light stands in for its fill.
 - Quality tiers set pixel ratio cap, shadow map size, antialias, and leaf sprigs per twig.
 - `vite build` output loads three.js in its own chunk. Generation runs in a module worker and returns geometry as transferable buffers.
 

@@ -31,7 +31,8 @@ export type LeafMeshData = MeshData & { lang: Float32Array; shade: Float32Array 
 export type TreeModel = {
   bark: MeshData;
   leaves: LeafMeshData;
-  langs: Lang[];
+  /** Languages present, most files first. */
+  langs: { lang: Lang; files: number }[];
   /** Node ids are preorder, so every folder's nodes form one contiguous id range. */
   nodes: {
     folder: Uint32Array;
@@ -43,7 +44,8 @@ export type TreeModel = {
   };
   /** Folders in preorder, root first. `range` holds [lo, hi] node ids per folder. */
   folders: { path: string[]; range: Uint32Array };
-  labels: { folder: number; anchor: Vec3 }[];
+  /** One per top-level folder, anchored on the twig tip nearest the middle of its limb. */
+  labels: { folder: number; files: number; anchor: Vec3 }[];
   bounds: { min: Vec3; max: Vec3 };
 };
 
@@ -60,6 +62,15 @@ const SHAPE = { trunkLen: 1, spread: 1.25, lenExp: 0.3, lenK: 0.7, tropism: 0.08
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const UP: Vec3 = [0, 1, 0];
 const GROW_END = 0.86;
+/**
+ * The crown stays open at any repo size because the twig count is capped: past this many
+ * twigs, the lightest branches fold into one twig each instead of forking further.
+ */
+const TWIG_BUDGET = 200;
+const MIN_TWIG_FILES = 4;
+/** Leaf length on the approved tree, which had about APPROVED_TWIGS twigs. */
+const LEAF_LENGTH = 0.16;
+const APPROVED_TWIGS = 150;
 const LEAF_UNFOLD = 0.12;
 
 type Node = {
@@ -68,54 +79,34 @@ type Node = {
   files: FileEntry[] | null;
   folder: number;
   ownsFolder: boolean;
+  /** Folders folded into this twig that own no node of their own. */
+  absorbed: number[];
   id: number;
 };
 
 export function growTree(root: Dir, params: GrowParams): TreeModel {
-  const fileCount = root.fileCount;
-  if (fileCount === 0) throw new RangeError('growTree needs a folder with at least one file');
+  if (root.fileCount === 0) throw new RangeError('growTree needs a folder with at least one file');
   const quality = QUALITY[params.quality];
-  const twigSize = Math.max(4, Math.ceil(fileCount / 150));
-  const trunkR = Math.min(0.24, Math.max(0.09, 0.2 * (fileCount / 527) ** 0.2));
-  const leafL = 0.16 * Math.min(2, Math.max(0.85, (527 / fileCount) ** 0.3));
 
   const folderPaths: string[] = [];
-  const folderParent: number[] = [];
   const folderOf = new Map<Dir, number>();
-  const indexFolders = (dir: Dir, parent: number) => {
-    const index = folderPaths.length;
-    folderOf.set(dir, index);
+  const indexFolders = (dir: Dir) => {
+    folderOf.set(dir, folderPaths.length);
     folderPaths.push(dir.path);
-    folderParent.push(parent);
-    for (const child of dir.dirs) indexFolders(child, index);
+    for (const child of dir.dirs) indexFolders(child);
   };
-  indexFolders(root, -1);
+  indexFolders(root);
 
   const build = (dir: Dir): Node => {
     const folder = folderOf.get(dir)!;
     const kids = dir.dirs.map(build);
-    for (let i = 0; i < dir.files.length; i += twigSize) {
-      const files = dir.files.slice(i, i + twigSize);
-      kids.push({ w: files.length, kids: [], files, folder, ownsFolder: false, id: -1 });
-    }
-    return { w: dir.fileCount, kids, files: null, folder, ownsFolder: true, id: -1 };
+    for (const file of dir.files) kids.push(node(1, [], [file], folder, false));
+    const n = node(dir.fileCount, kids, null, folder, true);
+    binarize(n);
+    return n;
   };
   const top = build(root);
-
-  if (fileCount > 1500) {
-    const threshold = fileCount / 140;
-    const allFiles = (n: Node): FileEntry[] => n.files ?? n.kids.flatMap(allFiles);
-    const collapse = (n: Node, depth: number) => {
-      n.kids = n.kids.map((k) =>
-        !k.files && k.w < threshold && depth > 0
-          ? { w: k.w, kids: [], files: allFiles(k), folder: k.folder, ownsFolder: true, id: -1 }
-          : k,
-      );
-      for (const k of n.kids) if (!k.files) collapse(k, depth + 1);
-    };
-    collapse(top, 0);
-  }
-  binarize(top);
+  const twigs = cut(top);
 
   const order: Node[] = [];
   const parentOf: number[] = [];
@@ -131,31 +122,31 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
   const nodeCount = order.length;
 
   const range = new Uint32Array(folderPaths.length * 2);
-  const ranged = new Uint8Array(folderPaths.length);
   for (const n of order) {
-    if (!n.ownsFolder) continue;
-    range[2 * n.folder] = n.id;
-    range[2 * n.folder + 1] = lastOf[n.id]!;
-    ranged[n.folder] = 1;
-  }
-  for (let f = 1; f < folderPaths.length; f++) {
-    if (ranged[f]) continue;
-    const p = folderParent[f]!;
-    range[2 * f] = range[2 * p]!;
-    range[2 * f + 1] = range[2 * p + 1]!;
+    if (n.ownsFolder) {
+      range[2 * n.folder] = n.id;
+      range[2 * n.folder + 1] = lastOf[n.id]!;
+    }
+    for (const folder of n.absorbed) {
+      range[2 * folder] = n.id;
+      range[2 * folder + 1] = n.id;
+    }
   }
 
+  const trunkR = Math.min(0.24, Math.max(0.09, 0.2 * (root.fileCount / 527) ** 0.2));
   const skeleton = growSkeleton(top, nodeCount, trunkR, mulberry32(params.seed));
 
-  const langs = [...root.langs].sort((a, b) => b[1] - a[1] || cmp(a[0], b[0])).map(([l]) => l);
-  const langIndex = new Map(langs.map((l, i) => [l, i]));
+  const langs = [...root.langs]
+    .sort((a, b) => b[1] - a[1] || cmp(a[0], b[0]))
+    .map(([lang, files]) => ({ lang, files }));
+  const langIndex = new Map(langs.map(({ lang }, i) => [lang, i]));
 
   const bark = emitBark(skeleton, quality);
   const leaves = emitLeaves(
     order,
     skeleton,
     quality,
-    leafL,
+    LEAF_LENGTH * Math.min(2, Math.max(0.85, (APPROVED_TWIGS / twigs) ** 0.3)),
     (file) => langIndex.get(langOf(file.path))!,
     mulberry32(params.seed ^ 0x5bd1e995),
   );
@@ -182,6 +173,7 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
       const folder = folderOf.get(dir)!;
       return {
         folder,
+        files: dir.fileCount,
         anchor: labelAnchor(order, skeleton, range[2 * folder]!, range[2 * folder + 1]!),
       };
     }),
@@ -189,37 +181,92 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
   };
 }
 
-/** Huffman-style: merge the two lightest kids until two remain, so heavy limbs fork late. */
+const node = (
+  w: number,
+  kids: Node[],
+  files: FileEntry[] | null,
+  folder: number,
+  ownsFolder: boolean,
+): Node => ({ w, kids, files, folder, ownsFolder, absorbed: [], id: -1 });
+
+/**
+ * Huffman-style: merge the two lightest kids until two remain, so heavy limbs fork late.
+ * Merged weights only grow, so a second queue keeps them sorted without re-sorting.
+ */
 function binarize(n: Node) {
-  for (const k of n.kids) binarize(k);
   if (n.kids.length <= 2) return;
   const kids = n.kids.slice().sort((a, b) => a.w - b.w);
-  while (kids.length > 2) {
-    const a = kids.shift()!;
-    const b = kids.shift()!;
-    const merged: Node = {
-      w: a.w + b.w,
-      kids: [a, b],
-      files: null,
-      folder: n.folder,
-      ownsFolder: false,
-      id: -1,
-    };
-    if (kids.length === 1) kids.push(merged);
-    else kids.splice(upperBound(kids, merged.w), 0, merged);
+  const merged: Node[] = [];
+  let k = 0;
+  let m = 0;
+  const lightest = () =>
+    m >= merged.length || (k < kids.length && kids[k]!.w <= merged[m]!.w)
+      ? kids[k++]!
+      : merged[m++]!;
+  for (let left = kids.length; left > 2; left--) {
+    const a = lightest();
+    const b = lightest();
+    merged.push(node(a.w + b.w, [a, b], null, n.folder, false));
   }
-  n.kids = kids;
+  n.kids = [...kids.slice(k), ...merged.slice(m)];
 }
 
-function upperBound(sorted: Node[], w: number): number {
-  let lo = 0;
-  let hi = sorted.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (sorted[mid]!.w <= w) lo = mid + 1;
-    else hi = mid;
+/**
+ * Turns the full tree into at most TWIG_BUDGET twigs. It opens the heaviest branches first
+ * and folds each branch left closed into one twig that carries all its files and belongs to
+ * the deepest folder that still owns a node. The forks between top-level folders open even
+ * past the budget, so every top-level folder keeps its own limb. Returns the twig count.
+ */
+function cut(top: Node): number {
+  const opened = new Set<Node>();
+  let twigs = 1;
+  const open = (n: Node) => {
+    opened.add(n);
+    twigs += n.kids.length - 1;
+  };
+  const holdsTopFolder = (n: Node): boolean =>
+    n.ownsFolder || (!n.files && n.kids.some(holdsTopFolder));
+  open(top);
+  const forced = top.kids.filter((k) => !k.ownsFolder && holdsTopFolder(k));
+  while (forced.length > 0) {
+    const n = forced.pop()!;
+    open(n);
+    for (const k of n.kids) if (!k.ownsFolder && holdsTopFolder(k)) forced.push(k);
   }
-  return lo;
+
+  const candidates: Node[] = [];
+  const collect = (n: Node) => {
+    if (n.kids.length === 0 || n.w <= MIN_TWIG_FILES) return;
+    candidates.push(n);
+    for (const k of n.kids) collect(k);
+  };
+  collect(top);
+  const parent = new Map<Node, Node>();
+  for (const n of candidates) for (const k of n.kids) parent.set(k, n);
+  const ranked = candidates.map((n, i) => ({ n, i })).sort((a, b) => b.n.w - a.n.w || a.i - b.i);
+  for (const { n } of ranked) {
+    if (twigs >= TWIG_BUDGET) break;
+    if (!opened.has(n) && opened.has(parent.get(n)!)) open(n);
+  }
+
+  const fold = (n: Node, into: Node) => {
+    if (n.ownsFolder && n !== into) into.absorbed.push(n.folder);
+    if (n.files) into.files!.push(...n.files);
+    for (const k of n.kids) fold(k, into);
+  };
+  const close = (n: Node) => {
+    if (opened.has(n)) {
+      for (const k of n.kids) close(k);
+      return;
+    }
+    if (n.files) return;
+    const kids = n.kids;
+    n.files = [];
+    n.kids = [];
+    for (const k of kids) fold(k, n);
+  };
+  close(top);
+  return twigs;
 }
 
 type Skeleton = {

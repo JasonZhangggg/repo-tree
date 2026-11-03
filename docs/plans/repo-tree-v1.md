@@ -28,6 +28,7 @@ These are the contracts between modules. Implementation follows them. A change t
 ```ts
 // repo/ref.ts  (boundary: user input)
 type RepoRef = { owner: string; repo: string; ref?: string } & { readonly __brand: 'RepoRef' };
+type ParseError = { kind: 'invalid-ref' };
 function parseRepoRef(input: string): RepoRef | ParseError; // accepts owner/repo, github.com URLs, /tree/<ref> URLs
 
 // repo/github.ts  (boundary: network)
@@ -36,7 +37,8 @@ type FileEntry = { path: string; size: number };
 type LoadError =
   | { kind: 'not-found' } | { kind: 'rate-limited'; resetAt: number } | { kind: 'unauthorized' }
   | { kind: 'network' } | { kind: 'empty' };
-function fetchSnapshot(ref: RepoRef, token?: string, signal?: AbortSignal): Promise<Snapshot | LoadError>;
+function fetchSnapshot(ref: RepoRef, token?: string, signal?: AbortSignal): Promise<Snapshot | LoadError>; // rejects only on abort
+function loadSample(id: string): Promise<Snapshot | LoadError>; // public/samples/<id>.json.gz
 
 // repo/languages.ts  (table, not branching)
 type Lang = string & { __brand: 'Lang' };
@@ -45,8 +47,9 @@ function langOf(path: string): Lang;
 
 // repo/hierarchy.ts  (pure)
 type Dir = { path: string; name: string; dirs: Dir[]; files: FileEntry[]; fileCount: number; bytes: number; langs: Map<Lang, number> };
-type Filters = { hidden: ReadonlyArray<string> }; // glob-ish folder names: node_modules, vendor, dist, .git ...
-function buildHierarchy(snapshot: Snapshot, filters: Filters): Dir;
+type Filters = { hidden: ReadonlyArray<string> }; // folder names matched exactly at any depth
+const DEFAULT_FILTERS: Filters; // node_modules, vendor, third_party, dist, build, .git, target ...
+function buildHierarchy(snapshot: Snapshot, filters: Filters): Dir; // folders left without files are dropped
 
 // grow/grow.ts  (pure, deterministic, runs in a worker)
 type GrowParams = { seed: number; leafDensity: number; quality: Quality };

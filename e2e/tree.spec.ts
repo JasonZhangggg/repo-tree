@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { expect, test, type Page } from '@playwright/test';
+import { settle } from './view';
 
 const SAMPLES = {
   dotfiles: 'mathiasbynens-dotfiles',
@@ -41,6 +42,7 @@ async function open(page: Page, sample: Sample, errors: string[]) {
     timeout: 60_000,
   });
   await page.addStyleTag({ content: '.bar, .title, .side, .controls, #labels { display: none }' });
+  await settle(page);
 }
 
 /** Shares of the frame that are tree (dark bark or saturated leaves) and vivid leaves. */

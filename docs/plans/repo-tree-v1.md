@@ -38,7 +38,7 @@ type LoadError =
   | { kind: 'not-found' } | { kind: 'rate-limited'; resetAt: number } | { kind: 'unauthorized' }
   | { kind: 'network' } | { kind: 'empty' };
 function fetchSnapshot(ref: RepoRef, token?: string, signal?: AbortSignal): Promise<Snapshot | LoadError>; // rejects only on abort
-function loadSample(id: string): Promise<Snapshot | LoadError>; // public/samples/<id>.json.gz
+function loadSample(id: string, base?: string): Promise<Snapshot | LoadError>; // <base>samples/<id>.json.gz; a worker passes the page's base
 
 // repo/languages.ts  (table, not branching)
 type Lang = string & { __brand: 'Lang' };
@@ -65,9 +65,20 @@ type TreeModel = {
 };
 function growTree(root: Dir, params: GrowParams): TreeModel; // throws RangeError when root has no files
 
-// grow/grow-in-worker.ts
-type GrowRequest = { snapshot: Snapshot; filters: Filters; params: GrowParams } | { dir: Dir; params: GrowParams };
-function growInWorker(request: GrowRequest, signal?: AbortSignal): Promise<TreeModel>;
+// load/repo-index.ts  (pure; folders aligned with TreeModel.folders, files grouped by folder in the same order)
+type RepoIndex = { langs: Lang[];
+  folders: { parent: Int32Array; files: Uint32Array; bytes: Float64Array; langs: Int32Array /* TOP_LANGS [lang, files] pairs */; own: Uint32Array /* [first, count] */ };
+  files: { paths: string[]; size: Float64Array; folder: Uint32Array } };
+function indexRepo(root: Dir): RepoIndex;
+
+// load/load-in-worker.ts  (replaces grow/grow-in-worker.ts: fetch, parse, build and grow all run in the worker)
+type LoadSource = { kind: 'sample'; id: string; base: string } | { kind: 'github'; ref: RepoRef; token?: string; fresh: boolean };
+type LoadRequest = { source: LoadSource; filters: Filters; params: GrowParams };
+type LoadStep = 'fetch' | 'build' | 'grow';
+type RepoInfo = Omit<Snapshot, 'files'> & { files: number };
+type Loaded = { info: RepoInfo; tree: TreeModel; index: RepoIndex };
+function loadInWorker(request: LoadRequest, onStep: (step: LoadStep) => void, signal: AbortSignal): Promise<Loaded | LoadError>; // abort terminates the worker
+// load/cache.ts: GitHub snapshots are kept in IndexedDB for an hour, keyed by owner/repo@ref; `fresh` skips it.
 
 // render/palette.ts  (table)
 type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
@@ -83,6 +94,7 @@ function leafMapping(categories: { label: string; files: number }[], p: Palette)
 function createTreeView(container: HTMLElement, options: { quality: Quality; palette: PaletteId; colorBy: ColorBy; spin: boolean; reducedMotion: boolean }): TreeView;
 interface TreeView {
   setTree(model: TreeModel): void; // frames the whole tree, grows unless reduced motion
+  grow(): void; // replays the growth of the tree on show
   setPalette(id: PaletteId): void; // recolors without regrowing
   setColorBy(by: ColorBy): void; // language, or top-level folder
   legend(): LegendEntry[];
@@ -99,12 +111,30 @@ interface TreeView {
 }
 
 // app/state.ts  (one store, a reducer, no scattered flags)
+// The load in flight is separate from the repo on screen, so the old tree stays until the new one is ready.
+// A result whose id is not the current load's (replaced or cancelled) is ignored.
+type Repo = Loaded & { folderIds: Map<string, number>; sample?: string };
+type AppError = LoadError | { kind: 'unexpected' };
 type LoadState =
-  | { phase: 'idle' } | { phase: 'loading'; ref: RepoRef; step: 'fetch' | 'grow' }
-  | { phase: 'ready'; snapshot: Snapshot; tree: TreeModel; dir: Dir }
-  | { phase: 'error'; ref: RepoRef; error: LoadError };
-type Settings = { palette: PaletteId; colorBy: 'language' | 'folder'; quality: Quality; spin: boolean; labels: boolean; hidden: string[]; growAnim: boolean };
-// Quality comes from grow/grow.ts. 'auto' resolves to one of its values at startup from device signals and measured frame time
+  | { phase: 'idle' } | { phase: 'loading'; id: number; ref: RepoRef; step: LoadStep }
+  | { phase: 'error'; ref: RepoRef; error: AppError };
+type Selection = { folder: number; file?: number }; // indices into the shown repo
+type AppState = { load: LoadState; repo: Repo | null; selection: Selection | null; notice: 'truncated' | null; settings: Settings; autoQuality: Quality };
+
+// app/settings.ts  (localStorage 'repo-tree:settings'; each malformed field falls back to its default)
+type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Quality; spin: boolean; labels: boolean; growAnim: boolean; hidden: string[]; token: string };
+// 'auto' starts from devicePixelRatio and hardwareConcurrency, then steps down once if the first 2 s after growth render under 30 fps.
+// The token is sent only by fetchSnapshot, which only calls api.github.com.
+
+// app/link.ts  (URL hash: #/owner/repo?branch=&palette=&colorBy=&sel=<folder path>)
+type ViewLink = { ref: RepoRef; palette?: PaletteId; colorBy?: ColorBy; sel?: string };
+function parseLink(hash: string): ViewLink | null;
+function formatLink(link: ViewLink): string;
+// A ref naming a bundled sample on its branch (or with no branch) loads the sample; Reload fetches it live.
+
+// app/search.ts  (pure)
+type SearchHit = { kind: 'folder' | 'file'; id: number; path: string; marks: number[] };
+function createSearch(folders: readonly string[], files: readonly string[]): (query: string, limit?: number) => SearchHit[];
 ```
 
 Palettes are a table (`render/palette.ts` above). Autumn is the approved default. Spring blossom, summer green and winter are the other three. Leaf colors come from rank, not from a per-language table, so a repo of languages no table knows is as colorful as any other.

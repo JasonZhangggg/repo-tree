@@ -420,10 +420,12 @@ h1 a[aria-disabled] {
   background: var(--wash);
   padding: 4px 7px;
   border-radius: 6px;
+  text-decoration: none;
 }
 .branch svg {
   width: 12px;
   height: 12px;
+  flex: none;
 }
 .weather {
   --sky-ink: var(--muted);
@@ -458,6 +460,9 @@ h1 a[aria-disabled] {
 }
 .weather strong {
   font-weight: 600;
+}
+.weather .short {
+  display: none;
 }
 .weather span {
   color: var(--muted);
@@ -1960,6 +1965,10 @@ body:has(.scrubber:not([hidden])) .toast {
     background: none;
     color: var(--muted);
   }
+  /* The name opens the repo field here, so it drops the off-site arrow; the branch links out. */
+  h1 a svg {
+    display: none;
+  }
   .repo-switch svg {
     width: 19px;
     height: 19px;
@@ -1998,21 +2007,28 @@ body:has(.scrubber:not([hidden])) .toast {
   #samples {
     display: none;
   }
+  /* Icon and a few words, so it reads as CI status rather than a light-mode toggle. */
   .weather {
     order: 2;
+    flex: none;
     margin: 0;
-    padding: 0;
-    width: 36px;
-    height: 36px;
-    justify-content: center;
+    padding: 0 10px 0 8px;
+    height: 32px;
+    gap: 5px;
+    font-size: 12px;
+    white-space: nowrap;
   }
   .weather svg {
-    width: 17px;
-    height: 17px;
+    width: 16px;
+    height: 16px;
   }
   .weather strong,
   .weather span {
     display: none;
+  }
+  .weather .short {
+    display: inline;
+    font-weight: 600;
   }
   .seg button {
     padding: 6px 12px;
@@ -2020,7 +2036,17 @@ body:has(.scrubber:not([hidden])) .toast {
     min-height: 36px;
     align-items: center;
   }
+  /* The row's buttons never clip: the branch shortens first, and the file count goes when narrow. */
+  .meta .branch {
+    min-width: 0;
+  }
+  .meta .branch span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .meta .icon-btn {
+    flex: none;
     margin-left: auto;
     order: 1;
     width: 36px;
@@ -2326,6 +2352,22 @@ body:has(.scrubber:not([hidden])) .toast {
   }
   body:has(.scrubber:not([hidden])) .toast {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 196px);
+  }
+}
+@media (max-width: 420px) {
+  .meta .files {
+    display: none;
+  }
+}
+@media (max-width: 380px) {
+  .title {
+    gap: 8px 6px;
+  }
+  .meta .branch svg {
+    display: none;
+  }
+  .weather {
+    padding: 0 8px 0 6px;
   }
 }
 @media (max-width: 380px) {

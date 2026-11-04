@@ -9,7 +9,7 @@ import { compact, count, plural } from '../format';
 import { readRecent } from '../recent';
 import { SAMPLES } from '../samples';
 import { weatherOf, type AppState } from '../state';
-import { describeWeather } from '../weather';
+import { describeWeather, shortVerdict } from '../weather';
 
 const STEPS: { step: LoadStep; label: string }[] = [
   { step: 'fetch', label: 'Fetching' },
@@ -35,9 +35,17 @@ export function mountHeader(app: App): void {
     document.body.toggleAttribute('data-repo-open', open);
     switcher.setAttribute('aria-expanded', String(open));
   };
-  switcher.addEventListener('click', () => {
+  const openField = () => {
     setOpen(true);
     input.focus();
+  };
+  switcher.addEventListener('click', openField);
+  // On a phone the name opens the field too; the branch chip is the way to GitHub there.
+  const phone = matchMedia('(max-width: 760px)');
+  link.addEventListener('click', (event) => {
+    if (!phone.matches) return;
+    event.preventDefault();
+    openField();
   });
 
   const setInvalid = (message: string) => {
@@ -329,7 +337,18 @@ export function mountHeader(app: App): void {
     const dot = (cls = 'dot') => h('span', { class: cls, 'aria-hidden': 'true' }, '·');
     fill(
       meta,
-      h('span', { class: 'branch', title: 'Branch' }, icon(...ICONS.branch), repo.info.branch),
+      h(
+        'a',
+        {
+          class: 'branch',
+          href: githubUrl(repo.info.ref, repo.info.branch),
+          target: '_blank',
+          rel: 'noopener',
+          title: `Open ${repo.info.branch} on GitHub`,
+        },
+        icon(...ICONS.branch),
+        h('span', {}, repo.info.branch),
+      ),
       h(
         'button',
         {
@@ -351,7 +370,7 @@ export function mountHeader(app: App): void {
           )
         : null,
       repo.sample ? dot('dot opt') : null,
-      h('span', {}, plural(folders.files[0]!, 'file')),
+      h('span', { class: 'files' }, plural(folders.files[0]!, 'file')),
       dot('dot opt'),
       h('span', { class: 'opt' }, plural(folders.files.length - 1, 'folder')),
       dot('dot opt'),
@@ -388,6 +407,7 @@ export function mountHeader(app: App): void {
       weatherChip,
       icon(...ICONS[glyph]),
       h('strong', {}, verdict),
+      h('b', { class: 'short', 'aria-hidden': 'true' }, shortVerdict(verdict)),
       detail && h('span', {}, detail),
     );
   };

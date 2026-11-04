@@ -542,6 +542,14 @@ test('on a phone the repo field folds into the repo row', async ({ page, isMobil
   await page.keyboard.press('Escape');
   await expect(input).toBeHidden();
   await expect(page.locator('#title')).toBeVisible();
+  // The name opens the field as well; the branch chip is the link to GitHub.
+  await page.locator('#repo-link').click();
+  await expect(input).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#repo-meta .branch')).toHaveAttribute(
+    'href',
+    'https://github.com/vitejs/vite/tree/main',
+  );
 });
 
 test('on a phone a drag that starts on a label turns the tree', async ({ page, isMobile }) => {

@@ -1,3 +1,4 @@
+import { tracer } from '../src/core/trace';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -339,8 +340,8 @@ describe('browser engine', () => {
 const QUICK = { attempts: 4, maxWaitMs: 90_000, sleep: async () => undefined };
 
 describe('graphql reader', () => {
-  it('yields the same history as the server job did', async () => {
-    for (const recentCommits of [0, 2]) {
+  it('yields the same history as the server job did, the recent commits from tree diffs', async () => {
+    for (const recentCommits of [0, 2, 100]) {
       const expected = jobHistory(fake(), recentCommits);
       let stats: EngineStats | undefined;
       const h = await engine(fake(), {
@@ -351,7 +352,54 @@ describe('graphql reader', () => {
       expect(h).toEqual(expected);
       expect(stats!.requests.graphql).toBeGreaterThan(0);
       expect(stats!.requests.trees).toBe(0);
+      // Every recent commit's parent is listed (or it is the root): no /commits/{sha} at all.
+      expect(stats!.requests.commits).toBe(0);
     }
+  });
+
+  it('fills a trace: phases, requests by kind, batches', async () => {
+    const trace = tracer();
+    await engine(fake(), { recentCommits: 2, token: 't', trace });
+    const s = trace.summary();
+    expect(s.phases.map((p) => p.name)).toEqual([
+      'listings',
+      'probes',
+      'head tree',
+      'graphql',
+      'rest',
+      'recent',
+    ]);
+    const kinds = Object.fromEntries(s.kinds.map((k) => [k.kind, k.requests]));
+    expect(kinds.listing).toBe(1);
+    expect(kinds.graphql).toBeGreaterThan(0);
+    expect(kinds.commit).toBeUndefined();
+    expect(Object.values(s.batches).reduce((a, b) => a + b, 0)).toBe(kinds.graphql);
+    expect(s.fellBack).toBe(false);
+    expect(s.bytes).toBeGreaterThan(0);
+  });
+
+  it('reads a recent commit by REST when GraphQL left its trees unread', async () => {
+    const expected = jobHistory(fake(), 2);
+    let queries = 0;
+    const f = gitHubFetch(
+      { 'acme/app': { dir: repo.dir } },
+      {
+        // GraphQL works for the first query (the head's root) and then keeps failing.
+        inject: (url) =>
+          url.pathname === '/graphql' && queries++ > 0
+            ? Promise.resolve({ status: 502, body: '', kind: 'graphql', extra: {} })
+            : undefined,
+      },
+    );
+    let stats: EngineStats | undefined;
+    const h = await engine(f, {
+      recentCommits: 2,
+      token: 't',
+      retry: QUICK,
+      onStats: (s) => (stats = s),
+    });
+    expect(h).toEqual(expected);
+    expect(stats!.requests.commits).toBe(2);
   });
 
   it('falls back to REST when GraphQL keeps failing', async () => {

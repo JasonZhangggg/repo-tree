@@ -725,6 +725,8 @@ const JOURNEYS = {
         body: JSON.stringify({ repo: 'acme/widgets', sha: null }),
       });
       await page.addInitScript(() => {
+        // The debug flag: the refresh's breakdown shows in a toast.
+        localStorage.setItem('repo-tree:debug', '1');
         const now = Date.now;
         Date.now = () => now() + 2 * 24 * 60 * 60 * 1000;
       });
@@ -738,6 +740,7 @@ const JOURNEYS = {
       await page.getByRole('button', { name: /^Refresh/ }).click();
       await expect(scrubber).toBeVisible({ timeout: 60_000 });
       expect(await storedHead()).not.toBe(before);
+      await expect(page.locator('#toast')).toContainText(/^history acme\/widgets: .*upload/);
       await settle(page);
     });
   },

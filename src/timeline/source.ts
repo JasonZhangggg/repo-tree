@@ -14,6 +14,7 @@ import {
   type UploadResult,
 } from '../repo/history';
 import type { RepoRef } from '../repo/ref';
+import { withUpload, type TraceSummary } from '../../server/src/core/trace';
 
 /** GitHub's API, for the engine that runs in the visitor's browser (a fake in e2e runs). */
 export const GITHUB_API: string = import.meta.env.VITE_GITHUB_API || 'https://api.github.com';
@@ -22,9 +23,12 @@ export const GITHUB_API: string = import.meta.env.VITE_GITHUB_API || 'https://ap
 export type HistoryLoad = { status: 'ready'; history: History } | { status: 'missing' } | null;
 
 export type ComputeOutcome =
-  /** `shared`: what the upload said (`stored`, or why not). The history is good either way. */
-  | { status: 'ready'; history: History; shared: UploadResult }
-  | { status: 'error'; error: ComputeError };
+  /**
+   * `shared`: what the upload said (`stored`, or why not). The history is good either way.
+   * `trace`: where the time and bytes went, the upload included.
+   */
+  | { status: 'ready'; history: History; shared: UploadResult; trace?: TraceSummary }
+  | { status: 'error'; error: ComputeError; trace?: TraceSummary };
 
 export type HistorySource = {
   /** Reads the history. Rejects only on abort. */
@@ -99,6 +103,7 @@ export function historySource(
       }
     },
     compute: async ({ token, signal, onProgress }) => {
+      const started = performance.now();
       const result = await computeHistoryInWorker(ref, branch, {
         token,
         signal,
@@ -107,12 +112,21 @@ export function historySource(
         ...(spawn ? { spawn } : {}),
       });
       if (result.status === 'error') return result;
+      const from = performance.now() - started;
+      let bytes = 0;
       const shared = await uploadHistory(result.history, result.snapshots, token, {
         base: server,
         signal,
+        onBody: (n) => (bytes = n),
       });
+      const upload = { from, ms: performance.now() - started - from, bytes };
       await cacheComputed(ref, branch, result.history);
-      return { status: 'ready', history: result.history, shared };
+      return {
+        status: 'ready',
+        history: result.history,
+        shared,
+        ...(result.trace ? { trace: withUpload(result.trace, upload) } : {}),
+      };
     },
   };
 }

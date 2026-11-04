@@ -47,6 +47,13 @@ export type GitHubOptions = {
    * with backoff. Default: no retries.
    */
   retry?: RetryPolicy;
+  /** Told of each answer read (path, latency of the attempt that answered, bytes) and each wait. */
+  observe?: Observer;
+};
+
+export type Observer = {
+  request(path: string, ms: number, bytes: number, wire?: number): void;
+  waited(ms: number): void;
 };
 
 /** GitHub keeps separate budgets for REST ('core') and GraphQL, with their own resets. */
@@ -164,7 +171,17 @@ export function gitHub(options: GitHubOptions): GitHub {
   async function backOff(attempt: number, ms: number, error: Error) {
     if (attempt >= policy.attempts || ms > policy.maxWaitMs) throw error;
     retried++;
+    options.observe?.waited(ms);
     await sleep(ms, options.signal);
+  }
+
+  const clock = () => performance.now();
+  /** Reads an answer's body, telling the observer what the exchange took. */
+  async function read(path: string, sent: { res: Response; at: number }): Promise<string> {
+    const text = await sent.res.text();
+    const wire = Number(sent.res.headers.get('x-fake-gzip-bytes')) || undefined;
+    options.observe?.request(path, clock() - sent.at, text.length, wire);
+    return text;
   }
 
   async function request(
@@ -172,7 +189,7 @@ export function gitHub(options: GitHubOptions): GitHub {
     accept: string,
     init: RequestInit = {},
     api: 'core' | 'graphql' = 'core',
-  ): Promise<Response> {
+  ): Promise<{ res: Response; at: number }> {
     const { signal } = options;
     signal?.throwIfAborted();
     if (used >= options.limit) throw new OutOfRequests();
@@ -185,8 +202,9 @@ export function gitHub(options: GitHubOptions): GitHub {
     };
     if (options.token) headers.Authorization = `Bearer ${options.token}`;
     for (let attempt = 0; ; attempt++) {
+      const at = clock();
       const { res, wait, error } = await once(`${options.api}${path}`, { ...init, headers }, api);
-      if (res) return res;
+      if (res) return { res, at };
       // wait -1: a transient failure, backed off 1 s, 2 s, 4 s ... with jitter.
       const ms = wait === -1 ? 1000 * 2 ** attempt * (0.75 + Math.random() / 2) : wait!;
       await backOff(attempt, ms, error!);
@@ -207,28 +225,29 @@ export function gitHub(options: GitHubOptions): GitHub {
       return retried;
     },
     async json(path) {
-      const res = await request(path, 'application/vnd.github+json');
+      const sent = await request(path, 'application/vnd.github+json');
       try {
-        return { body: await res.json(), link: res.headers.get('link') };
+        return { body: JSON.parse(await read(path, sent)), link: sent.res.headers.get('link') };
       } catch {
         if (options.signal?.aborted) throw options.signal.reason;
         throw new UpstreamError('upstream');
       }
     },
     async text(path, accept) {
-      return (await request(path, accept)).text();
+      return read(path, await request(path, accept));
     },
     async graphql(query) {
       for (let attempt = 0; ; attempt++) {
-        const res = await request(
+        const sent = await request(
           '/graphql',
           'application/json',
           { method: 'POST', body: JSON.stringify({ query }) },
           'graphql',
         );
+        const { res } = sent;
         let body: unknown;
         try {
-          body = await res.json();
+          body = JSON.parse(await read('/graphql', sent));
         } catch {
           if (options.signal?.aborted) throw options.signal.reason;
           throw new GraphQLError(['unreadable reply'], []);

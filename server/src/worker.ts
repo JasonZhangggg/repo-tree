@@ -56,6 +56,8 @@ export type Env = {
   UPLOADS_PER_DAY?: string;
   /** Bytes all stored histories may take together (the ledger). */
   STORED_BYTES?: string;
+  /** KV writes and deletes a day (puts and evictions). */
+  KV_WRITES_PER_DAY?: string;
   /** Requests a minute per IP, and uploads a minute per IP (Workers rate limiting). */
   LIMITER?: RateLimit;
   UPLOAD_LIMITER?: RateLimit;
@@ -186,6 +188,7 @@ export function ledgerLimits(env: Env): LedgerLimits {
     perLogin: n(env.UPLOADS_PER_LOGIN, DEFAULT_LEDGER_LIMITS.perLogin),
     perDay: n(env.UPLOADS_PER_DAY, DEFAULT_LEDGER_LIMITS.perDay),
     maxBytes: n(env.STORED_BYTES, DEFAULT_LEDGER_LIMITS.maxBytes),
+    writesPerDay: n(env.KV_WRITES_PER_DAY, DEFAULT_LEDGER_LIMITS.writesPerDay),
   };
 }
 
@@ -248,6 +251,11 @@ async function upload(
     now: Date.now(),
   });
   if (!reserved.ok) return error(reserved.error, reserved.retryAfter);
+  // Room was made by evicting the oldest histories (the ledger already forgot them). A delete
+  // that fails leaves a body KV drops at its TTL, so the put goes ahead either way.
+  await Promise.all(
+    (reserved.evict ?? []).map((k) => env.HISTORY.delete(k).catch(() => undefined)),
+  );
   try {
     await env.HISTORY.put(key, body, {
       metadata: verdict.manifest,

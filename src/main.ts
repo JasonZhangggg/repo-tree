@@ -106,10 +106,12 @@ const app: App = {
   openSettings: (focus) => settings.open(focus),
   openSearch: () => search.open(),
   toast(message) {
+    const long = message.length > 120;
     toastEl.textContent = message;
+    toastEl.classList.toggle('long', long);
     toastEl.classList.add('on');
     clearTimeout(toastTimer);
-    toastTimer = window.setTimeout(() => toastEl.classList.remove('on'), 2400);
+    toastTimer = window.setTimeout(() => toastEl.classList.remove('on'), long ? 30_000 : 2400);
   },
 };
 

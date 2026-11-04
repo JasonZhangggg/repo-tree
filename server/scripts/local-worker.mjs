@@ -41,7 +41,7 @@ const kv = {
 };
 /** Ledger caps: the production defaults unless set (UPLOADS_PER_LOGIN, ...). */
 const vars = Object.fromEntries(
-  ['UPLOADS_PER_LOGIN', 'UPLOADS_PER_DAY', 'STORED_BYTES'].flatMap((k) =>
+  ['UPLOADS_PER_LOGIN', 'UPLOADS_PER_DAY', 'STORED_BYTES', 'KV_WRITES_PER_DAY'].flatMap((k) =>
     process.env[k] ? [[k, process.env[k]]] : [],
   ),
 );

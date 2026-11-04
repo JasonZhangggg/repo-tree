@@ -75,7 +75,7 @@ function snapshotDigest(snapshots: { sha: string; at: number }[]): Promise<strin
 // POST <...>/{owner}/{repo}/bad?branch=&head=  202 noted: a reader could not use the stored body; the next upload for that head may replace it.
 // Uploads are taken for the repo's default branch only. Localhost origins only when the ALLOW_LOCALHOST var is set (local runs, e2e).
 // KV (the store): key `h1:${repo.toLowerCase()}@${branch}` (core/upload.ts historyKey), value the body untouched, metadata the StoredManifest,
-// 90-day TTL, one write per accepted upload, none per job step or sign-in. The Worker never decompresses or parses a body (10 ms CPU);
+// 90-day TTL, one write per accepted upload (plus a delete per eviction), none per job step or sign-in. The Worker never decompresses or parses a body (10 ms CPU);
 // it reads the gzip trailer's ISIZE and refuses past MAX_INFLATED_BYTES.
 // core/upload.ts: parseManifest also wants unique shas, the head last, time order, and followsSchedule(snapshots): at most one snapshot per
 //   schedule(head.at, root.at, 80) target, at or before it (as the engine picks). There is no floor: a sparse branch has few snapshots.
@@ -86,14 +86,19 @@ function snapshotDigest(snapshots: { sha: string; at: number }[]): Promise<strin
 type LedgerRequest = { op: 'check'; key: string; head: string; now: number } /* before GitHub requests */
   | { op: 'reserve'; key: string; head: string; bytes: number; login: string; now: number } /* before the KV put: counts one write */
   | { op: 'release'; key; head; now } /* the put failed */ | { op: 'bad'; key; head; now } /* a reader's report */;
-type LedgerReply = { ok: true } | { ok: false; error: 'exists' | 'rate-limited' | 'full'; retryAfter?: number /* to UTC midnight */ };
-type LedgerLimits = { perLogin: 20; perDay: 200; maxBytes: 500 MB; replaceAfterMs: 1 day; ttlMs: 90 days }; // vars UPLOADS_PER_LOGIN, UPLOADS_PER_DAY, STORED_BYTES
+type LedgerReply = { ok: true; evict?: string[] /* KV keys the Worker deletes before its put */ } | { ok: false; error: 'exists' | 'rate-limited' | 'full'; retryAfter?: number /* to UTC midnight */ };
+type LedgerLimits = { perLogin: 20; perDay: 200; maxBytes: 500 MB; writesPerDay: 400; evictPerUpload: 20; replaceAfterMs: 1 day; ttlMs: 90 days };
+// vars UPLOADS_PER_LOGIN, UPLOADS_PER_DAY, STORED_BYTES, KV_WRITES_PER_DAY. Past maxBytes a reserve evicts FIFO: entries reported bad first, then
+// the oldest by stored_at, at most evictPerUpload, else 'full'. Each eviction's KV delete counts in writesPerDay with the put. No LRU: a view
+// would cost a Durable Object request per read.
 // A stored head is refused as 'exists' unless it was reported bad or is a day old; a new head replaces it. Bytes count a replaced entry once.
 // Readers (repo/history.ts agrees) drop a body unless its repo, branch, head, snapshot count and snapshotDigest match the StoredManifest.
 
 // server/src/core/engine.ts  (pure but for the injected fetch; runs in the visitor's browser in repo/history-worker.ts, and in Node for tests and scripts)
 type EngineOptions = { fetch: typeof fetch; api: string; token?: string; repo: string /* owner/repo */; branch: string; signal?: AbortSignal;
-  onProgress?: (p: number) => void; concurrency?: number; recentCommits?: number /* 100 */; maxSnapshots?: number; reader?: 'graphql' | 'rest';
+  onProgress?: (p: number, bytes: number /* body bytes read so far */) => void; concurrency?: number /* 6 */; recentCommits?: number /* 100 */;
+  maxSnapshots?: number; sparse?: boolean /* every other week and month past the 12th: a subset of schedule() */; reader?: 'graphql' | 'rest';
+  trace?: Trace /* core/trace.ts, filled with where the run's time and bytes went */;
   checkpoint?: Checkpoint /* pass the same one again to resume after a failure */; treeBudget?: number; now?: () => number;
   onStats?: (stats: EngineStats) => void; onSamples?: (snapshots: { sha: string; at: number; tree: string }[]) => void /* the UploadManifest's snapshots */ };
 function computeHistory(options: EngineOptions): Promise<History>; // rejects with { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt }
@@ -101,6 +106,14 @@ function computeHistory(options: EngineOptions): Promise<History>; // rejects wi
 // RATE_LIMITED, a secondary limit's 403 or 200 message) waits for retry-after or the reset when it is near, else rejects rate-limited.
 // A GraphQL 5xx (a timeout) is not retried: the loader splits the batch. Partial GraphQL data comes back; its null objects are asked once more.
 // A resumed run re-reads the newest commits page (the branch may have moved); trees held by sha are kept.
+// With GraphQL the recent commits' changes are diffs of their trees and their listed parents' (treeChanges), read with the snapshots'
+// trees; only a commit whose parent is unlisted or whose trees stayed unread takes a REST /commits/{sha}. The head's trees start before
+// the root lookup; probes go first in the request pool, and a target out of the last page's reach (by twice its span) is probed ahead.
+// GraphQL batches start at 100 trees and grow to 400; a part batch goes once 100 are queued or nothing is in flight.
+// core/trace.ts: tracer() → Trace { begin/end(phase), request(kind, ms, bytes, wire?), waited, batch, cpu, summary(): TraceSummary };
+// TraceSummary = { ms; phases: { name: 'listings' | 'probes' | 'head tree' | 'graphql' | 'rest' | 'recent' | 'upload'; from; ms }[];
+//   kinds: { kind: 'listing' | 'probe' | 'tree' | 'graphql' | 'commit' | 'blob' | 'upload'; requests; bytes; wire?; meanMs; p90Ms }[];
+//   requests; bytes; waitedMs; retried; batches: Record<size, queries>; failed; fellBack; cpuMs }; formatTrace(repo, s) is one line.
 type Checkpoint = { pages: Map<string, { commits: CommitSummary[]; link: string | null }>; store: TreeStore; changes: Map<string, { files: FileChange[]; capped: boolean }>; codeowners: Map<string, string> };
 // core/store.ts TreeStore: every distinct tree object read, once, in typed arrays (a tree id per oid; entries of name id, mode, ref sorted by name;
 // a folder's ref is its tree id, a file's the first 52 bits of its blob oid). id(oid), add(t, entries), loaded(t), length/name/mode/ref/find(t, ...), count(t).
@@ -112,15 +125,15 @@ function fetchHistory(ref: RepoRef, branch: string, options?: { base?: string; s
 // manifest is 'missing', so the compute offer shows, and is reported with POST .../bad (best effort).
 function loadHistory(ref, branch, options & { fresh?: boolean }): Promise<HistoryResult>; // behind load/cache.ts, six hours under history:owner/repo@branch
 type UploadResult = 'stored' | HistoryError | 'network';
-function uploadHistory(history: History, snapshots: Snapshot[], token: string, options?: { base?: string; signal?: AbortSignal }): Promise<UploadResult>; // gzips with CompressionStream, PUTs with its UploadManifest
+function uploadHistory(history: History, snapshots: Snapshot[], token: string, options?: { base?: string; signal?: AbortSignal; onBody?: (bytes: number) => void }): Promise<UploadResult>; // gzips with CompressionStream, PUTs with its UploadManifest
 function cacheComputed(ref, branch, history: History): Promise<void>; // a computed history, cached as if fetched
 
 // repo/compute-history.ts  (boundary: the engine in a module Worker; a failed or cancelled run's worker is kept, with its checkpoint, to resume)
 type ComputeRequest = { run: number; repo: string; branch: string; token?: string; api: string }; type ComputeCommand = ComputeRequest | { cancel: number /* run */ };
-type ComputeMessage = { run: number } & ({ progress: number } | { history: History; snapshots: Snapshot[] } | { error: ComputeError }); // another run's are ignored
+type ComputeMessage = { run: number } & ({ progress: number } | { history: History; snapshots: Snapshot[]; trace?: TraceSummary } | { error: ComputeError; trace?: TraceSummary }); // another run's are ignored
 type Snapshot = { sha: string; at: number; tree: string };
 type ComputeError = { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt: number };
-type ComputeResult = { status: 'ready'; history: History; snapshots: Snapshot[] } | { status: 'error'; error: ComputeError };
+type ComputeResult = { status: 'ready'; history: History; snapshots: Snapshot[]; trace?: TraceSummary } | { status: 'error'; error: ComputeError; trace?: TraceSummary };
 function computeHistoryInWorker(ref, branch, options?: { token?: string | null; signal?: AbortSignal; onProgress?: (p: number) => void; api?: string; spawn?: () => WorkerLike }): Promise<ComputeResult>; // rejects only on abort
 function loadSampleHistory(id: string, base?: string): Promise<History | null>; // <base>samples/<id>.history.json.gz
 function parseHistory(body: unknown): History | null; // version and column alignment checked
@@ -251,7 +264,9 @@ function formatLink(link: ViewLink): string;
 
 // timeline/source.ts  (boundary: where History comes from; swap the source here alone)
 type HistoryLoad = { status: 'ready'; history: History } | { status: 'missing' } | null;
-type ComputeOutcome = { status: 'ready'; history: History; shared: UploadResult } | { status: 'error'; error: ComputeError };
+type ComputeOutcome = { status: 'ready'; history: History; shared: UploadResult; trace?: TraceSummary /* the upload added */ } | { status: 'error'; error: ComputeError; trace?: TraceSummary };
+// app/ui/history-compute.ts logs formatTrace for every run (console.info) and keeps it in window.__repoTree.computeTrace; with the debug flag
+// (app/debug.ts debugEnabled: `?debug` in the address, or localStorage repo-tree:debug = 1) it also shows it in a toast.
 type HistorySource = { load(signal: AbortSignal): Promise<HistoryLoad>;
   compute: ((o: { token: string; signal: AbortSignal; onProgress?: (p: number) => void }) => Promise<ComputeOutcome>) | null /* samples, no server, or a ref other than the default branch */;
   outdated: ((history: History, token: string, signal: AbortSignal) => Promise<boolean>) | null /* computedAt over STALE_AFTER_MS (1 day) ago and GitHub's branch head differs */ };

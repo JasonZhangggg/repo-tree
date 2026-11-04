@@ -4,7 +4,7 @@ A small Cloudflare Worker that stores each repo's commit history (when each file
 
 ## How it works
 
-- **The browser computes.** The engine samples up to 80 first-parent commits, spaced weekly for 26 weeks, monthly back to two years, then yearly back to the root. It reads their trees through GitHub's GraphQL API and the newest 100 commits for exact recent dates and authors. A small repo costs a few dozen requests and well under 1 MB. Linux costs about 85 MB and roughly 500 MB of tab memory, so the app warns first on a big repo or a phone. The result is a `History` (`src/shape.ts`) of 0.05 MB gzipped for vite and 0.86 MB for Linux.
+- **The browser computes.** The engine samples up to 80 first-parent commits, spaced weekly for 26 weeks, monthly back to two years, then yearly back to the root. It reads their trees through GitHub's GraphQL API, up to 400 to a query. It dates the newest 100 commits exactly from diffs of their trees, which come with the snapshots' in the same queries rather than a request each. Modelled on GitHub's latency (`scripts/measure.mjs --latency github`), vite takes about 88 requests, 2.1 MB and 19 s; supabase/supabase about 148 requests, 14 MB and 40 s; and Linux about 400 requests, 87 MB and 140 s, with roughly 500 MB of tab memory, so the app warns first on a big repo or a phone. Each run logs where its time went to the console (`history <repo>: …`), and with `?debug` in the address it also shows in a toast. The result is a `History` (`src/shape.ts`) of 0.05 MB gzipped for vite and 0.86 MB for Linux.
 - **One history per repo.** Only the repo's default branch is stored. The app offers to compute only for a repo opened at its default branch. An upload for another branch is refused (`not-default-branch`), so branches cannot multiply the writes.
 - **Upload.** `PUT /v1/history/{owner}/{repo}?branch=` carries:
   - `Authorization: Bearer <the visitor's token>`;
@@ -21,7 +21,7 @@ A small Cloudflare Worker that stores each repo's commit history (when each file
 
 - **The ledger decides, then one KV write.** The `Ledger` Durable Object (`src/core/ledger.ts`, SQLite-backed, one global instance) runs each check-and-count alone. The Worker asks it twice:
   - **Before GitHub:** is this head already stored and good under this key (`exists`), or is today's global cap taken (`rate-limited`)?
-  - **After GitHub's checks:** may this login write once more today (20 a day), may the Worker (200 a day in all), and does the body fit the stored-bytes budget (500 MB, `full`)?
+  - **After GitHub's checks:** may this login write once more today (20 a day), may the Worker (200 a day in all), and does the body fit the stored-bytes budget (500 MB)? Past the budget, the ledger evicts the oldest histories first-in first-out, any reported bad before the rest, at most 20 for one upload, and the Worker deletes them from KV before its put. Each delete is a KV write, so the day's budget of 400 KV writes (`KV_WRITES_PER_DAY`) counts the put and its deletes together. A body that 20 evictions cannot make room for is refused as `full`. Views are not tracked (no LRU), because that would cost a ledger request on every read.
 
   Only then does the Worker write the body to KV with a `StoredManifest` as metadata: the repo, branch, head, snapshot count, a SHA-256 digest of the snapshots' `sha at` lines, the byte count, the uploader and the time.
 
@@ -58,20 +58,20 @@ The history is cosmetic data about a public repo, and the checks are sized to th
   - **Anonymous reports.** Anyone can report a stored body bad. That only lets the next good upload replace it, within the caps.
 - **How bad:**
   - **Scope.** One repo's timeline shows wrong data for a while. Nothing reaches the tree itself, which comes from GitHub directly, and no visitor's token or data is exposed.
-  - **Quota.** The worst case is bounded by the ledger: 20 writes a day per GitHub account, 200 a day in all (of the account's 1,000 KV writes), 500 MB stored (of KV's 1 GB), and 2 MiB per body.
+  - **Quota.** The worst case is bounded by the ledger: 20 writes a day per GitHub account, 200 a day in all, 400 KV writes and deletes a day (of the account's 1,000), 500 MB stored (of KV's 1 GB), and 2 MiB per body. Uploading many histories rotates older ones out, so it costs other repos their shared history (they can compute it again) but never the quota.
   - **Many accounts.** An attacker with many GitHub accounts can use up the day's 200 writes. That stops sharing for everyone until midnight UTC, but computing in the browser still works.
   - **Clean-up.** The owner can delete a key with `npx wrangler kv key delete --binding HISTORY 'h1:<owner/repo, lowercase>@<branch>'`. The `by` login in its metadata names the uploader.
 
 ## Limits (free plan)
 
-| Route                                | Worker CPU (measured)    | Subrequests         | KV              | Ledger (DO)         |
-| ------------------------------------ | ------------------------ | ------------------- | --------------- | ------------------- |
-| `GET /v1/history/...`                | 0.70 ms Linux, 0.20 vite | 0                   | 1 read          | none                |
-| `PUT /v1/history/...`                | 2.4 ms Linux, 1.5 vite   | 8 GitHub + 2 ledger | 1 write, 0 read | 2 requests, ~0.3 ms |
-| `PUT` refused as `exists` or day cap | under 1 ms               | 1 ledger            | none            | 1 request           |
-| `POST /v1/history/.../bad?head=`     | under 1 ms               | 1 ledger            | none            | 1 request           |
-| `GET /v1/auth/login`                 | under 1 ms (one HMAC)    | 0                   | none            | none                |
-| `GET /v1/auth/callback`              | under 1 ms               | 1 GitHub            | none            | none                |
+| Route                                | Worker CPU (measured)    | Subrequests         | KV                                          | Ledger (DO)         |
+| ------------------------------------ | ------------------------ | ------------------- | ------------------------------------------- | ------------------- |
+| `GET /v1/history/...`                | 0.70 ms Linux, 0.20 vite | 0                   | 1 read                                      | none                |
+| `PUT /v1/history/...`                | 2.4 ms Linux, 1.5 vite   | 8 GitHub + 2 ledger | 1 write, 0 read, up to 20 deletes when full | 2 requests, ~0.3 ms |
+| `PUT` refused as `exists` or day cap | under 1 ms               | 1 ledger            | none                                        | 1 request           |
+| `POST /v1/history/.../bad?head=`     | under 1 ms               | 1 ledger            | none                                        | 1 request           |
+| `GET /v1/auth/login`                 | under 1 ms (one HMAC)    | 0                   | none                                        | none                |
+| `GET /v1/auth/callback`              | under 1 ms               | 1 GitHub            | none                                        | none                |
 
 `node scripts/worker-cpu.mjs <history.json>` measures the Worker's CPU in Node with GitHub and the ledger answered from memory. It measures one ledger call separately, on node:sqlite. Workers run the same V8, so treat the numbers as estimates. The Durable Object's CPU is its own, not the Worker's.
 
@@ -79,7 +79,7 @@ The free plan allows 100,000 Durable Object requests a day and 5 GB of SQLite st
 
 - **Requests.** Each IP gets 60 requests a minute (the `LIMITER` binding).
 - **Uploads.** Each IP gets 2 uploads a minute (`UPLOAD_LIMITER`). Each GitHub login gets 20 stored uploads a day (`UPLOADS_PER_LOGIN`) and the Worker 200 in all (`UPLOADS_PER_DAY`), counted in the ledger, so the caps are global and exact. An upload over a limit answers `429` with `Retry-After`. For the daily caps that is the seconds to midnight UTC.
-- **Storage.** All stored bodies together stay under 500 MB (`STORED_BYTES`, `507 full` past it). A body is at most 2 MiB (`413`), over twice Linux's, and unpacks to at most 64 MiB.
+- **Storage.** All stored bodies together stay under 500 MB (`STORED_BYTES`). Past it the oldest are evicted, at most 20 an upload, and `507 full` only when that is not enough. A body is at most 2 MiB (`413`), over twice Linux's, and unpacks to at most 64 MiB.
 - **CORS.** `ALLOWED_ORIGINS` only. Localhost origins are allowed only when `ALLOW_LOCALHOST` is `1`, which `scripts/local-worker.mjs` and `wrangler dev --var ALLOW_LOCALHOST:1` set and `wrangler.toml` does not. Other origins get `403`.
 
 **Its own account, ideally.** The free plan's quotas apply per Cloudflare account, not per Worker: requests, KV reads and writes, KV storage and Durable Object requests. A Worker on an account shared with another project shares those quotas, and either project can use them up for the other. The caps above keep this Worker within about a fifth of the KV writes and half the KV storage. Running it on an account of its own removes the overlap. The setup steps below work either way.
@@ -144,7 +144,7 @@ npx wrangler dev --var ALLOW_LOCALHOST:1 --var GITHUB_API:http://127.0.0.1:8791 
 
 Other helpers:
 
-- `FAKE_NETWORK=<rtt ms>,<bytes per ms>` slows the fake down, to watch progress. `POST /__head {repo, sha}` moves a branch head, as a push would.
+- `FAKE_NETWORK=<rtt ms>,<bytes per ms>` slows the fake down, to watch progress. `FAKE_LATENCY=github` adds GitHub's own time to answer (REST 150 to 400 ms, GraphQL about 0.8 s for 100 small trees to 3 s for 100k entries), and `node scripts/measure.mjs --latency github <repo>` measures a run under it, phase by phase. `POST /__head {repo, sha}` moves a branch head, as a push would.
 - From the repo root, `node e2e/history-stack.mjs <app> <worker> <fake>` starts all three with a small test repo, `acme/widgets`. The Playwright `history` project and the `verify-repo-tree` skill's `history-compute` journey use it.
 
 `npm run check` typechecks and runs the tests. They build small git repos and drive the engine, the upload checks, the ledger and the Worker's routes through the same fake. `node scripts/save-history.mjs <api url> <owner/repo> <branch> <out.history.json.gz> [token]` runs the engine in Node and writes a history file like the bundled samples in `public/samples/`.

@@ -60,9 +60,15 @@ afterAll(() => {
 function kv() {
   const data = new Map<string, { value: Uint8Array; metadata: unknown }>();
   const writes: string[] = [];
+  const deletes: string[] = [];
   const store = {
     data,
     writes,
+    deletes,
+    delete: async (key: string) => {
+      deletes.push(key);
+      data.delete(key);
+    },
     getWithMetadata: async (key: string) => {
       const hit = data.get(key);
       if (!hit) return { value: null, metadata: null };
@@ -427,15 +433,37 @@ describe('history routes', () => {
     expect(store.writes).toHaveLength(1);
   });
 
-  it('caps the bytes stored in all', async () => {
+  it('makes room past the bytes budget by evicting the oldest history from KV', async () => {
     const size = gzipSync(JSON.stringify(history)).byteLength;
-    const { e, store } = env({}, { STORED_BYTES: String(size + 10) });
+    const { e, store } = env({}, { STORED_BYTES: String(2 * size + 10) });
     expect((await put(e)).status).toBe(201);
-    const full = await as(e, 'acme/twin');
+    expect((await as(e, 'acme/twin')).status).toBe(201);
+    expect(store.deletes).toEqual([]);
+    expect((await as(e, 'acme/third')).status).toBe(201);
+    // The first one stored goes, before the put; the other two stay.
+    expect(store.deletes).toEqual(['h1:acme/app@main']);
+    expect([...store.data.keys()].sort()).toEqual(['h1:acme/third@main', 'h1:acme/twin@main']);
+    expect((await call(e, '/v1/history/acme/app?branch=main')).status).toBe(404);
+  });
+
+  it("counts eviction deletes in the day's KV writes", async () => {
+    const size = gzipSync(JSON.stringify(history)).byteLength;
+    const { e, store } = env({}, { STORED_BYTES: String(size + 10), KV_WRITES_PER_DAY: '2' });
+    expect((await put(e)).status).toBe(201);
+    // One put and one delete would make three writes today.
+    const res = await as(e, 'acme/twin');
+    expect(res.status).toBe(429);
+    expect(store.deletes).toEqual([]);
+    expect(store.writes).toHaveLength(1);
+  });
+
+  it('refuses as full a body bigger than the whole budget', async () => {
+    const size = gzipSync(JSON.stringify(history)).byteLength;
+    const { e, store } = env({}, { STORED_BYTES: String(size - 1) });
+    const full = await put(e);
     expect(full.status).toBe(507);
     expect(await full.json()).toMatchObject({ error: 'full' });
-    // Replacing the stored one does not count it twice.
-    expect(store.writes).toHaveLength(1);
+    expect(store.writes).toHaveLength(0);
   });
 });
 

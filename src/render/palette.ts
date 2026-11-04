@@ -1,8 +1,11 @@
 import { litColor } from './color';
 
 export type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
-/** `activity` needs the repo's history: leaves take how long ago their files changed. */
-export type ColorBy = 'language' | 'folder' | 'activity';
+/**
+ * `activity` and `owner` need the repo's history: leaves take how long ago their files changed,
+ * or who owns their top-level folder.
+ */
+export type ColorBy = 'language' | 'folder' | 'activity' | 'owner';
 
 /**
  * Leaf colors for `activity`, one per timeline/facts.ts AGES band and the same in every palette:

@@ -4,7 +4,8 @@ import { TOP_LANGS } from '../../load/repo-index';
 import { githubUrl, nameOf, type App } from '../app';
 import { byId, fill, h, icon, ICONS } from '../dom';
 import { bytes, count, percent, plural } from '../format';
-import { factsOf, type AppState, type Repo } from '../state';
+import { NO_OWNER, type Owners } from '../../timeline/owners';
+import { factsOf, needsHistory, type AppState, type Repo } from '../state';
 
 const FOLDER_ROWS = 10;
 const MONTH = new Intl.DateTimeFormat('en-US', {
@@ -13,15 +14,34 @@ const MONTH = new Intl.DateTimeFormat('en-US', {
   timeZone: 'UTC',
 });
 
-/** Why activity colors are not on yet, or null once they are (or not asked for). */
-function activityWait(state: AppState): string | null {
-  if (state.settings.colorBy !== 'activity' || factsOf(state)) return null;
+/** Why activity or owner colors are not on yet, or null once they are (or not asked for). */
+function historyWait(state: AppState): string | null {
+  if (!needsHistory(state) || factsOf(state)) return null;
   const status = state.history?.repo === state.repo ? state.history?.status : 'loading';
   if (status === 'missing') return 'No history for this repo yet. Open the timeline to compute it.';
   if (status === 'unavailable') return 'History is unavailable for this repo.';
   return 'Loading history…';
 }
 const SUB_ROWS = 5;
+
+/** Owners on show, once the history is in and leaves are colored by owner. */
+const ownersOf = (state: AppState): Owners | null =>
+  state.settings.colorBy === 'owner' ? (factsOf(state)?.owners ?? null) : null;
+
+/** The owner a top-level folder's leaves take, as a legend label. */
+const ownerLabel = (owners: Owners, repo: Repo, f: number): string =>
+  owners.folders.get(repo.tree.folders.path[f]!)?.owner ?? NO_OWNER;
+
+/** Where owner colors come from, for the legend note. */
+function ownerNote(state: AppState): string | null {
+  const owners = ownersOf(state);
+  if (!owners) return null;
+  const { from } = owners;
+  const pick = 'pick a color to highlight their leaves.';
+  if (from === 'codeowners') return `Owners from CODEOWNERS; ${pick}`;
+  if (from === 'mixed') return `CODEOWNERS where it names one, else the top commit author; ${pick}`;
+  return `Each top-level folder's top commit author${owners.codeownersUnread ? ' (CODEOWNERS could not be read)' : ''}; ${pick}`;
+}
 
 /** Children of a folder, most files first. */
 export function childrenOf(repo: Repo, folder: number): number[] {
@@ -238,13 +258,18 @@ export function mountSide(app: App): void {
     const tops = childrenOf(repo, 0);
     const most = files[tops[0] ?? 0] || 1;
     const facts = state.settings.colorBy === 'activity' ? factsOf(state) : null;
+    const owners = ownersOf(state);
     const bands = view.legend();
+    // An owner past the named entries is in the last, "N more", entry.
+    const ownerColor = (f: number) =>
+      (bands.find((e) => e.label === ownerLabel(owners!, repo, f)) ?? bands.at(-1))?.color ?? rest;
     const colorOf = (f: number) =>
       facts
         ? bands[facts.folderBand[f]!]!.color
         : state.settings.colorBy === 'folder'
           ? (byFolder.get(repo.tree.folders.path[f]!) ?? rest)
           : (colors.get(repo.index.langs[langs[f * TOP_LANGS * 2]!]!) ?? rest);
+    const barColor = owners ? ownerColor : colorOf;
     folders.replaceChildren(
       ...tops.slice(0, FOLDER_ROWS).map((f) =>
         h(
@@ -267,7 +292,7 @@ export function mountSide(app: App): void {
               'span',
               { class: 'bar-track', 'aria-hidden': 'true' },
               h('i', {
-                style: `width:${Math.max(3, (files[f]! / most) * 100)}%;--c:${colorOf(f)}`,
+                style: `width:${Math.max(3, (files[f]! / most) * 100)}%;--c:${barColor(f)}`,
               }),
             ),
             h('span', { class: 'num' }, count(files[f]!)),
@@ -298,9 +323,11 @@ export function mountSide(app: App): void {
     legendTitle.textContent =
       state.settings.colorBy === 'folder'
         ? 'Leaf colors by folder'
-        : state.settings.colorBy === 'activity' && factsOf(state)
-          ? 'Leaf colors by activity'
-          : 'Leaf colors by language';
+        : ownersOf(state)
+          ? 'Leaf colors by owner'
+          : state.settings.colorBy === 'activity' && factsOf(state)
+            ? 'Leaf colors by activity'
+            : 'Leaf colors by language';
     legend.replaceChildren(
       ...entries.map(({ color, label, files }) =>
         h(
@@ -337,10 +364,49 @@ export function mountSide(app: App): void {
     const facts = state.settings.colorBy === 'activity' ? factsOf(state) : null;
     legendNote.textContent = entry
       ? `${shownLabel(state, entry.label)} · ${plural(entry.files, 'file')}`
-      : (activityWait(state) ??
+      : (historyWait(state) ??
         (facts
           ? `Last change, as of ${MONTH.format(facts.asOf)}. Dead wood is 3+ years untouched; pick a color to highlight its leaves.`
-          : 'Pick a color to highlight its leaves.'));
+          : (ownerNote(state) ?? 'Pick a color to highlight its leaves.')));
+  };
+
+  /** A top-level folder's top authors and CODEOWNERS, while leaves are colored by owner. */
+  const ownerCard = (state: AppState, folder: number): (HTMLElement | null)[] => {
+    const repo = state.repo!;
+    const owners = ownersOf(state);
+    const row = owners?.folders.get(repo.tree.folders.path[folder]!);
+    if (!owners || !row || repo.index.folders.parent[folder] !== 0) return [];
+    const entries = view.legend();
+    const rest = slotColors(PALETTES[state.settings.palette]).at(-1)!;
+    const busiest = row.authors[0]?.commits || 1;
+    const since = owners.since ? `commits since ${MONTH.format(owners.since)}` : 'commits';
+    return [
+      h('h3', { class: 'h' }, row.authors.length ? `Top authors · ${since}` : 'Owners'),
+      row.authors.length
+        ? h(
+            'ul',
+            { class: 'langs', 'aria-label': 'Top authors' },
+            ...row.authors.map(({ name, commits }) => {
+              const c = entries.find((e) => e.label === name)?.color ?? rest;
+              return h(
+                'li',
+                {},
+                h('i', { class: 'swatch', style: `--c:${c}` }),
+                h('span', { title: name }, name),
+                h(
+                  'span',
+                  { class: 'bar-track', 'aria-hidden': 'true' },
+                  h('i', { style: `width:${Math.max(3, (commits / busiest) * 100)}%;--c:${c}` }),
+                ),
+                h('span', { class: 'num', title: plural(commits, 'commit') }, count(commits)),
+              );
+            }),
+          )
+        : null,
+      row.codeowners.length
+        ? h('p', { class: 'more' }, `CODEOWNERS: ${row.codeowners.join(', ')}`)
+        : null,
+    ];
   };
 
   const renderDetail = (state: AppState) => {
@@ -465,6 +531,7 @@ export function mountSide(app: App): void {
             }),
           )
         : null,
+      ...ownerCard(state, folder),
       subs.length ? h('h3', { class: 'h' }, 'Largest subfolders') : null,
       subs.length
         ? h(

@@ -29,6 +29,18 @@ export function estimateCompute(headEntries: number): Estimate {
   return { downloadMB, memoryMB: 60 + 5.5 * downloadMB, big: downloadMB >= BIG_MB };
 }
 
+/**
+ * Bringing a stored history up to date (server/src/core/refresh.ts) reads the new commits'
+ * trees, the stored head's and those around the stored snapshots that aged out: about three
+ * head trees' worth at most, shared objects read once (Linux about 6 MB).
+ */
+const REFRESH_HEADS = 3;
+
+export function estimateRefresh(headEntries: number): Estimate {
+  const downloadMB = BASE_MB + (headEntries * REFRESH_HEADS * BYTES_PER_ENTRY) / 1e6;
+  return { downloadMB, memoryMB: 60 + 5.5 * downloadMB, big: downloadMB >= BIG_MB };
+}
+
 /** A phone or a small machine: little memory (deviceMemory, Chromium only) or a touch screen. */
 export function constrainedDevice(
   nav: { deviceMemory?: number } = navigator as { deviceMemory?: number },

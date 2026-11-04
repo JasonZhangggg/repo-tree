@@ -135,6 +135,32 @@ describe('historySource', () => {
     expect(puts).toEqual([`PUT ${SERVER}/v1/history/acme/widgets?branch=main`]);
   });
 
+  test('hands a stored history to the worker to bring up to date', async () => {
+    const stored = { v: 1, repo: 'acme/widgets', branch: 'main', head: 'a'.repeat(40) } as History;
+    const sent: ComputeRequest[] = [];
+    const worker = {
+      onmessage: null as ((e: MessageEvent<ComputeMessage>) => void) | null,
+      onerror: null,
+      terminate: () => {},
+      postMessage: (data: ComputeRequest) => {
+        sent.push(data);
+        queueMicrotask(() =>
+          worker.onmessage?.({
+            data: { run: data.run, history: stored, snapshots: [] },
+          } as unknown as MessageEvent<ComputeMessage>),
+        );
+      },
+    };
+    vi.stubGlobal('fetch', async () => Response.json({ status: 'stored' }, { status: 201 }));
+    vi.stubGlobal('indexedDB', undefined);
+    const source = historySource(
+      { info: { ref, branch: 'main' } },
+      { server: SERVER, api: 'https://github.test', spawn: () => worker },
+    )!;
+    await source.compute!({ token: 'gho_visitor', signal, base: stored });
+    expect(sent[0]!.base).toBe(stored);
+  });
+
   test('a branch link to a branch that is not the default is told so, before any run', async () => {
     const asked: string[] = [];
     vi.stubGlobal('fetch', async (url: string) => {

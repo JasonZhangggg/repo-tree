@@ -21,6 +21,16 @@
  */
 
 import { GONE_CAP, type Gap, type History } from '../shape';
+import {
+  churnDelta,
+  droppedRuns,
+  keepOld,
+  keptSamples,
+  readSnapshots,
+  refreshable,
+  snapshotQuery,
+  type Dropped,
+} from './refresh';
 import { CODEOWNERS_PATHS, parseCodeowners, type OwnerRule } from './codeowners';
 import {
   PATIENT,
@@ -45,7 +55,7 @@ import {
   type Sample,
   type TouchRow,
 } from './commits';
-import { summarize, type Folded } from './summarize';
+import { baseRows, summarize, type BaseTotals, type Folded } from './summarize';
 import {
   DEFAULT_PLAN,
   MODE,
@@ -103,6 +113,14 @@ export type EngineOptions = {
    * branch (after a failure: a spent rate limit, a dropped connection) to continue from there.
    */
   checkpoint?: Checkpoint;
+  /**
+   * The stored history of this repo and branch, to bring up to date rather than compute again
+   * (refresh.ts): its snapshots are kept, only the commits since its head are probed, and the
+   * git fetch wants the new snapshots and the stored head, not every snapshot. Ignored without
+   * a token, with a finite `treeBudget`, or when GitHub no longer has its head on the branch or
+   * its snapshots as stored: the run then computes from scratch.
+   */
+  base?: History;
   now?: () => number;
   /**
    * Tree entries the snapshots may list in all (Infinity, the default, for no cap). Past it,
@@ -147,6 +165,12 @@ export type EngineStats = {
    * tree objects it was the first (newest) snapshot to hold (what GraphQL pays for it).
    */
   perSnapshot: { requests: number; entries: number; fresh: number }[];
+  /**
+   * A refresh: new snapshots folded, stored ones kept and dropped (aged out of the schedule),
+   * and whether every merged interval's churn could be corrected from its trees. Null when the
+   * run computed from scratch.
+   */
+  refresh: { fresh: number; kept: number; dropped: number; corrected: boolean } | null;
 };
 
 /** What a run keeps between attempts (see EngineOptions.checkpoint). */
@@ -237,6 +261,32 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   // read afresh, even when resuming: the branch may have moved during a long wait. Everything
   // else a checkpoint holds is keyed by commit or tree sha, so it stays valid.
   const gaps: Gap[] = [];
+  // A refresh first checks the stored snapshots are GitHub's, alongside the newest page.
+  const stored =
+    options.base &&
+    options.token &&
+    !Number.isFinite(options.treeBudget ?? Infinity) &&
+    refreshable(options.base, repo, branch)
+      ? options.base
+      : null;
+  const lookup = stored
+    ? pool
+        .run(PROBES, () => {
+          counts.graphql++;
+          return gh.graphql(
+            snapshotQuery(
+              repo,
+              stored.snapshots.map((s) => s.sha),
+            ),
+          );
+        })
+        .then((data) => readSnapshots(stored, data))
+        .catch((error: unknown) => {
+          if (signal?.aborted) throw error;
+          return null;
+        })
+    : null;
+  lookup?.catch(() => undefined);
   trace.begin('listings');
   const newest = `sha=${encodeURIComponent(branch)}&per_page=${PER_PAGE}`;
   // The branch's length (the Link of a one-commit page) is asked alongside the newest page: the
@@ -244,8 +294,9 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   const counted = `sha=${encodeURIComponent(branch)}&per_page=1`;
   cp.pages.delete(newest);
   cp.pages.delete(counted);
-  const count = list(counted, PROBES);
-  count.catch(() => undefined);
+  // A refresh knows the root already: the branch's length is asked only if it falls through.
+  const count = lookup ? null : list(counted, PROBES);
+  count?.catch(() => undefined);
   const first = await list(newest, PROBES);
   const headCommit = first.commits[0];
   if (!headCommit) throw new UpstreamError('empty');
@@ -255,6 +306,24 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   const recent = nonMerge.slice(0, recentCommits);
   const recentIsAll = firstComplete && recent.length === nonMerge.length;
   const mainline = mainlineCommitter(first.commits);
+
+  // Refresh only onto a stored head the new head descends from (not a force-push away).
+  let old: Sample[] | null = lookup ? await lookup : null;
+  if (old && (old[0]!.sha === head.sha || old[0]!.at >= head.at)) old = null;
+  if (old) {
+    const ahead = await get(
+      `${base}/compare/${old[0]!.sha}...${head.sha}?per_page=1`,
+      PROBES,
+      'listings',
+    )
+      .then(({ body }) => isRecord(body) && body.status === 'ahead')
+      .catch((error: unknown) => {
+        if (signal?.aborted) throw error;
+        return false;
+      });
+    if (!ahead) old = null;
+  }
+  const junction = old ? old[0]! : null;
 
   let targets: number[] = [];
   const progress = { probes: 0, trees: 0, recent: 0, packBytes: 0, packObjects: 0, packCount: 0 };
@@ -276,7 +345,7 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     shown = Math.max(
       shown,
       0.02 +
-        0.08 * part(progress.probes, targets.length) +
+        0.08 * part(progress.probes, probeTargets.length) +
         0.75 * trees +
         0.15 * part(progress.recent, recent.length),
     );
@@ -327,11 +396,12 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   }
 
   let root: Sample | null = null;
-  if (firstComplete) {
+  if (old) root = old[old.length - 1]!;
+  else if (firstComplete) {
     const last = first.commits[first.commits.length - 1]!;
     root = { sha: last.sha, at: last.at, tree: last.tree };
   } else {
-    const { link } = await count;
+    const { link } = await (count ?? list(counted, PROBES));
     const pages = lastPage(link);
     const found = pages
       ? (await list(`sha=${head.sha}&per_page=1&page=${pages}`, PROBES)).commits[0]
@@ -341,6 +411,8 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   }
   trace.end('listings');
   targets = schedule(head.at, root?.at ?? null, maxSnapshots, options.sparse ?? false);
+  // A refresh probes only the targets the stored head is not older than.
+  const probeTargets = junction ? targets.filter((t) => t >= junction.at) : targets;
 
   // The tree budget needs the head's size: read it first (GraphQL reads it with the rest).
   let headEntries = 0;
@@ -398,8 +470,8 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   const picks = { walked: 0, dated: 0 };
   const samples = probeSamples({
     head,
-    root,
-    targets: pickTargets,
+    root: junction ?? root,
+    targets: junction ? async () => probeTargets : pickTargets,
     first: first.commits,
     complete: firstComplete,
     ahead: () => aheadProbes++,
@@ -433,8 +505,15 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   const probed = (async () => {
     try {
       for await (const s of samples) {
+        // A refresh's picks are newer than the stored head, which closes them.
+        if (junction && s.sample.sha !== junction.sha && s.sample.at <= junction.at) continue;
         found.push(s);
         early?.add(s.sample.tree);
+        wake();
+      }
+      if (junction && found[found.length - 1]!.sample.sha !== junction.sha) {
+        found.push({ sample: junction, between: {} });
+        early?.add(junction.tree);
         wake();
       }
     } finally {
@@ -450,13 +529,33 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     return found[j];
   };
 
+  /**
+   * A refresh's stored snapshots: which stay, the dropped stretches, and the trees around those
+   * (for their churn), once the probes have picked the new ones.
+   */
+  let refresh = null as { picked: Sample[]; keep: boolean[]; runs: Dropped[] } | null;
+  const planRefresh = () => {
+    if (!old) return [];
+    const picked = found.slice(0, -1).map((f) => f.sample);
+    const keep = keepOld(targets, picked, old);
+    const runs = droppedRuns([...picked, ...old], [...picked.map(() => true), ...keep]);
+    const extra = runs.flatMap((r) => [r.newer, ...r.dropped, r.older]);
+    refresh = { picked, keep, runs };
+    return extra;
+  };
+
   let packStats: EngineStats['pack'] = null;
   if (usePack) {
     // Every snapshot's trees in one git fetch, once the probes have picked them all, with the
     // recent commits and their parents (their diffs are then free).
     await probed;
-    const roots = [head.tree, ...found.map((f) => f.sample.tree)];
-    const wants = new Set([head.sha, ...found.map((f) => f.sample.sha)]);
+    const extra = planRefresh();
+    const roots = [head.tree, ...found.map((f) => f.sample.tree), ...extra.map((s) => s.tree)];
+    const wants = new Set([
+      head.sha,
+      ...found.map((f) => f.sample.sha),
+      ...extra.map((s) => s.sha),
+    ]);
     for (const c of diffing) {
       wants.add(c.sha);
       if (c.parents[0]) wants.add(c.parents[0]);
@@ -521,6 +620,7 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
       headRead();
     }
     await probed;
+    for (const s of planRefresh()) loader.add(s.tree);
     await loader.drain();
     trace.end('graphql');
     treesRead();
@@ -528,6 +628,12 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   } else {
     trace.fellBack = true;
     treesRead();
+  }
+  if (old && !refresh) {
+    // REST alone (no GraphQL): the stored trees around dropped snapshots stay unread, so
+    // their churn is not corrected (EngineStats.refresh.corrected).
+    await probed;
+    planRefresh();
   }
 
   const perSnapshot: EngineStats['perSnapshot'] = [];
@@ -620,12 +726,63 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   recent.forEach((c, i) => touchCommit({ touched, commitsBy }, c, changes[i]!.files));
   if (changes.some((c) => c.capped)) gaps.push('commit-files-capped');
 
+  let baseTotals: BaseTotals | undefined;
+  let refreshStats: EngineStats['refresh'] = null;
+  if (refresh && old && options.base) {
+    const { picked, keep, runs } = refresh;
+    const moved = new Map<number, number>();
+    const deltas: BaseTotals['deltas'] = [];
+    let corrected = true;
+    for (const r of runs) {
+      for (const d of r.dropped) moved.set(d.at, r.newer.at);
+      const chain = [r.newer, ...r.dropped, r.older].map((s) => store.id(s.tree));
+      if (
+        unread(
+          store,
+          chain.map((t) => store.oids[t]!),
+        ).length > 0
+      )
+        corrected = false;
+      else deltas.push({ older: r.older.at, churn: churnDelta(store, chain) });
+    }
+    const kept = keptSamples(picked, old, keep);
+    // Authors of the stored intervals still count toward the folders they changed.
+    for (const o of options.base.owners) {
+      for (const a of o.authors) {
+        if (a.weight === 0) continue;
+        const w = (fold.weights[o.folder] ??= {});
+        w[a.name] = (w[a.name] ?? 0) + a.weight;
+      }
+    }
+    baseTotals = {
+      junction: sampled.length - 1,
+      since: options.base.recent.since,
+      files: baseRows(options.base.files),
+      folders: baseRows(options.base.folders),
+      gone: options.base.gone,
+      gaps: options.base.gaps.filter((g) => g === 'tree-truncated'),
+      moved,
+      deltas,
+      kept,
+    };
+    refreshStats = {
+      fresh: sampled.length - 1,
+      kept: kept.length - picked.length,
+      dropped: runs.reduce((n, r) => n + r.dropped.length, 0),
+      corrected,
+    };
+    trace.refreshed = {
+      fresh: refreshStats.fresh,
+      kept: refreshStats.kept,
+      dropped: refreshStats.dropped,
+    };
+  }
   const folded: Folded = {
     repo,
     branch,
     head,
     gaps,
-    samples: sampled,
+    samples: baseTotals ? [...sampled.slice(0, -1), ...old!] : sampled,
     applied: sampled.map((_, j) => j),
     acc: rows.acc(),
     weights: fold.weights,
@@ -636,6 +793,7 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     commitsBy,
     codeowners,
     headTruncated: false,
+    ...(baseTotals ? { base: baseTotals } : {}),
   };
   trace.retried = gh.retried;
   options.onStats?.({
@@ -652,12 +810,15 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     mainlineProbes,
     picks,
     perSnapshot,
+    refresh: refreshStats,
   });
   options.onProgress?.(1, trace.bytes);
   const t0 = performance.now();
   const history = summarize(folded, (options.now ?? Date.now)());
   trace.cpu(performance.now() - t0);
-  options.onSamples?.(sampled.map(({ sha, at, tree }) => ({ sha, at, tree })).reverse());
+  options.onSamples?.(
+    (baseTotals?.kept ?? sampled).map(({ sha, at, tree }) => ({ sha, at, tree })).reverse(),
+  );
   return history;
 }
 

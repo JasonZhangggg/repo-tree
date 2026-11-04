@@ -1,7 +1,12 @@
 import { signIn, signOut, signedInToken } from '../../repo/auth';
 import type { History } from '../../repo/history';
 import { describeStep, type Step } from '../../timeline/compute-view';
-import { constrainedDevice, estimateCompute, type Estimate } from '../../timeline/estimate';
+import {
+  constrainedDevice,
+  estimateCompute,
+  estimateRefresh,
+  type Estimate,
+} from '../../timeline/estimate';
 import type { HistorySource } from '../../timeline/source';
 import type { App } from '../app';
 import { formatTrace } from '../../../server/src/core/trace';
@@ -40,6 +45,8 @@ export function mountHistoryCompute(
     estimate: Estimate;
     warn: boolean;
     refresh?: { since: number };
+    /** The stored history a refresh builds on. */
+    base?: History;
     abort: AbortController | null;
     done: (history: History | null) => void;
   } | null = null;
@@ -122,6 +129,7 @@ export function mountHistoryCompute(
       const outcome = await current.source.compute!({
         token,
         signal: abort.signal,
+        ...(current.base ? { base: current.base } : {}),
         onProgress: (progress) => {
           if (current?.abort === abort && progress < 1) render({ kind: 'computing', progress });
           else if (current?.abort === abort) render({ kind: 'sharing' });
@@ -175,16 +183,15 @@ export function mountHistoryCompute(
     offer(repo, source, options = {}) {
       if (current) cancel();
       return new Promise((done) => {
-        const estimate = estimateCompute(
-          repo.index.files.paths.length + repo.index.folders.parent.length,
-        );
+        const entries = repo.index.files.paths.length + repo.index.folders.parent.length;
+        const estimate = options.refresh ? estimateRefresh(entries) : estimateCompute(entries);
         const refresh = options.refresh ? { since: options.refresh.computedAt } : undefined;
         current = {
           repo,
           source,
           estimate,
           warn: estimate.big || constrained(),
-          ...(refresh ? { refresh } : {}),
+          ...(refresh ? { refresh, base: options.refresh! } : {}),
           abort: null,
           done,
         };

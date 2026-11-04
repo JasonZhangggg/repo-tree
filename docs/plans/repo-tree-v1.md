@@ -112,12 +112,22 @@ type EngineOptions = { fetch: typeof fetch; api: string; token?: string; repo: s
   trace?: Trace /* core/trace.ts, filled with where the run's time and bytes went */;
   packUrl?: string /* the Worker's git-upload-pack route: with a token (and no finite treeBudget), every tree in one git fetch */;
   checkpoint?: Checkpoint /* pass the same one again to resume after a failure */; treeBudget?: number; now?: () => number;
+  base?: History /* the stored history to bring up to date (core/refresh.ts); ignored without a token or with a finite treeBudget */;
   onStats?: (stats: EngineStats) => void; onSamples?: (snapshots: { sha: string; at: number; tree: string }[]) => void /* the UploadManifest's snapshots */ };
 function computeHistory(options: EngineOptions): Promise<History>; // rejects with { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt }
 // core/github.ts: limits { core, graphql: { remaining, resetAt } }, kept apart by x-ratelimit-resource. A spent budget (REST 403/429, GraphQL
 // RATE_LIMITED, a secondary limit's 403 or 200 message) waits for retry-after or the reset when it is near, else rejects rate-limited.
 // A GraphQL 5xx (a timeout) is not retried: the loader splits the batch. Partial GraphQL data comes back; its null objects are asked once more.
 // A resumed run re-reads the newest commits page (the branch may have moved); trees held by sha are kept.
+// A refresh (base): one GraphQL query checks every stored snapshot's commit time and root tree, beside the newest page, and
+// GET /compare/<stored head>...<head> that the stored head is an ancestor; any miss computes from scratch. Probes cover only the
+// targets at or after the stored head; the stored snapshots then take the rest of the schedule (refresh.ts keepOld: each target its
+// newest stored snapshot older than the last kept, the root always), so the upload still follows the schedule. The git fetch wants the
+// new snapshots, the stored head (the junction) and, for each stretch of dropped stored snapshots, those and the kept ones beside them.
+// The fold runs from the head to the junction; summarize (Folded.base: BaseTotals) carries stored dates and churn on for paths whose
+// run reaches it, moves a dropped snapshot's times to the kept one just newer, and corrects churn over each merged interval
+// (refresh.ts churnDelta), so churn counts intervals of the History's own snapshots. Stored author weights add on, uncorrected.
+// EngineStats.refresh = { fresh; kept; dropped; corrected } | null; TraceSummary.refreshed = { fresh; kept; dropped } when it refreshed.
 // With GraphQL the recent commits' changes are diffs of their trees and their listed parents' (treeChanges), read with the snapshots'
 // trees; only a commit whose parent is unlisted or whose trees stayed unread takes a REST /commits/{sha}. The head's trees start before
 // the root lookup; probes go first in the request pool, and a target out of the last page's reach (by twice its span) is probed ahead.
@@ -155,12 +165,12 @@ function uploadHistory(history: History, snapshots: Snapshot[], token: string, o
 function cacheComputed(ref, branch, history: History): Promise<void>; // a computed history, cached as if fetched
 
 // repo/compute-history.ts  (boundary: the engine in a module Worker; a failed or cancelled run's worker is kept, with its checkpoint, to resume)
-type ComputeRequest = { run: number; repo: string; branch: string; token?: string; api: string; packUrl?: string /* timeline/source.ts: <server>/v1/git/<owner>/<repo>/git-upload-pack */ }; type ComputeCommand = ComputeRequest | { cancel: number /* run */ };
+type ComputeRequest = { run: number; repo: string; branch: string; token?: string; api: string; packUrl?: string /* timeline/source.ts: <server>/v1/git/<owner>/<repo>/git-upload-pack */; base?: History /* EngineOptions.base */ }; type ComputeCommand = ComputeRequest | { cancel: number /* run */ };
 type ComputeMessage = { run: number } & ({ progress: number } | { history: History; snapshots: Snapshot[]; trace?: TraceSummary } | { error: ComputeError; trace?: TraceSummary }); // another run's are ignored
 type Snapshot = { sha: string; at: number; tree: string };
 type ComputeError = { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt: number } | { kind: 'not-default-branch'; defaultBranch: string }; // the last from historySource's compute, for a branch link to a branch that is not the default
 type ComputeResult = { status: 'ready'; history: History; snapshots: Snapshot[]; trace?: TraceSummary } | { status: 'error'; error: ComputeError; trace?: TraceSummary };
-function computeHistoryInWorker(ref, branch, options?: { token?: string | null; signal?: AbortSignal; onProgress?: (p: number) => void; api?: string; packUrl?: string; spawn?: () => WorkerLike }): Promise<ComputeResult>; // rejects only on abort
+function computeHistoryInWorker(ref, branch, options?: { token?: string | null; signal?: AbortSignal; onProgress?: (p: number) => void; api?: string; packUrl?: string; base?: History; spawn?: () => WorkerLike }): Promise<ComputeResult>; // rejects only on abort
 function loadSampleHistory(id: string, base?: string): Promise<History | null>; // <base>samples/<id>.history.json.gz
 function parseHistory(body: unknown): History | null; // version and column alignment checked
 
@@ -306,10 +316,10 @@ type ComputeOutcome = { status: 'ready'; history: History; shared: UploadResult;
 // app/ui/history-compute.ts logs formatTrace for every run (console.info) and keeps it in window.__repoTree.computeTrace; with the debug flag
 // (app/debug.ts debugEnabled: `?debug` in the address, or localStorage repo-tree:debug = 1) it also shows it in a toast.
 type HistorySource = { load(signal: AbortSignal): Promise<HistoryLoad>;
-  compute: ((o: { token: string; signal: AbortSignal; onProgress?: (p: number) => void }) => Promise<ComputeOutcome>) | null /* samples, no server, or a ref other than the default branch */;
+  compute: ((o: { token: string; signal: AbortSignal; onProgress?: (p: number) => void; base?: History /* the out-of-date one, to refresh */ }) => Promise<ComputeOutcome>) | null /* samples, no server, or a ref other than the default branch */;
   outdated: ((history: History, token: string, signal: AbortSignal) => Promise<boolean>) | null /* computedAt over STALE_AFTER_MS (1 day) ago and GitHub's branch head differs */ };
 function historySource(repo: { sample?: string; info: { ref: RepoRef; branch: string } }, options?: { base?: string; server?: string; api?: string /* VITE_GITHUB_API */; spawn? }): HistorySource | null; // sample file, else the history server when VITE_HISTORY_URL is set, else null (timeline unavailable). compute: engine in a Worker, then upload, then cache
-// timeline/estimate.ts: estimateCompute(headEntries) → { downloadMB, memoryMB, big /* ≥ 25 MB */ }; constrainedDevice() = deviceMemory ≤ 4 or a coarse pointer.
+// timeline/estimate.ts: estimateCompute(headEntries) → { downloadMB, memoryMB, big /* ≥ 25 MB */ }; estimateRefresh(headEntries) (about three head trees: Linux ~6 MB); constrainedDevice() = deviceMemory ≤ 4 or a coarse pointer.
 // timeline/compute-view.ts (pure): Step = offer{refresh?: {since}} | computing{progress} | sharing | failed{error}; describeStep(step, ctx) → title, progress, lines, buttons. app/ui/history-compute.ts renders it.
 
 // timeline/timeline.ts  (pure; consumes only History, TreeModel and RepoIndex)

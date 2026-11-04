@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { constrainedDevice, estimateCompute, megabytes } from './estimate';
+import { constrainedDevice, estimateCompute, estimateRefresh, megabytes } from './estimate';
 
 describe('estimateCompute', () => {
   test('lands near what the engine measured, and calls Linux big', () => {
@@ -15,6 +15,16 @@ describe('estimateCompute', () => {
     expect(vite.downloadMB).toBeLessThan(5);
     expect(vite.big).toBe(false);
     expect(estimateCompute(50).downloadMB).toBeLessThan(1);
+  });
+});
+
+describe('estimateRefresh', () => {
+  test('a few head trees, so even Linux is not big', () => {
+    const linux = estimateRefresh(104_000);
+    expect(linux.downloadMB).toBeLessThan(estimateCompute(104_000).downloadMB / 5);
+    expect(linux.downloadMB).toBeGreaterThan(3);
+    expect(linux.big).toBe(false);
+    expect(estimateRefresh(3_600).downloadMB).toBeLessThan(1);
   });
 });
 

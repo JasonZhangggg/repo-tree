@@ -191,6 +191,20 @@ describe('history', () => {
     expect({ ...split, computedAt: 0 }).toEqual({ ...whole, computedAt: 0 });
   });
 
+  it('keeps truncated older snapshots once the split budget is spent, assuming their unlisted tail unchanged', async () => {
+    const whole = (await untilReady(setup().ask)).history;
+    const { ask } = setup({
+      maxEntries: 5,
+      deps: { limits: { stepRequests: 5, recentCommits: 2, splitRequests: 0 } },
+    });
+    const cheap = (await untilReady(ask)).history;
+    expect(cheap.gaps).toEqual(['tree-truncated']);
+    expect(cheap.files.path).toEqual(whole.files.path);
+    expect(cheap.snapshots).toEqual(whole.snapshots);
+    expect(row(cheap.files, 'README.md')).toEqual(row(whole.files, 'README.md'));
+    expect(row(cheap.files, '.github/CODEOWNERS')).toEqual(row(whole.files, '.github/CODEOWNERS'));
+  });
+
   it('reports a repo GitHub does not know', async () => {
     const { ask } = setup();
     expect((await ask({ owner: 'acme', repo: 'nope' })).reply).toEqual({

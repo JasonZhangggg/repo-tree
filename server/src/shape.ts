@@ -7,10 +7,11 @@ export const HISTORY_VERSION = 1;
 
 /** Why a history is not complete. An empty list means nothing was capped or skipped. */
 export type Gap =
-  /** A snapshot tree was truncated by GitHub and could not be read in full. */
+  /**
+   * A snapshot tree was over GitHub's limit and not re-read folder by folder (the request budget
+   * ran out), so paths past the listed part were assumed unchanged over that interval.
+   */
   | 'tree-truncated'
-  /** Snapshots were dropped to stay inside the request budget. */
-  | 'snapshots-skipped'
   /** The root commit could not be found, so the oldest snapshot is not the first commit. */
   | 'root-unknown'
   /** A CODEOWNERS file exists but could not be read. */

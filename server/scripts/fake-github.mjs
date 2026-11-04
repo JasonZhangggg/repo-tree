@@ -114,9 +114,10 @@ export function gitHubFetch(repos, options = {}) {
           .split('\n')
           .filter(Boolean)
           .map((line) => toCommit(line, fullName));
-        const total = Number(git('rev-list', '--count', ...range).trim());
-        const last = Math.max(1, Math.ceil(total / per));
         const res = json(commits, 200);
+        // Counting is slow on big histories, and only one-per-page listings have their Link read.
+        const total = per === 1 ? Number(git('rev-list', '--count', ...range).trim()) : 0;
+        const last = Math.max(1, Math.ceil(total / per));
         if (last > 1) {
           const link = new URL(url);
           link.searchParams.set('page', String(last));

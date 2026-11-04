@@ -9,7 +9,7 @@
  * owners   the CODEOWNERS blob, when the head tree has one
  */
 
-import type { Gap } from '../shape';
+import { GONE_CAP, type Gap } from '../shape';
 import { CODEOWNERS_PATHS, parseCodeowners, type OwnerRule } from './codeowners';
 import {
   OutOfRequests,
@@ -46,6 +46,8 @@ export const DEFAULT_LIMITS: Limits = {
 };
 
 const DAY = 24 * 60 * 60 * 1000;
+/** Shas are only compared, path by path, so a prefix keeps the stored job small. */
+const SHA_CHARS = 12;
 const PER_PAGE = 100;
 
 export type Sample = { sha: string; at: number; tree: string };
@@ -99,6 +101,11 @@ export type Job = {
   commitsBy: Record<string, Counts>;
   codeownersSha: string | null;
   codeowners: OwnerRule[];
+  /** Rows created for paths missing from the head, and the snapshot at which they reached GONE_CAP (-1 before). */
+  goneRows: number;
+  goneFullAt: number;
+  /** The head's own listing is incomplete, so absence from it proves nothing. */
+  headTruncated: boolean;
   failures: number;
 };
 
@@ -130,6 +137,9 @@ export function createJob(repo: string, branch: string, headSha: string): Job {
     commitsBy: {},
     codeownersSha: null,
     codeowners: [],
+    goneRows: 0,
+    goneFullAt: -1,
+    headTruncated: false,
     failures: 0,
   };
 }
@@ -305,14 +315,21 @@ async function readTree(ctx: Ctx, sha: string, recursive: boolean) {
   return toTree(body);
 }
 
-/** Entries of one snapshot, and the top-level folders taken unchanged from the newer one. */
-type Read = { entries: TreeEntry[]; carried: string[]; truncated: boolean };
+/**
+ * Entries of one snapshot; the top-level folders taken unchanged from the newer one; and, for a
+ * truncated listing, the last path it holds. Git lists a recursive tree in path order, so every
+ * path after `tailAfter` is unknown and assumed unchanged since the newer snapshot.
+ */
+type Read = { entries: TreeEntry[]; carried: string[]; truncated: boolean; tailAfter?: string };
 
-async function readSnapshot(ctx: Ctx, sample: Sample, first: boolean): Promise<Read | 'skip'> {
+async function readSnapshot(ctx: Ctx, sample: Sample, first: boolean): Promise<Read> {
   const { job, limits } = ctx;
   const whole = await readTree(ctx, sample.tree, true);
   if (!whole.truncated) return { entries: whole.entries, carried: [], truncated: false };
-  if (job.splitUsed >= limits.splitRequests && job.applied.length > 0) return 'skip';
+  if (job.splitUsed >= limits.splitRequests && job.applied.length > 0) {
+    const tailAfter = whole.entries[whole.entries.length - 1]?.path ?? '';
+    return { entries: whole.entries, carried: [], truncated: true, tailAfter };
+  }
   const top = await readTree(ctx, sample.tree, false);
   job.splitUsed++;
   const read: Read = { entries: [], carried: [], truncated: false };
@@ -349,22 +366,23 @@ async function trees(ctx: Ctx): Promise<void> {
   const first = ctx.gh.used === 0;
   const read = await readSnapshot(ctx, sample, first);
   job.next++;
-  if (read === 'skip') {
-    if (!job.gaps.includes('snapshots-skipped')) job.gaps.push('snapshots-skipped');
-    return;
-  }
   if (read.truncated && !job.gaps.includes('tree-truncated')) job.gaps.push('tree-truncated');
+  if (read.truncated && j === 0) job.headTruncated = true;
   fold(job, j, read);
   ctx.entries += read.entries.length;
 }
 
-/** Folds snapshot j into the accumulator. Exported for tests of the accumulator rules. */
-export function fold(job: Job, j: number, read: Read): void {
+/** Folds snapshot j into the accumulator, after every newer snapshot. */
+function fold(job: Job, j: number, read: Read): void {
   const prevJ = job.applied[job.applied.length - 1] ?? -1;
-  const visit = (path: string, sha: string, folder: 0 | 1) => {
+  const visit = (path: string, fullSha: string, folder: 0 | 1) => {
+    const sha = fullSha.slice(0, SHA_CHARS);
     const row = job.acc[path];
     if (!row) {
+      // Only the head's folders are reported, and only the GONE_CAP most recently deleted files.
+      if (j > 0 && (folder || (job.goneFullAt >= 0 && j > job.goneFullAt))) return;
       job.acc[path] = [j, j, j, 0, sha, folder];
+      if (j > 0 && ++job.goneRows === GONE_CAP) job.goneFullAt = j;
     } else if (row[1] === prevJ) {
       row[1] = j;
       if (row[4] === sha) {
@@ -390,12 +408,20 @@ export function fold(job: Job, j: number, read: Read): void {
       if (rank < held) job.codeownersSha = `${rank}:${e.sha}`;
     }
   }
-  for (const folder of read.carried) {
-    const prefix = `${folder}/`;
+  const prefixes = read.carried.map((folder) => `${folder}/`);
+  const { tailAfter } = read;
+  if (prefixes.length > 0 || tailAfter !== undefined) {
     for (const [path, row] of Object.entries(job.acc)) {
-      if (!path.startsWith(prefix) || row[1] !== prevJ) continue;
+      if (row[1] !== prevJ) continue;
+      const unknown = tailAfter !== undefined && path > tailAfter;
+      if (!unknown && !prefixes.some((p) => path.startsWith(p))) continue;
       row[1] = j;
       if (row[2] === prevJ) row[2] = j;
+    }
+    if (tailAfter !== undefined) {
+      for (const [folder, sha] of Object.entries(job.prevTop)) {
+        if (folder && folder > tailAfter && !(folder in top)) top[folder] = sha;
+      }
     }
   }
   top[''] = rootFiles.join(',');

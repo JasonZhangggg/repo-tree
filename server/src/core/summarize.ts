@@ -33,7 +33,7 @@ export function summarize(job: Job, now: number): History {
   const files = table();
   const folders = table();
   const gone: History['gone'] = [];
-  const headTruncated = job.gaps.includes('tree-truncated') && job.applied[0] === 0;
+  const { headTruncated } = job;
 
   for (const [path, [newest, oldest, version, churn, , folder]] of Object.entries(job.acc)) {
     const touch = job.touched[folder ? `${path}/` : path];

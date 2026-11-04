@@ -166,6 +166,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   );
   sky.frustumCulled = false;
   sky.renderOrder = -1;
+  /**
+   * The container's CSS background shows the same gradient behind a transparent canvas; the sky
+   * quad only draws into PNG snapshots. Filling every pixel on a software GL cost about a fifth
+   * of each spin frame, and the browser rasters a CSS gradient once.
+   */
+  sky.visible = false;
 
   const hemi = new HemisphereLight(0xffffff, 0xffffff, LIGHT.sky);
   const key = new DirectionalLight(0xffffff, LIGHT.key);
@@ -261,7 +267,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
   const mountRenderer = () => {
     const { antialias, pixelRatio, shadowMap } = QUALITY[quality];
-    const next = new WebGLRenderer({ antialias, powerPreference: 'high-performance' });
+    const next = new WebGLRenderer({ antialias, alpha: true, powerPreference: 'high-performance' });
     next.setPixelRatio(Math.min(pixelRatio, window.devicePixelRatio || 1));
     next.toneMapping = ACESFilmicToneMapping;
     next.shadowMap.enabled = true;
@@ -281,7 +287,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     renderer = next;
     key.shadow.mapSize.set(shadowMap, shadowMap);
     groundTarget.setSize(shadowMap, shadowMap);
-    renderer.autoClearColor = false;
+    renderer.setClearColor(0x000000, 0);
     resize();
   };
 
@@ -432,6 +438,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const edge = srgb(palette.sky.edge);
     sky.material.uniforms.uCenter!.value = center;
     sky.material.uniforms.uEdge!.value = edge;
+    const { center: c, edge: e } = palette.sky;
+    const mid = `color-mix(in srgb, ${c}, ${e} 28%)`;
+    container.style.background = `radial-gradient(120% 90% at 50% 40%, ${c}, ${mid} 45%, ${e})`;
     treeUniforms.uFade.value = [0, 1, 2].map((i) => (center[i]! + edge[i]!) / 2) as Vec3;
     const slots: number[] = [];
     for (const hex of [...palette.leaves, palette.rest]) {
@@ -697,7 +706,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       renderer.setPixelRatio(scale);
       const { width, height } = freeRegion();
       camera.setViewOffset(width, height, 0, 0, width, height);
+      sky.visible = true;
       renderer.render(scene, camera);
+      sky.visible = false;
       applyView();
       const blob = await new Promise<Blob | null>((resolve) =>
         renderer.domElement.toBlob(resolve, 'image/png'),

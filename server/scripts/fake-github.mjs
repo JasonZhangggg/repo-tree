@@ -593,7 +593,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const branch = (await run(dir, ['symbolic-ref', '--short', 'HEAD'])).trim();
     repos[name] = head ? { dir, branch, head } : { dir, branch };
   }
-  const handle = gitHubFetch(repos, { log: (line) => console.error(line) });
+  // FAKE_REMAINING: the token's request budget (GitHub: 5,000 an hour).
+  const remaining = Number(process.env.FAKE_REMAINING ?? 5000);
+  const handle = gitHubFetch(repos, { log: (line) => console.error(line), remaining });
   createServer(async (req, res) => {
     if (req.url === '/__stats') {
       // What scripts/measure.mjs --remote reads before and after a run.

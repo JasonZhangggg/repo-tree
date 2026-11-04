@@ -275,6 +275,38 @@ describe('browser engine', () => {
   });
 });
 
+describe('tree budget', () => {
+  it('thins the snapshots once the head shows the repo is big', async () => {
+    const whole = await engine(fake(), { recentCommits: 0, maxSnapshots: 80 });
+    const many = makeRepo(
+      Array.from({ length: 40 }, (_, i) => ({
+        at: HEAD - (39 - i) * 7 * DAY,
+        files: { [`f${i % 5}.txt`]: String(i) },
+      })),
+    );
+    const run = (treeBudget?: number) =>
+      computeHistory({
+        fetch: gitHubFetch({ 'acme/many': { dir: many.dir } }) as unknown as typeof fetch,
+        api: API,
+        repo: 'acme/many',
+        branch: 'main',
+        recentCommits: 0,
+        ...(treeBudget ? { treeBudget } : {}),
+      });
+    const all = await run();
+    const few = await run(5 * 10);
+    many.remove();
+    expect(whole.snapshots).toHaveLength(5);
+    expect(all.snapshots.length).toBeGreaterThan(20);
+    // A 5-entry head and a 50-entry budget leave room for 9 targets, plus the head and the root.
+    expect(few.snapshots.length).toBeGreaterThan(5);
+    expect(few.snapshots.length).toBeLessThanOrEqual(11);
+    expect(few.snapshots[few.snapshots.length - 1]!.sha).toBe(
+      all.snapshots[all.snapshots.length - 1]!.sha,
+    );
+  });
+});
+
 describe('thin', () => {
   it('keeps the first and last targets and spreads the rest evenly', () => {
     const targets = Array.from({ length: 50 }, (_, i) => 1000 - i);

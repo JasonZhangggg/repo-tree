@@ -215,6 +215,14 @@ export type Reader = {
    * counts the intervals read so far.
    */
   read(sha: string, newer: Node | null, changes: ChangeStats, intervals: number): Promise<Node>;
+  /**
+   * Starts reading tree `sha` whole before its turn, for a snapshot expected to be read whole
+   * anyway (its newer neighbour was): snapshots then download side by side instead of one
+   * after another. `read` takes it from there, whatever it would have chosen.
+   */
+  prefetch(sha: string): void;
+  /** Whether the last `read` fetched its root whole. */
+  readonly lastWhole: boolean;
   readonly stats: ReadStats;
 };
 
@@ -234,6 +242,16 @@ export function treeReader(fetchTree: TreeFetch, partial: Partial<Plan> = {}): R
     entries: 0,
   };
 
+  const early = new Map<string, ReturnType<typeof list>>();
+  let lastWhole = false;
+
+  function prefetch(sha: string) {
+    if (early.has(sha)) return;
+    const pending = list(sha, true);
+    pending.catch(() => undefined);
+    early.set(sha, pending);
+  }
+
   async function list(sha: string, recursive: boolean) {
     stats.requests++;
     if (recursive) stats.recursive++;
@@ -250,6 +268,7 @@ export function treeReader(fetchTree: TreeFetch, partial: Partial<Plan> = {}): R
     changes: ChangeStats,
     intervals: number,
   ): Promise<Node> {
+    lastWhole = false;
     if (newer && newer.sha === rootSha) return newer;
     const index = newer ? indexFolders(newer) : new Map<string, Node>();
     let expected = new Map<Node, number>();
@@ -309,8 +328,11 @@ export function treeReader(fetchTree: TreeFetch, partial: Partial<Plan> = {}): R
         stats.moved++;
         return moved;
       }
-      if (choose(old, path)) {
-        const listing = await list(sha, true);
+      const started = early.get(sha);
+      if (started) early.delete(sha);
+      if (started || choose(old, path)) {
+        if (path === '') lastWhole = true;
+        const listing = await (started ?? list(sha, true));
         return fromRecursive(sha, listing.entries, listing.truncated, old, path);
       }
       const { entries } = await list(sha, false);
@@ -434,7 +456,14 @@ export function treeReader(fetchTree: TreeFetch, partial: Partial<Plan> = {}): R
     return resolve(rootSha, newer ?? undefined, '');
   }
 
-  return { read, stats };
+  return {
+    read,
+    prefetch,
+    get lastWhole() {
+      return lastWhole;
+    },
+    stats,
+  };
 }
 
 const join = (a: string, b: string) => (a && b ? `${a}/${b}` : a || b);

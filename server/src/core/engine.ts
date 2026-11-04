@@ -84,6 +84,10 @@ const PER_PAGE = 100;
 /** Share of the head an older snapshot lists, for the tree budget (Linux: 0.85 to 0.95). */
 const TYPICAL_SHARE = 0.9;
 const MIN_TARGETS = 6;
+/** Snapshots read ahead while they are read whole (small and medium repos). */
+const PREFETCH = 4;
+/** Only trees this small: a bigger one would come back truncated whole. */
+const PREFETCH_BELOW = 80_000;
 const DAY = 24 * 60 * 60 * 1000;
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -145,9 +149,13 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   // Thinned once the head's size is known, when a tree budget is set.
   let targets = schedule(head.at, root?.at ?? null, maxSnapshots);
   let headEntries = 0;
-  const pickTargets = () => {
+  let headRead = (): void => undefined;
+  const headDone = new Promise<void>((resolve) => (headRead = resolve));
+  const pickTargets = async () => {
     const budget = options.treeBudget ?? Infinity;
-    if (!Number.isFinite(budget) || headEntries === 0) return targets;
+    if (!Number.isFinite(budget)) return targets;
+    await headDone;
+    if (headEntries === 0) return targets;
     // Older snapshots list about as much as the head when little of them is shared.
     const room = Math.floor(budget / (TYPICAL_SHARE * headEntries)) - 2;
     targets = thin(targets, Math.max(MIN_TARGETS, room));
@@ -210,14 +218,49 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   const perSnapshot: EngineStats['perSnapshot'] = [];
   let newer: Node | null = null;
   let codeownersSha: string | null = null;
-  for await (const { sample, between } of samples) {
+  // Probes run ahead of the trees: samples land here as they are found.
+  const found: { sample: Sample; between: Counts }[] = [];
+  let probing = true;
+  let wake = (): void => undefined;
+  const probed = (async () => {
+    try {
+      for await (const s of samples) {
+        found.push(s);
+        wake();
+      }
+    } finally {
+      probing = false;
+      wake();
+    }
+  })();
+  probed.catch(() => undefined);
+  const next = async (j: number) => {
+    while (found.length <= j && probing) await new Promise<void>((r) => (wake = r));
+    if (found.length <= j) await probed;
+    return found[j];
+  };
+
+  for (let j = 0; ; j++) {
+    const item = await next(j);
+    if (!item) break;
     signal?.throwIfAborted();
-    const j = sampled.length;
+    const { sample, between } = item;
     sampled.push(sample);
     const before = { ...reader.stats };
-    const tree: Node = await reader.read(sample.tree, newer, fold.changes, Math.max(0, j - 1));
+    const tree: Node = await reader
+      .read(sample.tree, newer, fold.changes, Math.max(0, j - 1))
+      .catch((error: unknown) => {
+        headRead();
+        throw error;
+      });
+    // A snapshot read whole will likely be followed by more: start the next few now.
+    // (Those are older than `tree`, so seldom bigger: repos mostly grow.)
+    if (reader.lastWhole && tree.count < PREFETCH_BELOW) {
+      for (const ahead of found.slice(j + 1, j + 1 + PREFETCH)) reader.prefetch(ahead.sample.tree);
+    }
     if (!newer) {
       headEntries = tree.count;
+      headRead();
       fold.head(tree);
       codeownersSha = findCodeowners(tree);
     } else fold.diff(newer, tree, j, between);
@@ -287,7 +330,7 @@ type Probing = {
   head: Sample;
   root: Sample | null;
   /** Target times, newest first; asked once the head has been read. */
-  targets: () => readonly number[];
+  targets: () => Promise<readonly number[]>;
   first: Listed[];
   complete: boolean;
   parallel: boolean;
@@ -302,7 +345,7 @@ type Probing = {
  */
 async function* probeSamples(p: Probing): AsyncGenerator<{ sample: Sample; between: Counts }> {
   yield { sample: p.head, between: {} };
-  const targets = p.targets();
+  const targets = await p.targets();
   const pages = p.parallel ? targets.map((t) => p.page(t)) : [];
   for (const page of pages) page.catch(() => undefined);
   let listing = p.first;

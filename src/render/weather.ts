@@ -87,7 +87,7 @@ const LOOKS: Record<Sky, Look> = {
 };
 
 /** Raindrops at fall 1 for each quality; snowflakes are fewer and slower. */
-const DROPS: Record<Quality, number> = { low: 450, medium: 900, high: 1500 };
+const DROPS: Record<Quality, number> = { low: 260, medium: 650, high: 1200 };
 const FLAKES = 0.7;
 const MAX_FALL = Math.max(...Object.values(LOOKS).map((l) => l.fall));
 const MAX_CLOUDS = Math.max(...Object.values(LOOKS).map((l) => l.clouds.count));
@@ -333,7 +333,8 @@ export function createWeather(camera: PerspectiveCamera) {
 /**
  * Low-poly clouds of a few flattened icosahedron puffs, merged into one geometry with each
  * cloud's place and speed per vertex. Faces are shaded once from a light above and to the left,
- * so they read the same at any spin angle. `userData.ends[n]` is where the first n clouds end.
+ * so they read the same at any spin angle; the backdrop always faces the camera, so faces turned
+ * away from it and faces flattened to nothing are left out. `userData.ends[n]` is where the first n clouds end.
  */
 function cloudGeometry(random: () => number): BufferGeometry {
   const puff = new IcosahedronGeometry(1, 1);
@@ -363,7 +364,10 @@ function cloudGeometry(random: () => number): BufferGeometry {
           corner.y = Math.max(corner.y, -0.3);
           return corner.set(px + corner.x * r, py + corner.y * r * 0.85, corner.z * r * 0.6);
         });
-        const normal = tri[1]!.clone().sub(tri[0]!).cross(tri[2]!.clone().sub(tri[0]!)).normalize();
+        const cross = tri[1]!.clone().sub(tri[0]!).cross(tri[2]!.clone().sub(tri[0]!));
+        if (cross.lengthSq() < 1e-12) continue;
+        const normal = cross.normalize();
+        if (normal.z < -0.05) continue;
         const shade = 0.88 + 0.12 * Math.max(0, normal.dot(light)) - (normal.y < -0.5 ? 0.05 : 0);
         for (const corner of tri) {
           positions.push(corner.x, corner.y, corner.z);

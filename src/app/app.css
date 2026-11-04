@@ -240,7 +240,15 @@ kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.suggest button svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
 .suggest small {
+  flex: none;
+  white-space: nowrap;
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;

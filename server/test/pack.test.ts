@@ -85,6 +85,12 @@ describe('git object ids', () => {
 });
 
 describe('deltas', () => {
+  it('refuses a result bigger than any object may be', () => {
+    // base size 0, result size 2^30.
+    const delta = new Uint8Array([0, 0x80, 0x80, 0x80, 0x80, 0x04]);
+    expect(() => applyDelta(new Uint8Array(0), delta)).toThrow(/too large/);
+  });
+
   it('copies from the base and inserts new bytes', () => {
     const base = enc.encode('hello, world');
     // base size 12, result size 11: copy 7 bytes at 0, insert "there".
@@ -312,8 +318,12 @@ describe('fetch request check', () => {
   const BASE = ['no-progress', 'ofs-delta', 'deepen 1', 'filter blob:none', `want ${sha}`, 'done'];
 
   it('takes what the pack client sends', () => {
-    expect(checkFetchRequest(fetchRequest([sha, 'b'.repeat(40)]))).toEqual({ ok: true, wants: 2 });
-    expect(checkFetchRequest(body(BASE))).toEqual({ ok: true, wants: 1 });
+    expect(checkFetchRequest(fetchRequest([sha, 'b'.repeat(40)]))).toEqual({
+      ok: true,
+      wants: [sha, 'b'.repeat(40)],
+    });
+    expect(checkFetchRequest(body(BASE))).toEqual({ ok: true, wants: [sha] });
+    expect(checkFetchRequest(body([...BASE, `want ${sha}`]))).toEqual({ ok: true, wants: [sha] });
     const most = Array.from({ length: MAX_WANTS }, (_, i) => i.toString(16).padStart(40, '0'));
     expect(checkFetchRequest(fetchRequest(most)).ok).toBe(true);
   });
@@ -344,9 +354,88 @@ describe('fetch request check', () => {
       ),
       enc.encode(new TextDecoder().decode(body(BASE)).replace('command=fetch', 'command=ls-refs')),
       enc.encode('zzzz'),
+      // A byte-order mark a decoder would drop, and a byte past ASCII.
+      new Uint8Array([0xef, 0xbb, 0xbf, ...body(BASE)]),
+      enc.encode(
+        new TextDecoder().decode(body(BASE)).replace('command=fetch', 'command=fetc\u00e9'),
+      ),
+      enc.encode(new TextDecoder().decode(body(BASE)).replace('done\n', 'do\nne')),
       body(BASE).subarray(0, 30),
       new Uint8Array(70_000),
     ];
     for (const b of refused) expect(checkFetchRequest(b).ok).toBe(false);
+  });
+});
+
+/** A response holding a pack of these raw objects (type, header bytes after the size, data). */
+function syntheticPack(
+  objects: { type: number; extra?: number[]; data: Uint8Array }[],
+): Uint8Array {
+  const parts: Uint8Array[] = [enc.encode('PACK'), new Uint8Array([0, 0, 0, 2])];
+  const count = new Uint8Array(4);
+  new DataView(count.buffer).setUint32(0, objects.length);
+  parts.push(count);
+  for (const o of objects) {
+    const head: number[] = [];
+    let size = o.data.length;
+    let c = (o.type << 4) | (size & 15);
+    size = Math.floor(size / 16);
+    while (size > 0) {
+      head.push(c | 0x80);
+      c = size & 0x7f;
+      size = Math.floor(size / 128);
+    }
+    head.push(c, ...(o.extra ?? []));
+    parts.push(new Uint8Array(head), new Uint8Array(deflateSync(o.data, { level: 1 })));
+  }
+  parts.push(new Uint8Array(20));
+  const pack = Buffer.concat(parts);
+  const out: Buffer[] = [Buffer.from(pktLine('packfile\n'))];
+  for (let at = 0; at < pack.length; at += 65515) {
+    const part = pack.subarray(at, at + 65515);
+    out.push(Buffer.from((part.length + 5).toString(16).padStart(4, '0')), Buffer.from([1]), part);
+  }
+  out.push(Buffer.from('0000'));
+  return new Uint8Array(Buffer.concat(out));
+}
+
+describe('pack reader limits', () => {
+  it('reads a big object in a few tries as it streams in, not one per chunk', () => {
+    const timed = (mb: number) => {
+      const data = new Uint8Array(randomBytes(mb << 20));
+      const res = syntheticPack([{ type: 1, data }]);
+      const t0 = performance.now();
+      const { objects, stats } = read(res, [65536]);
+      expect(objects[0]!.oid).toBe(gitOid('commit', data));
+      return { ms: performance.now() - t0, retries: stats.retries };
+    };
+    const small = timed(16);
+    const big = timed(64);
+    // 1,024 chunks of 64 KiB: a try each would inflate 32 GB in all.
+    expect(big.retries).toBeLessThan(40);
+    expect(big.ms / small.ms).toBeLessThan(8);
+  }, 60_000);
+
+  it('refuses a delta whose base is itself', () => {
+    const res = syntheticPack([
+      { type: 1, data: enc.encode('tree ' + 'a'.repeat(40) + '\n\nx') },
+      { type: 6, extra: [0], data: new Uint8Array([0, 1, 1, 120]) },
+    ]);
+    expect(() => read(res, [65536])).toThrow(/bad ofs delta/);
+  });
+
+  it('gives up on a pack past its byte cap', async () => {
+    const res = uploadPack(fetchRequest(repo.shas));
+    const how = {
+      url: 'https://history.test/v1/git/acme/app/git-upload-pack',
+      token: 't',
+      fetch: (async () => new Response(res)) as unknown as typeof fetch,
+    };
+    await expect(
+      fetchPack(repo.shas, new TreeStore(), { ...how, maxBytes: res.length >> 1 }),
+    ).rejects.toThrow(/pack too large/);
+    await expect(
+      fetchPack(repo.shas, new TreeStore(), { ...how, maxBytes: res.length }),
+    ).resolves.toMatchObject({ bytes: res.length });
   });
 });

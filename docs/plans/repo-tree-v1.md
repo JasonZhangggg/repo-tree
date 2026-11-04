@@ -73,12 +73,17 @@ function snapshotDigest(snapshots: { sha: string; at: number }[]): Promise<strin
 // GET <VITE_HISTORY_URL>/v1/history/{owner}/{repo}?branch=  200: the gzipped History JSON, its StoredManifest in X-History-Manifest; 404 missing.
 // PUT the same URL, Authorization: Bearer <visitor token>, body the gzipped History JSON, X-History-Manifest an UploadManifest. 201 stored.
 // POST <...>/{owner}/{repo}/bad?branch=&head=  202 noted: a reader could not use the stored body; the next upload for that head may replace it.
-// POST <VITE_HISTORY_URL>/v1/git/{owner}/{repo}/git-upload-pack  Authorization: Bearer <visitor token>, Content-Type
+// POST <VITE_HISTORY_URL>/v1/git/{owner}/{repo}/git-upload-pack  Origin required (none → 403 forbidden), Authorization: Bearer <visitor token>, Content-Type
 //   application/x-git-upload-pack-request, body a git protocol v2 fetch (core/pack.ts fetchRequest). 200: github.com's answer, streamed
-//   untouched (application/x-git-upload-pack-result), fetched with Basic x-access-token:<token> and Git-Protocol: version=2. Refused before
+//   untouched (application/x-git-upload-pack-result; cut off past PACK_MAX_BYTES only if that var is set: a JS count per chunk is ~450 ms
+//   of CPU for Linux's), fetched with Basic x-access-token:<token>, Git-Protocol: version=2, redirect: 'manual'. Refused before
 //   GitHub unless checkFetchRequest(body) passes (command=fetch; caps agent=, object-format=sha1; args only want <sha> (1 to MAX_WANTS = 256),
-//   no-progress, ofs-delta, and deepen 1, filter blob:none, done, all three required; at most 64 KiB) → 400 invalid / 413 too-large; then
-//   GET /user and /repos/{repo} (public) → 401 / 403 private / 404; PACK_LIMITER (6 a minute) keyed ip:<ip> before GitHub, login:<login> after.
+//   no-progress, ofs-delta, and deepen 1, filter blob:none, done, all three required; printable ASCII; at most 64 KiB) → 400 invalid / 413
+//   too-large; then GET /user beside one GraphQL query, repository(owner,name) { isPrivate w<i>: object(oid) { __typename } } per want
+//   (GitHub sends any object wanted by name, filter or not) → 401 / 403 private / 404 / 400 invalid unless every want is a Commit;
+//   PACK_LIMITER (6 a minute) keyed ip:<ipKey> before GitHub, login:<login> after. A bad % escape in a route's path → 400 invalid, with CORS.
+// worker.ts ipKey(ip): an IPv4 address as is (::ffff:-mapped too), an IPv6 address as its /64 ('2001:db8:1:2::/64'): the key of every
+//   per-IP limiter (LIMITER, UPLOAD_LIMITER, PACK_LIMITER). capped(body, max): the stream, errored past max bytes.
 // Uploads are taken for the repo's default branch only. Localhost origins only when the ALLOW_LOCALHOST var is set (local runs, e2e).
 // KV (the store): key `h1:${repo.toLowerCase()}@${branch}` (core/upload.ts historyKey), value the body untouched, metadata the StoredManifest,
 // 90-day TTL, one write per accepted upload (plus a delete per eviction), none per job step or sign-in. The Worker never decompresses or parses a body (10 ms CPU);
@@ -121,11 +126,13 @@ function computeHistory(options: EngineOptions): Promise<History>; // rejects wi
 // (engine.ts unread(store, roots)). With a pack: once the probes have picked every snapshot, one fetch wants the head, every snapshot and
 // the diffed recent commits with their first parents; nothing else is read unless it fails or is cut short. Probes look up to 24 targets
 // ahead; a mainline pick goes out when its ahead page shows it is needed; the branch's length (per_page=1) is asked beside the first page.
-// core/pack.ts: fetchRequest(wants): Uint8Array; checkFetchRequest(body): { ok: true; wants } | { ok: false; reason };
+// core/pack.ts: fetchRequest(wants): Uint8Array; checkFetchRequest(body): { ok: true; wants: string[] /* deduplicated */ } | { ok: false; reason };
 //   PackReader({ onObject({ oid, type: 'commit' | 'tree' | 'blob' | 'tag', data }), cacheBytes? /* 24 MiB */, segmentBytes? /* 8 MiB */ })
-//   .push(chunk) / .end(): PackStats { bytes, objects, deltas, reinflated, held, shallow }: pkt-lines, side band 1 (2 ignored, 3 or ERR throw
+//   .push(chunk) / .end(): PackStats { bytes, objects, deltas, reinflated, held, shallow, retries }: pkt-lines, side band 1 (2 ignored, 3 or ERR throw
 //   PackError), the pack kept compressed in segments, objects inflated (core/inflate.ts inflateAt) and deltas (ofs and ref) resolved against
-//   an LRU of inflated bases, each named by core/sha1.ts gitOid; a blob throws. fetchPack(wants, store, { url, token, fetch, signal }, onBytes?)
+//   an LRU of inflated bases, each named by core/sha1.ts gitOid; a blob, an ofs delta at offset 0, or an object or delta result past 256 MiB
+//   throws; an object cut short is retried once more bytes are in, the step growing with what it has (retries: linear time for a 64 MB
+//   object). fetchPack(wants, store, { url, token, fetch, signal, maxBytes? /* MAX_PACK_BYTES = 200 MiB, then PackError: fall back */ }, onBytes?)
 //   → PackResult = PackStats & { commits: Map<sha, { tree; parents }>; trees; firstByteMs; ms }, trees via TreeStore.addRaw(t, bytes).
 // core/trace.ts: tracer() → Trace { begin/end(phase), request(kind, ms, bytes, wire?), waited, batch, cpu, summary(): TraceSummary };
 // TraceSummary = { ms; phases: { name: 'listings' | 'probes' | 'head tree' | 'pack' | 'graphql' | 'rest' | 'recent' | 'upload'; from; ms }[];

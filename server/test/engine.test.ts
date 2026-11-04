@@ -444,7 +444,9 @@ describe('pack reader', () => {
       vi.stubGlobal('fetch', f);
       try {
         const env = { GITHUB_API: API, GITHUB_WEB: 'https://github.test' } as unknown as Env;
-        const res = await worker.fetch(new Request(input, init), env);
+        const headers = new Headers(init?.headers);
+        headers.set('Origin', 'https://jasonzhangggg.github.io');
+        const res = await worker.fetch(new Request(input, { ...init, headers }), env);
         return answer ? await answer(res) : res;
       } finally {
         vi.unstubAllGlobals();

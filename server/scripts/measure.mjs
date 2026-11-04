@@ -116,7 +116,10 @@ for (const t of targets) {
       async (/** @type {any} */ input, /** @type {any} */ init) => {
         const url = typeof input === 'string' ? input : input.url;
         if (url.startsWith('https://history.test/')) {
-          return worker.fetch(new Request(url, init), /** @type {any} */ (env));
+          // As the page would send it: the route refuses a request with no Origin.
+          const headers = new Headers(init?.headers);
+          headers.set('Origin', 'https://jasonzhangggg.github.io');
+          return worker.fetch(new Request(url, { ...init, headers }), /** @type {any} */ (env));
         }
         return github(input, init);
       }

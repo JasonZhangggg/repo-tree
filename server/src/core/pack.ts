@@ -1,12 +1,14 @@
 /**
  * Reading many snapshot trees in one git fetch (smart HTTP, protocol v2), the primary tree reader.
  *
- * The browser asks the history Worker's `/v1/git/{owner}/{repo}/git-upload-pack` route, which
- * checks the request (`checkFetchRequest`: trees and commits only, never blobs) and streams
- * github.com's answer back untouched. The request wants the snapshot commits at depth 1 with
- * `filter blob:none`: GitHub sends every commit wanted and every tree below them, each distinct
- * object once, as a packfile. Supabase, 51 snapshots: 29k objects, 5.8 MiB; Linux, 65: 99k
- * objects, 47 MiB (GraphQL: 86 MB in 400 queries).
+ * The browser asks the history Worker's `/v1/git/{owner}/{repo}/git-upload-pack` route. The
+ * Worker checks the request's form (`checkFetchRequest`: a fetch at depth 1 with
+ * `filter blob:none` and nothing else that pulls more), then asks GitHub that the repo is public
+ * and that every want is a commit (GitHub sends any object wanted by name, filter or not, so a
+ * blob's sha would come back whole), and streams github.com's answer back; the browser reads at
+ * most MAX_PACK_BYTES of it. For commit wants GitHub sends every commit wanted and every tree
+ * below them, each distinct object once, as a packfile. Supabase, 51 snapshots: 29k objects,
+ * 5.8 MiB; Linux, 65: 99k objects, 47 MiB (GraphQL: 86 MB in 400 queries).
  *
  * `PackReader` takes the response as it streams in: pkt-lines, then the side band, then the
  * pack. Each object is inflated (inflate.ts), deltas resolved against their bases, named by its
@@ -23,6 +25,10 @@ import { rawEntries, type TreeStore } from './store';
 export const MAX_WANTS = 256;
 /** Bytes a fetch request may take: 256 wants are about 13 KB. */
 export const MAX_REQUEST_BYTES = 64 * 1024;
+/** Bytes of answer the browser reads before it gives up and falls back (Linux's is 50 MB). */
+export const MAX_PACK_BYTES = 200 * 1024 * 1024;
+/** Bytes one object or delta result may unpack to. */
+const MAX_OBJECT_BYTES = 1 << 28;
 export const UPLOAD_PACK_REQUEST = 'application/x-git-upload-pack-request';
 export const UPLOAD_PACK_RESULT = 'application/x-git-upload-pack-result';
 
@@ -59,24 +65,35 @@ export function fetchRequestText(wants: readonly string[]): string {
   return lines.join('');
 }
 
-export type RequestCheck = { ok: true; wants: number } | { ok: false; reason: string };
+export type RequestCheck = { ok: true; wants: string[] } | { ok: false; reason: string };
 
 /**
- * Whether a fetch request is one the Worker forwards: exactly `command=fetch`, capabilities
- * limited to an agent and sha1, and arguments limited to wants (1 to MAX_WANTS), `deepen 1`,
- * `filter blob:none`, `done` (all three required) and the harmless `no-progress`, `ofs-delta`
- * and `thin-pack`-free flags. Anything else that could pull blobs (another filter, no filter,
- * `have` negotiation, `include-tag`, `want-ref`, packfile-uris, a deeper or since/not deepen)
- * is refused.
+ * Whether a fetch request has the form the Worker forwards: exactly `command=fetch`,
+ * capabilities limited to an agent and sha1, and arguments limited to wants (1 to MAX_WANTS,
+ * returned deduplicated), `deepen 1`, `filter blob:none`, `done` (all three required) and the
+ * harmless `no-progress` and `ofs-delta`. Anything else that could pull more (another filter,
+ * no filter, `have` negotiation, `include-tag`, `thin-pack`, `want-ref`, packfile-uris, a
+ * deeper or since/not deepen) is refused. The form is not enough: a want naming a blob or a
+ * tree is sent whole whatever the filter, so the Worker also checks each want is a commit.
+ * Lines are read byte by byte, printable ASCII only (no BOM or other decoding to disagree with
+ * git about).
  */
 export function checkFetchRequest(body: Uint8Array): RequestCheck {
   const no = (reason: string): RequestCheck => ({ ok: false, reason });
   if (body.length > MAX_REQUEST_BYTES) return no('too large');
   const lines: (string | '0000' | '0001')[] = [];
-  const dec = new TextDecoder();
+  const ascii = (from: number, to: number) => {
+    let out = '';
+    for (let i = from; i < to; i++) {
+      const c = body[i]!;
+      if ((c < 0x20 || c > 0x7e) && !(c === 0x0a && i === to - 1)) return null;
+      out += String.fromCharCode(c);
+    }
+    return out;
+  };
   for (let at = 0; at < body.length;) {
     if (at + 4 > body.length) return no('bad pkt-line');
-    const head = dec.decode(body.subarray(at, at + 4));
+    const head = ascii(at, at + 4) ?? '';
     if (!/^[0-9a-f]{4}$/.test(head)) return no('bad pkt-line');
     const n = parseInt(head, 16);
     if (n === 0 || n === 1) {
@@ -85,8 +102,8 @@ export function checkFetchRequest(body: Uint8Array): RequestCheck {
       continue;
     }
     if (n < 5 || at + n > body.length) return no('bad pkt-line');
-    const text = dec.decode(body.subarray(at + 4, at + n));
-    if (!/^[\x20-\x7e]*\n?$/.test(text)) return no('bad pkt-line');
+    const text = ascii(at + 4, at + n);
+    if (text === null) return no('bad pkt-line');
     lines.push(text.endsWith('\n') ? text.slice(0, -1) : text);
     at += n;
   }
@@ -99,11 +116,13 @@ export function checkFetchRequest(body: Uint8Array): RequestCheck {
   }
   const args = lines.slice(delim + 1, -1);
   let wants = 0;
+  const wanted = new Set<string>();
   const seen = new Set<string>();
   for (const arg of args) {
     if (arg.startsWith('want ')) {
       if (!SHA.test(arg.slice(5))) return no('bad want');
       wants++;
+      wanted.add(arg.slice(5));
       continue;
     }
     if (!['no-progress', 'ofs-delta', 'deepen 1', 'filter blob:none', 'done'].includes(arg)) {
@@ -117,7 +136,7 @@ export function checkFetchRequest(body: Uint8Array): RequestCheck {
   if (!seen.has('done')) return no('no done');
   if (wants === 0) return no('no wants');
   if (wants > MAX_WANTS) return no('too many wants');
-  return { ok: true, wants };
+  return { ok: true, wants: [...wanted] };
 }
 
 export class PackError extends Error {}
@@ -158,6 +177,8 @@ export type PackStats = {
   held: number;
   /** Shallow commits the answer listed (the wants, at depth 1). */
   shallow: number;
+  /** Inflates of an object that stopped short for want of input, tried again on more. */
+  retries: number;
 };
 
 /**
@@ -172,6 +193,7 @@ export class PackReader {
     reinflated: 0,
     held: 0,
     shallow: 0,
+    retries: 0,
   };
   /** Objects the pack header announces (0 until read). */
   count = 0;
@@ -194,6 +216,8 @@ export class PackReader {
   private packAt = 0;
   private headerRead = false;
   private retryAt = 0;
+  /** The inflated size of the object being waited for, from its header. */
+  private pendingSize = 0;
 
   // Objects read: pack offset, segment and position, type (resolved), by index.
   private offsets: number[] = [];
@@ -348,10 +372,16 @@ export class PackReader {
       const start = this.at;
       const got = this.readObject(this.cur, start, this.fill, complete);
       if (!got) {
-        // Wait for more: half again what is here, so a big object is not inflated over and
-        // over, one chunk at a time.
+        // Wait for half again what is here (so a big object is inflated a few times, not once a
+        // chunk: the work stays linear), but no longer than the most a zlib stream of its size
+        // can take (stored blocks: 5 bytes per 65,535 and 6 more), past which it is surely whole.
         const have = this.fill - start;
-        this.retryAt = this.fill + Math.max(16 * 1024, Math.min(have >> 1, 1 << 20));
+        const most = start + 32 + this.pendingSize + 5 * Math.ceil(this.pendingSize / 65535) + 6;
+        this.retryAt = Math.min(
+          this.fill + Math.max(16 * 1024, have >> 1),
+          Math.max(most, this.fill + 1),
+        );
+        this.stats.retries++;
         return;
       }
       const index = this.offsets.length;
@@ -486,6 +516,8 @@ export class PackReader {
         c = b[p++]!;
         baseOffset = (baseOffset + 1) * 128 + (c & 0x7f);
       }
+      // A base at the object itself (or after it) would make a delta of itself.
+      if (baseOffset <= 0) throw new PackError('bad ofs delta');
     } else if (type === REF_DELTA) {
       if (p + 20 > limit) return more();
       baseOid = hex(b, p, 20);
@@ -496,7 +528,8 @@ export class PackReader {
     } else if (type !== COMMIT && type !== TREE && type !== TAG) {
       throw new PackError('bad object type');
     }
-    if (size > 1 << 28) throw new PackError('object too large');
+    if (size > MAX_OBJECT_BYTES) throw new PackError('object too large');
+    if (!complete) this.pendingSize = size;
     let got;
     try {
       got = inflateAt(b, p, limit, size, complete);
@@ -526,6 +559,7 @@ export function applyDelta(base: Uint8Array, delta: Uint8Array): Uint8Array {
   };
   if (varint() !== base.length) throw new PackError('delta base size');
   const size = varint();
+  if (size > MAX_OBJECT_BYTES) throw new PackError('delta result too large');
   const out = new Uint8Array(size);
   let at = 0;
   while (p < delta.length) {
@@ -581,6 +615,8 @@ export type PackFetch = {
   token: string;
   fetch: typeof fetch;
   signal?: AbortSignal;
+  /** Bytes past which the read is abandoned (MAX_PACK_BYTES): the caller falls back. */
+  maxBytes?: number;
 };
 
 export type PackResult = PackStats & {
@@ -633,6 +669,9 @@ export async function fetchPack(
     for (;;) {
       const { done, value } = await body.read();
       if (done) break;
+      if (reader.stats.bytes + value.length > (how.maxBytes ?? MAX_PACK_BYTES)) {
+        throw new PackError('pack too large');
+      }
       reader.push(value);
       onBytes?.(reader.stats.bytes, reader.stats.objects, reader.count);
     }

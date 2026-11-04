@@ -597,10 +597,24 @@ export function gitHubFetch(repos, options = {}) {
     const fields = (/entries\s*\{([^}]*)\}/.exec(query)?.[1] ?? 'name oid').trim().split(/\s+/);
     /** @type {Record<string, unknown>} */
     const out = {};
+    // The history Worker's check of a pack request: the repo's visibility, each want's type.
+    if (/\bisPrivate\b/.test(query)) out.isPrivate = config.private ?? false;
+    const typed = /object\([^)]*\)\s*\{\s*__typename\s*\}/.test(query);
+    const TYPENAME = /** @type {Record<string, string>} */ ({
+      commit: 'Commit',
+      tree: 'Tree',
+      blob: 'Blob',
+      tag: 'Tag',
+    });
     let total = 0;
     for (const [, alias = '', oid = ''] of query.matchAll(
       /(\w+)\s*:\s*object\(\s*oid:\s*"([0-9a-f]{40})"\s*\)/g,
     )) {
+      if (typed) {
+        const any = await objs.read(oid);
+        out[alias] = any ? { __typename: TYPENAME[any.type] ?? 'Blob' } : null;
+        continue;
+      }
       const tree = await objs.tree(oid);
       if (!tree) {
         const any = await objs.read(oid);

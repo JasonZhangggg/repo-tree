@@ -15,11 +15,13 @@
  *        uploader's token, then stored: two ledger calls, eight GitHub requests, one KV write.
  *   POST /v1/history/<owner>/<repo>/bad?branch=<b>&head=<sha>   a reader could not use the stored
  *        body: the next good upload may replace it. One ledger call.
- *   POST /v1/git/<owner>/<repo>/git-upload-pack   (signed in; body a git protocol v2 fetch
- *        request) the snapshot trees in one pack (core/pack.ts). The request must want commits
- *        or trees at depth 1 with `filter blob:none` (checkFetchRequest); the repo must be
- *        public. Two GitHub API requests check the token and the repo, then github.com's answer
- *        streams back untouched, under the visitor's own token (git's limits are per user).
+ *   POST /v1/git/<owner>/<repo>/git-upload-pack   (signed in, from an allowed origin; body a
+ *        git protocol v2 fetch request) the snapshot trees in one pack (core/pack.ts). The
+ *        request must have the form checkFetchRequest takes (depth 1, `filter blob:none`); one
+ *        GraphQL query then checks the repo is public and every want is a commit (a blob or tree
+ *        wanted by name comes whole, filter or not), and GET /user the token. github.com's answer
+ *        streams back under the visitor's own token (git's limits are per user), untouched
+ *        (PACK_MAX_BYTES, off by default, would count it: see Env).
  */
 
 import { parseRepoRef } from '../../src/repo/ref';
@@ -75,6 +77,14 @@ export type Env = {
   UPLOAD_LIMITER?: RateLimit;
   /** Pack fetches a minute, per IP and per GitHub login (keys `ip:` and `login:`). */
   PACK_LIMITER?: RateLimit;
+  /**
+   * Bytes of git-upload-pack answer passed on, past which it is cut off. Unset by default: the
+   * count runs JavaScript for every chunk, where an untouched body is piped by the runtime for
+   * free, and a Linux-sized pack is about 13,000 chunks of 4 KB in workerd: some 450 ms more CPU
+   * (scripts/stream-cpu.mjs) against the free plan's 10 ms. Worth setting on a plan with CPU to
+   * spare (the paid plan allows 30 s).
+   */
+  PACK_MAX_BYTES?: string;
 };
 
 const HISTORY_ROUTE = /^\/v1\/history\/([^/]+)\/([^/]+?)(\/bad)?\/?$/;
@@ -138,9 +148,11 @@ export default {
     if (git) {
       if (request.method !== 'POST')
         return new Response('not found', { status: 404, headers: cors });
-      const ref = parseRepoRef(`${decodeURIComponent(git[1]!)}/${decodeURIComponent(git[2]!)}`);
-      if ('kind' in ref) return send({ status: 'error', error: 'invalid' });
-      const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+      // Browsers only: a request with no Origin is a script, which has git of its own.
+      if (origin === null) return send({ status: 'error', error: 'forbidden' });
+      const ref = repoRef(git[1]!, git[2]!);
+      if (!ref) return send({ status: 'error', error: 'invalid' });
+      const ip = ipKey(request.headers.get('CF-Connecting-IP') ?? 'unknown');
       if (env.LIMITER && !(await env.LIMITER.limit({ key: ip })).success) {
         return send({ status: 'error', error: 'rate-limited', retryAfter: 60 });
       }
@@ -156,13 +168,13 @@ export default {
       return new Response('not found', { status: 404, headers: cors });
     }
 
-    const ref = parseRepoRef(`${decodeURIComponent(match[1]!)}/${decodeURIComponent(match[2]!)}`);
+    const ref = repoRef(match[1]!, match[2]!) ?? { kind: 'invalid' };
     const branch = url.searchParams.get('branch');
     if ('kind' in ref || branch === null || !BRANCH.test(branch) || !BRANCH_CHARS.test(branch)) {
       return send({ status: 'error', error: 'invalid' });
     }
     const repo = `${ref.owner}/${ref.repo}`;
-    const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+    const ip = ipKey(request.headers.get('CF-Connecting-IP') ?? 'unknown');
     if (env.LIMITER && !(await env.LIMITER.limit({ key: ip })).success) {
       return send({ status: 'error', error: 'rate-limited', retryAfter: 60 });
     }
@@ -298,8 +310,8 @@ async function upload(
 
 /**
  * POST /v1/git/<repo>/git-upload-pack: checks, then github.com's answer as a stream, or the
- * reason it was refused. The Worker never reads the answer: its CPU is the checks (well under a
- * millisecond, scripts/worker-cpu.mjs) however big the pack.
+ * reason it was refused. The Worker never reads the answer (unless PACK_MAX_BYTES is set): its CPU
+ * is the checks, under a millisecond (scripts/worker-cpu.mjs), however big the pack.
  */
 async function uploadPack(
   request: Request,
@@ -320,7 +332,8 @@ async function uploadPack(
   }
   const body = await readCapped(request, MAX_REQUEST_BYTES);
   if (!body) return error('too-large');
-  if (!checkFetchRequest(body).ok) return error('invalid');
+  const form = checkFetchRequest(body);
+  if (!form.ok) return error('invalid');
 
   const gh = gitHub({
     fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
@@ -328,15 +341,25 @@ async function uploadPack(
     token,
     limit: 2,
   });
+  // The repo's visibility and each want's type in one query: GitHub sends any object wanted by
+  // name whatever the filter, so only commits pass (the engine wants nothing else).
+  const [owner, name] = repo.split('/') as [string, string];
+  const query =
+    `query{repository(owner:${JSON.stringify(owner)},name:${JSON.stringify(name)}){isPrivate ` +
+    form.wants.map((w, i) => `w${i}:object(oid:"${w}"){__typename}`).join(' ') +
+    '}}';
   let login: string;
   try {
-    const [{ body: user }, { body: meta }] = await Promise.all([
-      gh.json('/user'),
-      gh.json(`/repos/${repo}`),
-    ]);
+    const [{ body: user }, data] = await Promise.all([gh.json('/user'), gh.graphql(query)]);
     if (!isRecord(user) || typeof user.login !== 'string') return error('unauthorized');
+    const meta = data.repository;
+    if (meta === null) return error('not-found');
     if (!isRecord(meta)) return error('upstream');
-    if (meta.private !== false) return error('private');
+    if (meta.isPrivate !== false) return error('private');
+    for (let i = 0; i < form.wants.length; i++) {
+      const o = meta[`w${i}`];
+      if (!isRecord(o) || o.__typename !== 'Commit') return error('invalid');
+    }
     login = user.login.toLowerCase();
   } catch (e) {
     if (!(e instanceof UpstreamError)) return error('upstream');
@@ -361,6 +384,7 @@ async function uploadPack(
         'User-Agent': 'git/repo-tree',
       },
       body,
+      redirect: 'manual',
     },
   ).catch(() => null);
   if (!upstream) return error('upstream');
@@ -371,9 +395,67 @@ async function uploadPack(
     if (upstream.status === 429) return error('rate-limited', 60);
     return error('upstream');
   }
-  return new Response(upstream.body, {
+  const max = Number(env.PACK_MAX_BYTES);
+  return new Response(max > 0 ? capped(upstream.body, max) : upstream.body, {
     headers: { 'Content-Type': UPLOAD_PACK_RESULT, 'Cache-Control': 'no-store' },
   });
+}
+
+/**
+ * `body`, cut off with an error past `max` bytes: the reader sees a truncated pack and falls
+ * back. JavaScript for every chunk, as a TransformStream would be (they cost the same in workerd,
+ * scripts/stream-cpu.mjs): see Env.PACK_MAX_BYTES.
+ */
+export function capped(body: ReadableStream<Uint8Array>, max: number): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let n = 0;
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        const { done, value } = await reader.read();
+        if (done) return controller.close();
+        n += value.byteLength;
+        if (n <= max) return controller.enqueue(value);
+        controller.error(new Error('pack too large'));
+        await reader.cancel().catch(() => undefined);
+      },
+      cancel: (reason) => reader.cancel(reason),
+    },
+    { highWaterMark: 0 },
+  );
+}
+
+/** owner and repo from the path, or null when either is badly escaped or not a repo name. */
+function repoRef(owner: string, repo: string): { owner: string; repo: string } | null {
+  try {
+    const ref = parseRepoRef(`${decodeURIComponent(owner)}/${decodeURIComponent(repo)}`);
+    return 'kind' in ref ? null : ref;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The key a client's rate limits are counted under: an IPv4 address, or an IPv6 address's /64
+ * (one subscriber's prefix; a host may hold all of it).
+ */
+export function ipKey(ip: string): string {
+  if (!ip.includes(':')) return ip;
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (mapped) return mapped[1]!;
+  const halves = ip.toLowerCase().split('::');
+  if (halves.length > 2) return ip;
+  const [head = '', tail = ''] = halves;
+  const a = head ? head.split(':') : [];
+  const b = ip.includes('::') ? (tail ? tail.split(':') : []) : [];
+  const groups = ip.includes('::')
+    ? [...a, ...Array(Math.max(0, 8 - a.length - b.length)).fill('0'), ...b]
+    : a;
+  if (groups.length !== 8 || !groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return ip;
+  return `${groups
+    .slice(0, 4)
+    .map((g) => parseInt(g, 16).toString(16))
+    .join(':')}::/64`;
 }
 
 /** The request body, or null past `max` bytes (read no further than that). */

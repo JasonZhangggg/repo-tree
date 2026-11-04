@@ -47,3 +47,17 @@ Every run drew 4 calls per frame. Repeat runs of `linux low` and `dotfiles low` 
 - Port `4174` is fixed in the script. Two perf runs at once collide.
 
 Weather, measured on 2026-11-04 in the same sandbox at load average 7 to 8 with other agents running, `vite low`, five interleaved runs each, median spin fps: main 14.8, this branch with the sample's own sunny sky 14.8 (8 draw calls, 16,489 triangles), `rain` 13.2 (7 calls, 18,923 triangles), `storm` 12.8 (7 calls, 19,507 triangles). Disabling the rain alone recovered the storm's loss in a one-off run, so falling drops are most of the cost (inferred from one noisy run).
+
+3D weather (sun and clouds in world space, rain from the clouds), measured on 2026-11-04 in the same sandbox at load average 4.2 to 5.6 with other agents running, `vite low` and `linux low`, main and the branch interleaved on port 9471, two runs each, spin fps:
+
+| Sky         | Main fps   | Branch fps | Main calls / triangles | Branch calls / triangles |
+| ----------- | ---------- | ---------- | ---------------------- | ------------------------ |
+| vite clear  | 32.4, 33.2 | 30.2, 33.9 | 4 / 16,457             | 4 / 16,457               |
+| vite sunny  | 32.2, 30.0 | 30.6, 31.4 | 5 / 16,499             | 6 / 17,209               |
+| vite cloudy | 29.4, 31.0 | 26.6, 30.8 | 6 / 17,849             | 6 / 17,849               |
+| vite rain   | 26.6, 25.4 | 25.6, 25.0 | 6 / 18,921             | 6 / 18,457               |
+| vite storm  | 25.2, 20.0 | 22.0, 21.8 | 6 / 19,505             | 6 / 18,977               |
+| linux own   | 30.6, 28.6 | 30.6, 29.0 | 4 / 17,045             | 4 / 17,045               |
+| linux rain  | 23.0, 21.4 | 22.8, 21.8 | 6 / 19,509             | 6 / 19,045               |
+
+Sunny draws two clouds now, one more call. A storm frame that catches a lightning bolt draws one more call. Every pair is within the run-to-run spread.

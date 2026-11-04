@@ -894,6 +894,8 @@ const JOURNEYS = {
         body: JSON.stringify({ repo: 'acme/widgets', sha: null }),
       });
       await page.addInitScript(() => {
+        // The debug flag: the run's breakdown shows in a toast.
+        localStorage.setItem('repo-tree:debug', '1');
         const now = Date.now;
         Date.now = () => now() + 2 * 24 * 60 * 60 * 1000;
       });
@@ -907,6 +909,9 @@ const JOURNEYS = {
       await page.getByRole('button', { name: /^Refresh/ }).click();
       await expect(scrubber).toBeVisible({ timeout: 60_000 });
       expect(await storedHead()).not.toBe(before);
+      // Brought up to date from the stored history, not computed again.
+      await expect(page.locator('#toast')).toContainText(/refreshed: \d+ new, \d+ kept/);
+      expect(await page.evaluate(() => window.__repoTree.computeTrace?.refreshed)).toBeTruthy();
       await settle(page);
     });
   },

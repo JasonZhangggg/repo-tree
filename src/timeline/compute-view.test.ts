@@ -42,6 +42,7 @@ describe('describeStep', () => {
     expect(v.lines[0]!.text).toContain(
       'It was worked out on Mar 3, 2026, and the branch has moved since.',
     );
+    expect(v.lines[0]!.text).toContain('add the commits since then');
     expect(v.lines[0]!.text).toContain('share it again for everyone');
     expect(v.buttons).toEqual([
       { label: 'Refresh history', act: 'start' },

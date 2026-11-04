@@ -390,6 +390,24 @@ export function gitHubFetch(repos, options = {}) {
             : (await git('rev-parse', '--verify', `${name}^{commit}`)).trim();
         return { status: 200, body: sha, kind: 'ref', type: 'text/plain', extra: {} };
       }
+      const compare = /^\/compare\/([0-9a-f]{40})\.\.\.([0-9a-f]{40})$/.exec(rest);
+      if (compare) {
+        // Only what the refresh reads: whether the base is an ancestor of the head.
+        const [, from = '', to = ''] = compare;
+        if (from === to) return reply({ status: 'identical', ahead_by: 0 }, 200, 'compare');
+        const ahead = await git('merge-base', '--is-ancestor', from, to).then(
+          () => true,
+          () => false,
+        );
+        const back =
+          !ahead &&
+          (await git('merge-base', '--is-ancestor', to, from).then(
+            () => true,
+            () => false,
+          ));
+        const status = ahead ? 'ahead' : back ? 'behind' : 'diverged';
+        return reply({ status, files: [], commits: [] }, 200, 'compare');
+      }
       if (rest === '/commits') {
         const named = q.get('sha');
         // A pinned head stands for the branch, whether named or implied.
@@ -606,10 +624,25 @@ export function gitHubFetch(repos, options = {}) {
       blob: 'Blob',
       tag: 'Tag',
     });
+    const commitShape = /\.\.\.\s*on\s+Commit\b/.test(query);
     let total = 0;
     for (const [, alias = '', oid = ''] of query.matchAll(
       /(\w+)\s*:\s*object\(\s*oid:\s*"([0-9a-f]{40})"\s*\)/g,
     )) {
+      if (commitShape) {
+        // The refresh's look-up of the stored snapshots: each commit's time and root tree.
+        const any = await objs.read(oid);
+        if (!any || any.type !== 'commit') {
+          out[alias] = any ? {} : null;
+          continue;
+        }
+        const line = (
+          await run(config.dir, ['log', '-z', '-1', oid, `--format=${FIELDS}`])
+        ).replace(/\0$/, '');
+        const { commit } = toCommit(line, name);
+        out[alias] = { committedDate: commit.committer.date, tree: { oid: commit.tree.sha } };
+        continue;
+      }
       if (typed) {
         const any = await objs.read(oid);
         out[alias] = any ? { __typename: TYPENAME[any.type] ?? 'Blob' } : null;

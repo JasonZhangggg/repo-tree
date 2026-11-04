@@ -14,10 +14,12 @@
 // --pack reads the trees in one git fetch through the history Worker's git-upload-pack route
 // (src/worker.ts, run in this process against the fake); --reader is then the fallback.
 // --out writes each history as JSON for diffing.
+// --head <sha> pins the branch head there (to compute an older history), and --base <file> hands
+// the engine a stored history (a --out JSON) to bring up to date instead (a refresh).
 // Set FAKE_GIT_CACHE=<dir> to keep the fake's history walks on disk: a second run then times the
 // engine and the modelled network, not git walking Linux's history for each probe.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { register } from 'node:module';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -58,6 +60,8 @@ const { values, positionals } = parseArgs({
     tag: { type: 'string' },
     sparse: { type: 'boolean', default: false },
     pack: { type: 'boolean', default: false },
+    head: { type: 'string' },
+    base: { type: 'string' },
     'per-snapshot': { type: 'boolean', default: false },
     json: { type: 'boolean', default: false },
   },
@@ -99,7 +103,7 @@ for (const t of targets) {
     const fake = remote
       ? await remoteFake(remote)
       : gitHubFetch(
-          { [t.full]: { dir: t.dir, branch } },
+          { [t.full]: { dir: t.dir, branch, ...(values.head ? { head: values.head } : {}) } },
           {
             ...(network ? { network } : {}),
             ...(values.latency === 'github' ? { latency: GITHUB_LATENCY } : {}),
@@ -157,6 +161,7 @@ for (const t of targets) {
         ...(values.reader ? { reader: values.reader } : {}),
         ...(values.graphql ? { graphql: JSON.parse(values.graphql) } : {}),
         ...(values.sparse ? { sparse: true } : {}),
+        ...(values.base ? { base: JSON.parse(readFileSync(values.base, 'utf8')) } : {}),
         onStats: (/** @type {any} */ s) => (stats = s),
         trace,
       });

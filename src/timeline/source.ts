@@ -43,6 +43,8 @@ export type HistorySource = {
         token: string;
         signal: AbortSignal;
         onProgress?: (p: number) => void;
+        /** The stored history to bring up to date, rather than compute again. */
+        base?: History;
       }) => Promise<ComputeOutcome>)
     | null;
   /**
@@ -102,7 +104,7 @@ export function historySource(
         return false;
       }
     },
-    compute: async ({ token, signal, onProgress }) => {
+    compute: async ({ token, signal, onProgress, base }) => {
       const started = performance.now();
       const result = await computeHistoryInWorker(ref, branch, {
         token,
@@ -112,6 +114,7 @@ export function historySource(
         packUrl: `${server}/v1/git/${ref.owner}/${ref.repo}/git-upload-pack`,
         ...(onProgress ? { onProgress } : {}),
         ...(spawn ? { spawn } : {}),
+        ...(base ? { base } : {}),
       });
       if (result.status === 'error') return result;
       const from = performance.now() - started;

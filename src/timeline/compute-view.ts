@@ -42,7 +42,7 @@ export function describeStep(
       const lines: StepView['lines'] = [
         {
           text: refresh
-            ? `It was worked out on ${DATE.format(refresh.since)}, and the branch has moved since. Your browser can bring it up to date from GitHub with your own GitHub requests, ${download} to download, and share it again for everyone who opens ${name}.`
+            ? `It was worked out on ${DATE.format(refresh.since)}, and the branch has moved since. Your browser can add the commits since then from GitHub with your own GitHub requests, ${download} to download, and share it again for everyone who opens ${name}.`
             : `Your browser can work out its history from GitHub with your own GitHub requests, ${download} to download. Once it is done, the timeline is shared, so everyone who opens ${name} gets it at once.`,
         },
       ];

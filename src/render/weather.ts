@@ -16,6 +16,7 @@ import {
   type PerspectiveCamera,
 } from 'three';
 import type { Quality } from '../grow/grow';
+import { surfaceAt } from '../grow/ground';
 import { ISLAND_RADIUS } from '../grow/size';
 import type { Sky } from '../repo/ci';
 import type { Box } from './framing';
@@ -82,33 +83,44 @@ const LOOKS: Record<Sky, Look> = {
     light: { key: 0.55, sky: 0.82 },
     sun: 0,
     clouds: { count: 6, color: '#646c78', size: 1.15, speed: 0.06 },
-    fall: 1.5,
+    fall: 2.2,
     wind: 0.12,
     lightning: true,
   },
 };
 
 /** Raindrops at fall 1 for each quality; snowflakes are fewer and slower. */
-const DROPS: Record<Quality, number> = { low: 200, medium: 480, high: 900 };
+const DROPS: Record<Quality, number> = { low: 60, medium: 140, high: 260 };
 const FLAKES = 0.7;
 /** Puffs in a cloud for each quality, the first always the big middle one. */
 const PUFFS: Record<Quality, number> = { low: 4, medium: 6, high: 6 };
 const MAX_FALL = Math.max(...Object.values(LOOKS).map((l) => l.fall));
 export const MAX_CLOUDS = Math.max(...Object.values(LOOKS).map((l) => l.clouds.count));
 /**
- * Rain and snow fall from a cloud's underside, under a disc `footprint` times its size wide.
- * Inside the island they fall to `under`, into the ground, whose depth hides them; past its rim
- * they fall to `below`, fading out. With the ground off they stop at `floor`, on the shadow plane.
+ * Rain and snow fall from a cloud's underside, under a disc `footprint` times its size wide,
+ * and only where they land within `rim` of the island's radius, inside its wobbly edge: nothing
+ * falls past the island. A drop ends `sink` under the island's smooth surface (`surfaceAt`),
+ * fading out as it lands, so the grass hides its end; with the ground off it ends at `floor`.
  */
-const FALL = { footprint: 0.5, under: -0.35, below: -1.4, floor: 0.02 };
-const RAIN = { speed: 6.5, length: 0.24, width: 0.0065, color: '#5d6b7c', opacity: 0.45 };
+const FALL = { footprint: 0.5, rim: 0.85, sink: 0.05, floor: 0.02 };
+const RAIN = { speed: 6.5, length: 0.26, width: 0.008, color: '#5d6b7c', opacity: 0.5 };
 const SNOW = { speed: 0.75, length: 0.06, width: 0.03, color: '#ffffff', opacity: 0.95 };
 /**
- * The cloud deck: clouds float at least `gap` over the crown and `eye` over the camera of the
- * whole view, so seen from there none passes in front of the crown, and they bob up to `bob`.
- * They sit within `reach` of the trunk, at least `island` times the island's radius.
+ * The cloud deck. Clouds float `gap` over the crown and `eye` over the camera of the whole
+ * view, but no higher than `room` under the top of the view, so they stay in frame; however
+ * tall the tree, they stay at least `least` over both the crown and the eye, so seen from the
+ * whole view none passes in front of the crown. They bob up to `bob`, stack up to `layers`, and
+ * drift within `island` of the island's radius, so rain under them lands on it.
  */
-export const DECK = { gap: 0.32, eye: 0.3, bob: 0.06, island: 0.85, layers: 0.35 };
+export const DECK = {
+  gap: 1,
+  eye: 0.6,
+  least: 0.32,
+  room: 1.05,
+  bob: 0.06,
+  island: 0.9,
+  layers: 0.25,
+};
 /**
  * Which way the key light and the sun stand from the trunk, in x and z: front left of the
  * approved view, so shadows fall back and right.
@@ -139,20 +151,21 @@ export const cloudCount = (sky: Sky | null) => LOOKS[sky ?? 'clear'].clouds.coun
 
 /**
  * Where the clouds float for a tree: `base` is the underside of the lowest cloud and `reach`
- * how far from the trunk they may drift. `eye` is the height of the camera that frames the
- * whole view. A cloud whose underside is above both the crown's top and the eye can never sit
- * between the camera and the crown, so it never hides the tree or its labels.
+ * how far from the trunk they may drift. `view` is the camera that frames the whole view: its
+ * height (`eye`) and the height of the view's top edge over the trunk (`top`). A cloud whose
+ * underside is above both the crown's top and the eye can never sit between the camera and the
+ * crown, so it never hides the tree or its labels.
  */
-export function cloudDeck(tree: Box, eye: number): { base: number; reach: number } {
-  const crown = Math.max(
-    Math.abs(tree.min[0]),
-    Math.abs(tree.max[0]),
-    Math.abs(tree.min[2]),
-    Math.abs(tree.max[2]),
-  );
+export function cloudDeck(
+  tree: Box,
+  view: { eye: number; top: number },
+): { base: number; reach: number } {
+  const crown = tree.max[1];
+  const wanted = Math.max(crown + DECK.gap, view.eye + DECK.eye);
+  const floor = Math.max(crown, view.eye) + DECK.least;
   return {
-    base: Math.max(tree.max[1] + DECK.gap, eye + DECK.eye),
-    reach: Math.max(crown, ISLAND_RADIUS * DECK.island),
+    base: Math.max(floor, Math.min(wanted, view.top - DECK.room)),
+    reach: ISLAND_RADIUS * DECK.island,
   };
 }
 
@@ -259,8 +272,9 @@ export function createWeather(camera: PerspectiveCamera) {
       uColor: { value: [0, 0, 0] },
       uOpacity: { value: 1 },
       uFootprint: { value: FALL.footprint },
-      uIsland: { value: ISLAND_RADIUS * 0.97 },
-      uFloor: { value: [FALL.under, FALL.below] },
+      uRadius: { value: ISLAND_RADIUS },
+      uRim: { value: ISLAND_RADIUS * FALL.rim },
+      uGround: { value: [-FALL.sink, -surfaceAt(ISLAND_RADIUS)] },
     },
     transparent: true,
     depthWrite: false,
@@ -345,8 +359,10 @@ export function createWeather(camera: PerspectiveCamera) {
       .sort((a, b) => b.away - a.away);
     const from = clouds$.value[side[Math.min(side.length - 1, Math.floor(random() * 2))]!.n]!;
     const start = new Vector3(from.x, from.y + 0.05, from.z);
-    const land = Math.hypot(from.x, from.z) < ISLAND_RADIUS && island ? 0.12 : FALL.floor;
-    const end = new Vector3(from.x * 0.85, land, from.z * 0.85);
+    const out = Math.hypot(from.x, from.z);
+    const k = Math.min(0.85, (ISLAND_RADIUS * FALL.rim * 0.9) / Math.max(out, 1e-6));
+    const end = new Vector3(from.x * k, 0, from.z * k);
+    end.y = island ? surfaceAt(out * k) : FALL.floor;
     const steps = 11;
     const points: Vector3[] = [];
     for (let i = 0; i <= steps; i++) {
@@ -414,16 +430,17 @@ export function createWeather(camera: PerspectiveCamera) {
       apply();
     },
     /**
-     * Floats the clouds over a tree (`tree` its bounds), seen by a camera at height `eye`, with
-     * the island under it or not. They ease there unless the weather holds still.
+     * Floats the clouds over a tree (`tree` its bounds), seen by the whole view's camera at
+     * height `eye` under a view whose top edge passes over the trunk at `top`, with the island
+     * under it or not. They ease there unless the weather holds still.
      */
-    setStage(tree: Box, eye: number, ground: boolean) {
-      deckGoal = cloudDeck(tree, eye);
+    setStage(tree: Box, view: { eye: number; top: number }, ground: boolean) {
+      deckGoal = cloudDeck(tree, view);
       if (still || !animated()) deck = deckGoal;
       island = ground;
-      fallMaterial.uniforms.uFloor!.value = ground
-        ? [FALL.under, FALL.below]
-        : [FALL.floor, FALL.floor];
+      fallMaterial.uniforms.uGround!.value = ground
+        ? [-FALL.sink, -surfaceAt(ISLAND_RADIUS)]
+        : [FALL.floor, 0];
       drift();
     },
     /**
@@ -481,7 +498,7 @@ const SUN_CORE = 0.098;
  * World units per sun unit, and where the sun hangs: `out` from the trunk toward the key light,
  * so shadows fall away from it, and `up` over the cloud deck's base.
  */
-export const SUN = { scale: 3, out: 1.8, up: 0.6 };
+export const SUN = { scale: 3, out: 1.8, up: 0.75 };
 
 /**
  * The whole sun as one mesh, so it costs one draw. The rays, halo and glow are flat and face
@@ -700,16 +717,26 @@ uniform float uWidth;
 uniform float uWind;
 uniform float uSnow;
 uniform float uFootprint;
-uniform float uIsland;
-uniform vec2 uFloor;
+uniform float uRadius;
+uniform float uRim;
+uniform vec2 uGround;
 varying float vAlpha;
 varying vec2 vCorner;
 void main() {
+  vCorner = position.xy;
   vec4 cloud = uClouds[int(min(floor(aWhich * uCount), uCount - 1.0))];
   vec2 at = cloud.xz + aDrop.xy * uFootprint * cloud.w;
-  bool over = length(at) < uIsland;
   float top = cloud.y + 0.05 * cloud.w;
-  float height = top - (over ? uFloor.x : uFloor.y);
+  // Where it lands, blown by the wind: past the rim it never falls at all.
+  vec2 land = at + vec2(uWind * (top - uGround.x), 0.0);
+  float r = length(land);
+  if (r > uRim || cloud.w < 0.001) {
+    vAlpha = 0.0;
+    gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+    return;
+  }
+  float ground = uGround.x - uGround.y * pow(min(1.0, r / uRadius), 2.0);
+  float height = top - ground;
   float k = fract(aDrop.z + uTime * uSpeed * (0.8 + 0.4 * aDrop.w) / height);
   float drop = k * height;
   vec3 head = vec3(at.x + uWind * drop, top - drop, at.y);
@@ -725,9 +752,7 @@ void main() {
     view.xyz -= down * position.y * uLength;
     view.xy += across * position.x * uWidth;
   }
-  vAlpha = smoothstep(0.0, 0.08, k) * (1.0 - smoothstep(over ? 0.97 : 0.6, 1.0, k));
-  vAlpha *= step(0.001, cloud.w);
-  vCorner = position.xy;
+  vAlpha = smoothstep(0.0, 0.08, k) * (1.0 - smoothstep(0.92, 1.0, k));
   gl_Position = projectionMatrix * view;
 }
 `;

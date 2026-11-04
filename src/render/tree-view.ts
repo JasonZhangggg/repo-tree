@@ -29,7 +29,16 @@ import {
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MeshData, Quality, TreeModel, Vec3 } from '../grow/grow';
 import type { Sky } from '../repo/ci';
-import { distanceOf, FOV, frameFolder, frameTree, stage, VIEW_DIRECTION } from './framing';
+import {
+  distanceOf,
+  FOV,
+  frameFolder,
+  frameTree,
+  SKY_LIFT,
+  skyTop,
+  stage,
+  VIEW_DIRECTION,
+} from './framing';
 import { LIGHT } from './color';
 import { createGround } from './ground';
 import {
@@ -369,8 +378,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const reaim = (snap: boolean) => {
     if (!shown) return;
     const room = stage(groundOn);
-    const whole = frameTree(room, camera.aspect);
-    weather.setStage(shown.model.bounds, whole.position[1], groundOn);
+    const whole = frameTree(room, camera.aspect, SKY_LIFT);
+    weather.setStage(shown.model.bounds, { eye: whole.position[1], top: skyTop(whole) }, groundOn);
     if (!aim) return;
     controls.minDistance = whole.minDistance;
     controls.maxDistance = whole.maxDistance;

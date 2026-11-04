@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { ISLAND_RADIUS, roundBox, treeHeight } from '../grow/size';
 import { SKIES } from '../repo/ci';
-import { frameTree, stage, type Box } from './framing';
+import { frameTree, SKY_LIFT, skyTop, stage, type Box } from './framing';
 import { cloudCount, cloudDeck, DECK } from './weather';
 
 /** A tree of this many files: its crown about two thirds of its height wide. */
@@ -17,24 +17,35 @@ describe('cloudDeck', () => {
     for (const [view, aspect] of Object.entries(ASPECTS)) {
       test(`keeps clouds out of the way of a ${name} tree on a ${view}`, () => {
         const tree = treeOf(files);
-        const eye = frameTree(stage(true), aspect).position[1];
-        const { base, reach } = cloudDeck(tree, eye);
+        const whole = frameTree(stage(true), aspect, SKY_LIFT);
+        const view = { eye: whole.position[1], top: skyTop(whole) };
+        const { base, reach } = cloudDeck(tree, view);
         // Every cloud lies at or above `base`. Any sight line from the camera (at `eye`, at any
         // spin angle) to a point of the crown stays at or below the higher of the two, so no
         // cloud can come between the camera and the crown or its labels.
-        expect(base).toBeGreaterThanOrEqual(tree.max[1] + DECK.gap);
-        expect(base).toBeGreaterThan(Math.max(eye, tree.max[1]));
-        // Clouds spread over the island at least, and over a crown wider than it.
-        expect(reach).toBeGreaterThanOrEqual(ISLAND_RADIUS * DECK.island);
-        expect(reach).toBeGreaterThanOrEqual(tree.max[0]);
+        expect(base).toBeGreaterThanOrEqual(Math.max(view.eye, tree.max[1]) + DECK.least);
+        // Up to the room the view leaves, the clouds float well over the crown.
+        expect(base).toBeGreaterThanOrEqual(
+          Math.min(tree.max[1] + DECK.gap, view.top - DECK.room) - 1e-9,
+        );
+        // Clouds drift over the island, so the rain under them lands on it.
+        expect(reach).toBeLessThan(ISLAND_RADIUS);
       });
     }
   }
 
   test('rises with the tree, so a bigger repo lifts its clouds', () => {
-    const eye = frameTree(stage(true), 1.2).position[1];
-    const bases = Object.values(TREES).map((files) => cloudDeck(treeOf(files), eye).base);
+    const whole = frameTree(stage(true), 1.2, SKY_LIFT);
+    const view = { eye: whole.position[1], top: skyTop(whole) };
+    const bases = Object.values(TREES).map((files) => cloudDeck(treeOf(files), view).base);
     for (let i = 1; i < bases.length; i++) expect(bases[i]).toBeGreaterThanOrEqual(bases[i - 1]!);
+  });
+
+  test('leaves a medium tree a clear gap of sky on a laptop', () => {
+    const whole = frameTree(stage(true), 1.2, SKY_LIFT);
+    const view = { eye: whole.position[1], top: skyTop(whole) };
+    const tree = treeOf(TREES.vite);
+    expect(cloudDeck(tree, view).base - tree.max[1]).toBeGreaterThanOrEqual(0.9);
   });
 });
 

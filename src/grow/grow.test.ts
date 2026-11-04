@@ -4,6 +4,7 @@ import { langOf, type Lang } from '../repo/languages';
 import { sample, type SampleId } from '../test/samples';
 import { growTree, type GrowParams, type MeshData, type TreeModel } from './grow';
 import { TALLEST } from './size';
+import { indexRepo } from '../load/repo-index';
 
 const HIGH: GrowParams = { seed: 42, quality: 'high' };
 const SAMPLES: SampleId[] = ['mathiasbynens-dotfiles', 'vitejs-vite', 'torvalds-linux'];
@@ -44,6 +45,28 @@ describe.each(SAMPLES)('growTree on %s', (id) => {
     expect(new Set(onRocks).size).toBe(onRocks.length);
     expect(onRocks.every((i) => i >= 0 && i < dirOf(id).files.length)).toBe(true);
     expect(twigs + onRocks.length).toBe(dirOf(id).fileCount);
+  });
+
+  test('every twig file stands behind exactly one sprig, which hangs on its twig', () => {
+    const index = indexRepo(dirOf(id));
+    const { vertex, file, files } = tree.sprigs;
+    const sprigs = vertex.length - 1;
+    expect(vertex[0]).toBe(0);
+    expect(vertex[sprigs]).toBe(tree.leaves.nodeId.length);
+    expect(file[sprigs]).toBe(files.length);
+    const rootOwn = new Set(tree.rocks.flatMap((r) => r.files));
+    expect(new Set(files).size).toBe(files.length);
+    expect(files.length + rootOwn.size).toBe(index.files.paths.length);
+    for (let s = 0; s < sprigs; s++) {
+      expect(file[s + 1]! - file[s]!).toBeGreaterThan(0);
+      const node = tree.leaves.nodeId[vertex[s]!]!;
+      for (let v = vertex[s]!; v < vertex[s + 1]!; v++) expect(tree.leaves.nodeId[v]).toBe(node);
+      const owner = tree.folders.path[tree.nodes.folder[node]!]!;
+      for (let k = file[s]!; k < file[s + 1]!; k++) {
+        const path = index.files.paths[files[k]!]!;
+        expect(within(parentPath(path), owner)).toBe(true);
+      }
+    }
   });
 
   test('lays the root files on rocks, largest first, each rock weighing its files', () => {

@@ -21,6 +21,18 @@ describe('share links', () => {
     );
   });
 
+  test('reads a timeline date by day, month or year, and writes it by day', () => {
+    const at = (t: string) => parseLink(`#/vitejs/vite?t=${t}`)?.t;
+    expect(at('2015-03')).toBe(Date.UTC(2015, 2, 1));
+    expect(at('2015-03-17')).toBe(Date.UTC(2015, 2, 17));
+    expect(at('2015')).toBe(Date.UTC(2015, 0, 1));
+    expect(at('2015-13')).toBeUndefined();
+    expect(at('yesterday')).toBeUndefined();
+    expect(formatLink({ ref: ref('vitejs/vite'), t: Date.UTC(2021, 10, 2, 15, 30) })).toBe(
+      '#/vitejs/vite?t=2021-11-02',
+    );
+  });
+
   test('writes folder paths and branches readably', () => {
     const link: ViewLink = {
       ref: ref('https://github.com/acme/web/tree/feature/x'),
@@ -38,6 +50,7 @@ describe('share links', () => {
     { ref: ref('vitejs/vite'), colorBy: 'folder' },
     { ref: ref('github.com/a-b/c.d/tree/release/1.0'), palette: 'summer', sel: 'pkg/x&y=z' },
     { ref: ref('vitejs/vite'), colorBy: 'folder', hl: '12 more' },
+    { ref: ref('vitejs/vite'), sel: 'packages', t: Date.UTC(2022, 4, 9) },
   ])('round-trips %j', (link) => {
     expect(parseLink(formatLink(link))).toEqual(link);
   });

@@ -15,7 +15,8 @@ const KEEP = 4;
  * Runs one load at a time: a new load aborts the one in flight. Grown repos stay in memory
  * (keyed by source, hidden folders and quality) so switching back is instant; `fresh` skips
  * that cache, the snapshot cache and the bundled samples. `select` pins a folder by path and
- * `highlight` a legend entry by label, each once the repo is ready and only if it has one.
+ * `highlight` a legend entry by label, each once the repo is ready and only if it has one;
+ * `timeline` opens the timeline at that date.
  * Each load also reads the repo's recent Actions runs for its weather, beside the tree and as
  * soon as the branch is known, so the tree never waits on them.
  */
@@ -60,7 +61,8 @@ export function createLoader(store: Store) {
       fresh = false,
       select,
       highlight,
-    }: { fresh?: boolean; select?: string; highlight?: string } = {},
+      timeline,
+    }: { fresh?: boolean; select?: string; highlight?: string; timeline?: number } = {},
   ) {
     inFlight?.abort();
     const abort = (inFlight = new AbortController());
@@ -121,6 +123,7 @@ export function createLoader(store: Store) {
       repo,
       selection: folder === undefined ? null : { folder },
       highlight: legend.some((e) => e.label === highlight) ? highlight : undefined,
+      timeline,
     });
   }
 

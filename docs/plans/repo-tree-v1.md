@@ -95,6 +95,7 @@ type TreeModel = {
   bark: MeshData; leaves: LeafMeshData; langs: { lang: Lang; files: number }[]; // most files first
   nodes: { folder: Uint32Array; parent: Int32Array; radius: Float32Array /* [start, end] */; files: Uint32Array /* twig file count */ };
   folders: { path: string[]; range: Uint32Array /* [lo, hi] node-id range per folder, preorder, root first */ };
+  sprigs: { vertex: Uint32Array; file: Uint32Array /* per sprig, first leaf vertex and first slot in files, plus the end */; files: Uint32Array /* RepoIndex.files ids */ }; // each sprig of leaves stands for a run of its twig's files
   labels: { folder: number; files: number; anchor: [number, number, number] }[]; // one per top-level folder
   rocks: { files: number[] /* indices into the root folder's own files */; bytes: number }[]; // root files as rocks, largest first, at most 12 (the last holds the rest); empty when the root has no subfolders
   bounds: { min: [number, number, number]; max: [number, number, number] };
@@ -146,6 +147,8 @@ function createTreeView(container: HTMLElement, options: { quality: Quality; pal
 interface TreeView {
   setTree(model: TreeModel): void; // frames the stage (tallest tree on the island), grows unless reduced motion
   grow(): void; // replays the growth of the tree on show
+  setTimeline(births: { nodes: Float32Array; sprigs: Float32Array } | null): void; // timeline progress each node and sprig appears at (aBorn per vertex), or the whole tree
+  setTime(cursor: number): void; // uTime: elements grow in as it crosses aBorn plus their aT window scaled to SPAN; labels wait for their branch
   setPalette(id: PaletteId): void; // recolors without regrowing
   setColorBy(by: ColorBy): void; // language, or top-level folder
   legend(): LegendEntry[];
@@ -174,7 +177,8 @@ type LoadState =
   | { phase: 'error'; ref: RepoRef; error: AppError };
 type Selection = { folder: number; file?: number }; // indices into the shown repo
 type AppState = { load: LoadState; repo: Repo | null; selection: Selection | null; highlight: string | null; notice: 'truncated' | null; settings: Settings; autoQuality: Quality;
-  ci: Record<string /* ciKey */, readonly CiRun[] | null /* could not be read */>; preview: Sky | null /* from a link's wx */ };
+  ci: Record<string /* ciKey */, readonly CiRun[] | null /* could not be read */>; preview: Sky | null /* from a link's wx */;
+  timeline: number | null /* the date (ms) the open timeline settled on; null while closed */ };
 function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null; // null with weather off, before runs arrive or when they failed
 // highlight is a legend label. A pin and a highlight never coexist: picking one drops the other, and switching colorBy drops the highlight.
 
@@ -183,11 +187,27 @@ type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Qualit
 // 'auto' starts from devicePixelRatio and hardwareConcurrency, then steps down once if the first 2 s after growth render under 30 fps.
 // The token is sent only by fetchSnapshot, which only calls api.github.com.
 
-// app/link.ts  (URL hash: #/owner/repo?branch=&palette=&colorBy=&sel=<folder path>&hl=<legend label>&wx=<sky preview>)
-type ViewLink = { ref: RepoRef; palette?: PaletteId; colorBy?: ColorBy; sel?: string; hl?: string; wx?: Sky };
+// app/link.ts  (URL hash: #/owner/repo?branch=&palette=&colorBy=&sel=<folder path>&hl=<legend label>&wx=<sky preview>&t=<YYYY-MM-DD>)
+type ViewLink = { ref: RepoRef; palette?: PaletteId; colorBy?: ColorBy; sel?: string; hl?: string; wx?: Sky; t?: number /* timeline date, ms UTC; YYYY-MM and YYYY also read */ };
 function parseLink(hash: string): ViewLink | null;
 function formatLink(link: ViewLink): string;
 // A ref naming a bundled sample on its branch (or with no branch) loads the sample; Reload fetches it live.
+
+// timeline/source.ts  (boundary: where History comes from; swap the source here alone)
+type HistorySource = (signal: AbortSignal) => Promise<History | null>;
+function historySource(repo: { sample?: string; info: { ref: RepoRef; branch: string } }, options?: { base?: string; server?: string }): HistorySource | null; // sample file, else the history server when VITE_HISTORY_URL is set, else null (timeline unavailable); needs-auth and failures read as null
+
+// timeline/timeline.ts  (pure; consumes only History, TreeModel and RepoIndex)
+type Ease = { at: Float64Array /* snapshot times */; p: Float64Array /* progress 0..1: LINEAR (0.3) by time, the rest by births and deletions */ };
+type Census = { born: Float64Array; goneBorn: Float64Array; goneGone: Float64Array }; // progress, ascending
+type Timeline = { start: number; end: number; ease: Ease; nodes: Float32Array; sprigs: Float32Array; folders: Float32Array /* progress each appears at */;
+  census: Census; tops: Map<number /* label folder */, Census>; partialBefore: number /* deletions cut off (GONE_CAP) before this progress */ };
+function buildTimeline(history: History, tree: TreeModel, index: RepoIndex, hidden?: readonly string[]): Timeline; // snapshot-resolution times spread over their interval by hash; a folder's earliest sprig takes the folder's birth
+const SPAN: number; // grow-in per element, in progress
+function cursorOf(s: number): number; // scrubber position 0..1 to uTime, s * (1 + SPAN)
+function positionAt(t: Timeline, ms: number): number; function dateAt(t: Timeline, s: number): number;
+function filesAt(t: Timeline, s: number, census?: Census): { files: number; atLeast: boolean }; // files alive then, deleted ones while they lived
+function aliveAt(t: number, born: number, gone?: number): boolean;
 
 // app/search.ts  (pure)
 type SearchHit = { kind: 'folder' | 'file'; id: number; path: string; marks: number[] };
@@ -209,6 +229,7 @@ Palettes are a table (`render/palette.ts` above). Autumn is the approved default
 - Quality tiers set pixel ratio cap, shadow map size, antialias, and leaf sprigs per twig.
 - Weather reflects the repo's recent GitHub Actions runs on its default branch (`repo/ci.ts`, `render/weather.ts`). Its sky tint goes into the container's CSS gradient and the PNG export's sky quad alike; a lightning flash repaints the gradient for its half second. Clouds, the sun and lightning hang on a backdrop fixed to the camera far behind the tree, so they never cover it; rain or snow falls in world space around the island and stops on it. Drift, fall, flashes and the sun's turning rays and breathing halo run in vertex shaders from one time uniform; the whole sun is one mesh, so weather adds four draws at most. Moving weather, the sun included, renders every frame like spin does, stops with the page's animation frames when the tab is hidden, and holds a still frame under reduced motion. Runs load on the main thread beside the tree, never block it, and fail soft to no weather. Samples carry a hand-written `<id>.runs.json`.
 - Commit history comes from a separate server (`server/`, a Cloudflare Worker with KV; setup in `server/README.md`). It compares about 50 to 80 sampled tree snapshots (weekly, monthly, then yearly) by blob and tree sha and reads the newest 100 commits one by one, so its cost is about 120 to 200 GitHub requests whatever the history length. Jobs run in bounded steps across requests. Visitors sign in with GitHub to compute an uncached repo; results come from public data and are shared through the cache, and private repos are refused. Samples carry a `<id>.history.json.gz` made by that server against local clones.
+- The timeline replays a repo's history over the head tree it already grew (`timeline/`, `app/ui/timeline.ts`). Each bark and leaf vertex carries the progress its node or sprig appears at, and the shared grow hook compares it with a `uTime` uniform, so scrubbing never regrows geometry and the depth and pick passes hide unborn parts too. Files deleted before head have no geometry: they count in the scrubber while they lived, and a folder older than its files today sprouts in leaf at its own birth. Playback spans the whole life in 20 s on an eased axis and stops on the full tree; reduced motion opens it paused.
 - `vite build` output loads three.js in its own chunk. Generation runs in a module worker and returns geometry as transferable buffers.
 
 ## PR stack
@@ -224,4 +245,4 @@ Each PR is landable on its own and ends in a passing CI run.
 
 ## Out of scope for v1
 
-GitLab or Bitbucket, and file contents. The growth animation shows load order, not git history. Commit history and its server were out of scope for v1 and came after it; the history features themselves (seasons and dead wood, hotspots, color by owner, time-lapse) and the sign-in button land in later PRs.
+GitLab or Bitbucket, and file contents. The growth animation shows load order, not git history. Commit history and its server were out of scope for v1 and came after it; the time-lapse timeline landed after it; the other history features (seasons and dead wood, hotspots, color by owner) and the sign-in button land in later PRs. GIF or MP4 export of the timeline is not built.

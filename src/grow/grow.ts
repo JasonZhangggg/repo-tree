@@ -45,6 +45,12 @@ export type TreeModel = {
   };
   /** Folders in preorder, root first. `range` holds [lo, hi] node ids per folder. */
   folders: { path: string[]; range: Uint32Array };
+  /**
+   * Each sprig of leaves stands for a run of its twig's files. Sprig `s` draws leaf vertices
+   * `vertex[s]` to `vertex[s + 1]` and stands for `files[file[s]]` to `files[file[s + 1]]`, which
+   * are RepoIndex.files ids (folders in preorder, each folder's own files in order).
+   */
+  sprigs: { vertex: Uint32Array; file: Uint32Array; files: Uint32Array };
   /** One per top-level folder, anchored on the twig tip nearest the middle of its limb. */
   labels: { folder: number; files: number; anchor: Vec3 }[];
   /**
@@ -98,9 +104,11 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
 
   const folderPaths: string[] = [];
   const folderOf = new Map<Dir, number>();
+  const fileId = new Map<FileEntry, number>();
   const indexFolders = (dir: Dir) => {
     folderOf.set(dir, folderPaths.length);
     folderPaths.push(dir.path);
+    for (const file of dir.files) fileId.set(file, fileId.size);
     for (const child of dir.dirs) indexFolders(child);
   };
   indexFolders(root);
@@ -168,6 +176,7 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
     quality,
     LEAF_LENGTH * Math.min(2, Math.max(0.85, (APPROVED_TWIGS / twigs) ** 0.3)),
     (file) => langIndex.get(langOf(file.path))!,
+    (file) => fileId.get(file)!,
     mulberry32(params.seed ^ 0x5bd1e995),
   );
 
@@ -180,7 +189,8 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
 
   return {
     bark,
-    leaves,
+    leaves: leaves.mesh,
+    sprigs: leaves.sprigs,
     langs,
     nodes: {
       folder: nodeFolder,
@@ -198,7 +208,7 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
       };
     }),
     rocks,
-    bounds: boundsOf([bark.position, leaves.position]),
+    bounds: boundsOf([bark.position, leaves.mesh.position]),
   };
 }
 
@@ -597,15 +607,27 @@ function emitLeaves(
   quality: (typeof QUALITY)[Quality],
   leafL: number,
   langIndexOf: (file: FileEntry) => number,
+  idOf: (file: FileEntry) => number,
   random: () => number,
-): LeafMeshData {
-  let leafCount = 0;
+): { mesh: LeafMeshData; sprigs: TreeModel['sprigs'] } {
+  let sprigCount = 0;
+  let fileCount = 0;
   for (const n of order) {
-    if (n.files) leafCount += Math.min(n.files.length, quality.maxSprigs) * quality.leavesPerSprig;
+    if (!n.files) continue;
+    sprigCount += Math.min(n.files.length, quality.maxSprigs);
+    fileCount += n.files.length;
   }
+  const leafCount = sprigCount * quality.leavesPerSprig;
   const out = new MeshWriter(leafCount * 18, leafCount * 18);
   const lang = new Float32Array(leafCount * 18);
   const shade = new Float32Array(leafCount * 36);
+  const sprigs = {
+    vertex: new Uint32Array(sprigCount + 1),
+    file: new Uint32Array(sprigCount + 1),
+    files: new Uint32Array(fileCount),
+  };
+  let sprig = 0;
+  let slot = 0;
 
   for (const n of order) {
     const files = n.files;
@@ -617,11 +639,16 @@ function emitLeaves(
     const p1 = s.path[id * 2 + 1]!;
     const T = normalize(sub(end, start));
     const sd = perp(T);
-    const sprigs = Math.min(files.length, quality.maxSprigs);
-    for (let i = 0; i < sprigs; i++) {
-      const rep = files[Math.floor((i * files.length) / sprigs)]!;
-      const tip = i >= sprigs - 2;
-      const t = tip ? 1 : 0.35 + (0.6 * i) / Math.max(1, sprigs - 2);
+    const count = Math.min(files.length, quality.maxSprigs);
+    for (let i = 0; i < count; i++) {
+      const from = Math.floor((i * files.length) / count);
+      const to = Math.floor(((i + 1) * files.length) / count);
+      const rep = files[from]!;
+      sprigs.vertex[sprig] = out.vertices;
+      sprigs.file[sprig++] = slot;
+      for (let f = from; f < to; f++) sprigs.files[slot++] = idOf(files[f]!);
+      const tip = i >= count - 2;
+      const t = tip ? 1 : 0.35 + (0.6 * i) / Math.max(1, count - 2);
       const at = lerp(start, end, t);
       const s2 = rotate(sd, T, i * 2.4);
       const ld = normalize(
@@ -644,7 +671,9 @@ function emitLeaves(
       }
     }
   }
-  return { ...out.mesh(), lang, shade };
+  sprigs.vertex[sprig] = out.vertices;
+  sprigs.file[sprig] = slot;
+  return { mesh: { ...out.mesh(), lang, shade }, sprigs };
 }
 
 /**

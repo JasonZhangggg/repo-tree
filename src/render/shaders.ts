@@ -1,14 +1,21 @@
 import type { Material, WebGLProgramParametersWithUniforms } from 'three';
+import { SPAN } from '../timeline/timeline';
 
 /**
  * Shader hooks shared by every tree material, ported from the approved mock. Each vertex moves
  * from `aBase` (the point it grows out of) to its position while `uGrow` crosses its `aT`
- * window. Fragments whose node id `aId` falls outside `uSel` fade toward `uFade`, and so do
- * bark and every leaf outside color slot `uCategory` while it is not -1. Those leaves fade harder
+ * window. On the timeline it also waits for its birth: it grows in as `uTime` crosses `aBorn`
+ * plus its `aT` window scaled to `uSpan`, so a branch extends before its children and leaves.
+ * Fragments whose node id `aId` falls outside `uSel` fade toward `uFade`, and so do bark and
+ * every leaf outside color slot `uCategory` while it is not -1. Those leaves fade harder
  * and go grey, and the leaves inside that slot deepen, so any category stands out, pale or gold.
  */
+export const ALWAYS = 1e6;
 export const treeUniforms = {
   uGrow: { value: 1 },
+  /** The timeline's cursor; far past any birth while the timeline is closed. */
+  uTime: { value: ALWAYS },
+  uSpan: { value: SPAN },
   uSel: { value: [-1, -1] as [number, number] },
   uFade: { value: [0.93, 0.92, 0.9] as [number, number, number] },
   uSlots: { value: [] as number[] },
@@ -19,12 +26,19 @@ const GROW_VERTEX = /* glsl */ `
 attribute vec3 aBase;
 attribute vec2 aT;
 attribute float aId;
+attribute float aBorn;
 uniform float uGrow;
+uniform float uTime;
+uniform float uSpan;
 varying float vId;
+float grown() {
+  float end = max(aT.y, aT.x + 0.0001);
+  return smoothstep(aT.x, end, uGrow) * smoothstep(aBorn + uSpan * aT.x, aBorn + uSpan * end, uTime);
+}
 `;
 const GROW_BEGIN = /* glsl */ `
 #include <begin_vertex>
-transformed = mix(aBase, transformed, smoothstep(aT.x, max(aT.y, aT.x + 0.0001), uGrow));
+transformed = mix(aBase, transformed, grown());
 vId = aId;
 `;
 const OUTSIDE = '(uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5))';
@@ -151,7 +165,7 @@ export const leafShader = <M extends Material>(m: M, slots: number) =>
 export const PICK_VERTEX = /* glsl */ `
 ${GROW_VERTEX}
 void main() {
-  vec3 transformed = mix(aBase, position, smoothstep(aT.x, max(aT.y, aT.x + 0.0001), uGrow));
+  vec3 transformed = mix(aBase, position, grown());
   vId = aId;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
 }

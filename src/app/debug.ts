@@ -10,6 +10,8 @@ export const debug: {
   timings: Record<string, number>;
   view?: TreeView;
   tree?: TreeModel;
-} = { repo: '', ready: false, hovered: null, labels: [], timings: {} };
+  /** The open timeline's scrubber position (0 to 1), the date it shows and its file count. */
+  timeline: { s: number; date: number; files: number } | null;
+} = { repo: '', ready: false, hovered: null, labels: [], timings: {}, timeline: null };
 
 Object.assign(window, { __repoTree: debug });

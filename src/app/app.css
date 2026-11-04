@@ -960,6 +960,175 @@ a.weather[href]:hover {
   font-size: 12.5px;
 }
 
+/* Timeline: the button among the controls and the scrubber above them. */
+#timeline[aria-pressed='true'] {
+  background: var(--ink);
+  color: #fff;
+}
+#timeline[aria-disabled='true'] {
+  color: var(--faint);
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.6);
+}
+#timeline[aria-busy] svg {
+  animation: spin-back 1s linear infinite;
+}
+@keyframes spin-back {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+.scrubber {
+  order: -1;
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 8px 7px 7px;
+  background: var(--card-solid);
+  border-radius: 999px;
+  box-shadow: var(--shadow-lift);
+  --thumb: 18px;
+}
+.scrub-play,
+.scrub-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+}
+.scrub-play {
+  width: 40px;
+  height: 40px;
+  background: var(--ink);
+  color: #fff;
+}
+.scrub-play svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+.scrub-close {
+  width: 32px;
+  height: 32px;
+  background: none;
+  color: var(--muted);
+}
+.scrub-close:hover {
+  background: var(--hover);
+}
+.scrub-close svg {
+  width: 16px;
+  height: 16px;
+}
+.scrub-when {
+  flex: none;
+  display: grid;
+  margin: 0;
+  min-width: 96px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.scrub-when strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+.scrub-when span {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.scrub-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+}
+.scrub-ticks {
+  position: absolute;
+  inset: 0 calc(var(--thumb) / 2);
+  pointer-events: none;
+}
+.scrub-ticks i {
+  position: absolute;
+  top: 11px;
+  width: 1px;
+  height: 8px;
+  background: rgba(37, 34, 30, 0.2);
+  font: 500 10.5px/1 var(--sans);
+  font-style: normal;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.scrub-ticks i[data-y] {
+  background: rgba(37, 34, 30, 0.35);
+}
+.scrub-ticks i[data-y]::after {
+  content: attr(data-y);
+  position: absolute;
+  top: 13px;
+  left: 0;
+  transform: translateX(-50%);
+}
+#timeline-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 30px;
+  margin: 0;
+  background: none;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  touch-action: none;
+}
+#timeline-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) calc(var(--thumb) / 2 + var(--at, 1) * (100% - var(--thumb))),
+    rgba(37, 34, 30, 0.12) 0
+  );
+}
+#timeline-range::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(37, 34, 30, 0.12);
+}
+#timeline-range::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+#timeline-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: var(--thumb);
+  height: var(--thumb);
+  margin-top: calc(2px - var(--thumb) / 2);
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
+}
+#timeline-range::-moz-range-thumb {
+  width: var(--thumb);
+  height: var(--thumb);
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
+}
+#timeline-range:focus-visible {
+  outline: none;
+}
+#timeline-range:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Labels over the tree and the hover tooltip. */
 #labels {
   position: absolute;
@@ -1625,6 +1794,22 @@ a.weather[href]:hover {
   .controls .tool .label,
   .controls .tool kbd {
     display: none;
+  }
+  .controls:has(.scrubber:not([hidden])) {
+    flex-wrap: wrap;
+  }
+  .scrubber {
+    gap: 8px;
+  }
+  .scrub-when {
+    min-width: 78px;
+  }
+  .scrub-when strong {
+    font-size: 14px;
+  }
+  .scrub-close {
+    width: 36px;
+    height: 36px;
   }
   .help {
     display: none;

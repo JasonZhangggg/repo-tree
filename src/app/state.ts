@@ -38,12 +38,24 @@ export type AppState = {
   ci: Readonly<Record<string, readonly CiRun[] | null>>;
   /** A weather to show in place of the repo's own, from a link's `wx`. */
   preview: Sky | null;
+  /**
+   * The date (ms) the timeline shows, or null while it is closed. Playback and dragging move the
+   * view directly and settle here when they stop, so the link follows without churning history.
+   */
+  timeline: number | null;
 };
 
 export type Action =
   | { type: 'load'; id: number; ref: RepoRef }
   | { type: 'step'; id: number; step: LoadStep }
-  | { type: 'loaded'; id: number; repo: Repo; selection: Selection | null; highlight?: string }
+  | {
+      type: 'loaded';
+      id: number;
+      repo: Repo;
+      selection: Selection | null;
+      highlight?: string;
+      timeline?: number;
+    }
   | { type: 'failed'; id: number; error: AppError }
   | { type: 'cancel' }
   | { type: 'dismiss-error' }
@@ -53,7 +65,8 @@ export type Action =
   | { type: 'settings'; patch: Partial<Settings> }
   | { type: 'auto-quality'; quality: Quality }
   | { type: 'ci'; key: string; runs: readonly CiRun[] | null }
-  | { type: 'preview'; sky: Sky | null };
+  | { type: 'preview'; sky: Sky | null }
+  | { type: 'timeline'; at: number | null };
 
 const IDLE: LoadState = { phase: 'idle' };
 
@@ -77,6 +90,7 @@ export function reduce(state: AppState, action: Action): AppState {
         selection: action.selection,
         highlight: action.selection ? null : (action.highlight ?? null),
         notice: action.repo.info.truncated ? 'truncated' : null,
+        timeline: action.timeline ?? null,
       };
     case 'failed':
       if (!current || load.phase !== 'loading') return state;
@@ -104,6 +118,8 @@ export function reduce(state: AppState, action: Action): AppState {
       return { ...state, ci: { ...state.ci, [action.key]: action.runs } };
     case 'preview':
       return action.sky === state.preview ? state : { ...state, preview: action.sky };
+    case 'timeline':
+      return action.at === state.timeline ? state : { ...state, timeline: action.at };
   }
 }
 

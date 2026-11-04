@@ -478,6 +478,66 @@ const JOURNEYS = {
     }
   },
 
+  timeline: async ({ page, step, out }) => {
+    const date = page.locator('#timeline-date');
+    const files = page.locator('#timeline-files');
+    const range = page.getByRole('slider', { name: 'Timeline position' });
+    const scrubTo = async (at) => {
+      const box = await range.boundingBox();
+      await range.click({ position: { x: 9 + at * (box.width - 18), y: box.height / 2 } });
+    };
+    await step('open', async () => {
+      await page.goto(base);
+      await ready(page, 'vitejs/vite');
+      await page.locator('#timeline').click();
+      await expect(page.getByRole('group', { name: 'Timeline' })).toBeVisible();
+      await expect(files).toHaveText('2,898 files');
+      await settle(page);
+    });
+    for (const [id, at] of [
+      ['early', 0.05],
+      ['quarter', 0.25],
+      ['half', 0.5],
+      ['three-quarters', 0.75],
+    ]) {
+      await step(id, async () => {
+        await scrubTo(at);
+        await expect(files).not.toHaveText('2,898 files');
+        await expect(page).toHaveURL(/&t=\d{4}-\d\d-\d\d$/);
+        await settle(page);
+      });
+    }
+    await step('play-pause', async () => {
+      const before = await date.textContent();
+      await page.getByRole('button', { name: 'Play timeline' }).click();
+      await expect(date).not.toHaveText(before);
+      await page.getByRole('button', { name: 'Pause timeline' }).click();
+      await settle(page);
+    });
+    await step('restore-link', async () => {
+      await page.goto(`${base}?visit=t#/vitejs/vite?t=2022-06-15`);
+      await ready(page, 'vitejs/vite');
+      await expect(date).toHaveText('Jun 2022');
+      await settle(page);
+    });
+    await step('export-png', async () => {
+      const [download] = await Promise.all([
+        page.waitForEvent('download'),
+        page.getByRole('button', { name: 'Export PNG' }).click(),
+      ]);
+      expect(download.suggestedFilename()).toBe('vitejs-vite-tree-2022-06-15.png');
+      await download.saveAs(`${out}/vitejs-vite-tree-2022-06-15.png`);
+    });
+    await step('unavailable', async () => {
+      await serveRepo(page, 'acme/widgets');
+      await enter(page, 'acme/widgets');
+      await ready(page, 'acme/widgets');
+      await expect(page.locator('#timeline')).toHaveAttribute('aria-disabled', 'true');
+      await page.locator('#timeline').click({ force: true });
+      await expect(page.locator('#toast')).toHaveText('History unavailable for this repo');
+    });
+  },
+
   weather: async ({ page, step }) => {
     const chip = page.locator('#weather');
     await step('sample-sunny', async () => {

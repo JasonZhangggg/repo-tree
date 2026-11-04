@@ -21,6 +21,7 @@ import { mountHeader } from './app/ui/header';
 import { mountSearch } from './app/ui/search-dialog';
 import { mountSettings } from './app/ui/settings-dialog';
 import { childrenOf, mountSide } from './app/ui/side';
+import { mountTimeline } from './app/ui/timeline';
 
 const SETTINGS_KEY = 'repo-tree:settings';
 const MEASURE_MS = 2000;
@@ -47,6 +48,7 @@ const store = createStore({
   }),
   ci: {},
   preview: null,
+  timeline: null,
 });
 
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -153,6 +155,7 @@ function linkOf(state: AppState): string | null {
     sel,
     hl: highlight ?? undefined,
     wx: state.preview ?? undefined,
+    t: state.timeline ?? undefined,
   });
 }
 
@@ -168,7 +171,10 @@ function applyLink(link: ViewLink) {
     repo.info.ref.owner.toLowerCase() === link.ref.owner.toLowerCase() &&
     repo.info.ref.repo.toLowerCase() === link.ref.repo.toLowerCase() &&
     (link.ref.ref ?? repo.info.branch) === repo.info.branch;
-  if (!same) return app.load(link.ref, { select: link.sel, highlight: link.hl });
+  if (!same) {
+    return app.load(link.ref, { select: link.sel, highlight: link.hl, timeline: link.t });
+  }
+  store.dispatch({ type: 'timeline', at: link.t ?? null });
   const folder = link.sel === undefined ? undefined : repo.folderIds.get(link.sel);
   app.select(folder === undefined ? null : { folder }, true);
   if (folder === undefined && view.legend().some((e) => e.label === link.hl)) {
@@ -215,7 +221,8 @@ store.subscribe((state, prev) => {
     const path = state.selection ? state.repo.tree.folders.path[state.selection.folder] : undefined;
     const ref = state.repo.info.ref;
     const highlight = state.highlight ?? undefined;
-    queueMicrotask(() => app.load(ref, { select: path, highlight }));
+    const timeline = state.timeline ?? undefined;
+    queueMicrotask(() => app.load(ref, { select: path, highlight, timeline }));
   }
   if (s !== prev.settings) {
     try {
@@ -279,7 +286,9 @@ byId('export').addEventListener('click', async () => {
   const { repo } = store.get();
   if (!repo) return;
   const blob = await view.snapshotPNG(2);
-  const name = `${repo.info.ref.owner}-${repo.info.ref.repo}-tree.png`;
+  const at = timeline.date();
+  const when = at === null ? '' : `-${new Date(at).toISOString().slice(0, 10)}`;
+  const name = `${repo.info.ref.owner}-${repo.info.ref.repo}-tree${when}.png`;
   const a = Object.assign(document.createElement('a'), {
     href: URL.createObjectURL(blob),
     download: name,
@@ -413,6 +422,11 @@ const canvas = mountCanvas(app);
 mountHeader(app);
 mountSide(app);
 const search = mountSearch(app);
+const timeline = mountTimeline(
+  app,
+  () => reducedMotion(store.get().settings),
+  (counts) => canvas.setCounts(counts),
+);
 const settings = mountSettings(app);
 
 const link = parseLink(location.hash);

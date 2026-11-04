@@ -1,6 +1,7 @@
 import type { TreeModel } from '../grow/grow';
 import type { RepoIndex } from '../load/repo-index';
 import type { History } from '../repo/history';
+import { historyOwners, type Owners } from './owners';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -40,6 +41,8 @@ export type Facts = {
   folderBand: Uint8Array;
   /** Per node, the newest last change of any sprig on it or on a branch out of it, ms. */
   nodeChanged: Float64Array;
+  /** Who to ask about each top-level folder (timeline/owners.ts). */
+  owners: Owners;
 };
 
 /** Lays a history's per-file columns over a grown tree. */
@@ -87,7 +90,14 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
     }
   }
   const folderBand = Uint8Array.from(parent, (_, f) => most(folderTally, f * bands));
-  return { asOf, fileChanged, sprigBand, folderBand, nodeChanged };
+  return {
+    asOf,
+    fileChanged,
+    sprigBand,
+    folderBand,
+    nodeChanged,
+    owners: historyOwners(history),
+  };
 }
 
 /** The band with the most files among `AGES.length` counts from `at`, the fresher on a tie. */

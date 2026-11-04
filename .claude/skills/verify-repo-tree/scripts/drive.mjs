@@ -669,6 +669,74 @@ const JOURNEYS = {
     });
   },
 
+  owner: async ({ page, step }) => {
+    const sheet = page.locator('#sheet-toggle');
+    /** On a phone the legend waits in the sheet: opens it for `check`, then closes it again. */
+    const inLegend = async (check, close = true) => {
+      const phone = await sheet.isVisible();
+      if (phone && (await sheet.getAttribute('aria-expanded')) === 'false') await sheet.click();
+      await check();
+      if (phone && close) await sheet.click();
+    };
+    const entry = (name) => page.locator('#legend').getByRole('button', { name });
+    await step('language', async () => {
+      await page.goto(`${base}#/vitejs/vite?colorBy=language`);
+      await ready(page, 'vitejs/vite');
+      await settle(page);
+    });
+    await step('owner', async () => {
+      await page.getByRole('button', { name: 'Settings' }).click();
+      await page.getByRole('radio', { name: 'Owner' }).click();
+      await page.getByRole('button', { name: 'Close settings' }).click();
+      await inLegend(async () => {
+        await expect(page.locator('#legend-title')).toHaveText('Leaf colors by owner');
+        await expect(page.locator('#legend-note')).toHaveText(/top commit author/);
+      });
+      await settle(page);
+    });
+    await step('highlight', async () => {
+      await inLegend(() => entry(/^翠 \/ green/).click());
+      await expect(page).toHaveURL(/hl=%E7%BF%A0%20\/%20green/);
+      await settle(page);
+    });
+    await step('card', async () => {
+      await inLegend(async () => {
+        await page.locator('#folders button', { hasText: /^packages\// }).click();
+        const card = page.getByRole('article', { name: 'Pinned folder packages' });
+        await expect(card.getByRole('list', { name: 'Top authors' })).toBeVisible();
+        await card.getByRole('list', { name: 'Top authors' }).scrollIntoViewIfNeeded();
+      }, false);
+      await settle(page);
+    });
+    await step('linux', async () => {
+      await page.goto(`${base}#/torvalds/linux?colorBy=owner`);
+      await ready(page, 'torvalds/linux');
+      await inLegend(async () => {
+        await expect(page.locator('#legend-title')).toHaveText('Leaf colors by owner');
+        await expect(entry(/^Linus Torvalds/)).toBeVisible();
+      }, false);
+      // The pointer left over the folder list would preview a folder.
+      await page.mouse.move(5, 5);
+      await settle(page);
+    });
+    await step('linux-link', async () => {
+      await page.goto(`${base}#/torvalds/linux?colorBy=owner&hl=Alexei%20Starovoitov`);
+      await ready(page, 'torvalds/linux');
+      await inLegend(() =>
+        expect(entry(/^Alexei Starovoitov/)).toHaveAttribute('aria-pressed', 'true'),
+      );
+      await settle(page);
+    });
+    await step('no-history', async () => {
+      await serveRepo(page, 'acme/widgets');
+      await enter(page, 'acme/widgets');
+      await ready(page, 'acme/widgets');
+      await inLegend(() =>
+        expect(page.locator('#legend-note')).toHaveText('History is unavailable for this repo.'),
+      );
+    });
+  },
+
   'history-compute': async ({ page, context, step }) => {
     const up = await fetch(`${worker}/health`).then(
       (r) => r.ok,

@@ -123,10 +123,12 @@ export function createLoader(store: Store) {
       id,
       repo,
       selection: folder === undefined ? null : { folder },
-      // Activity bands are known before the history that fills them arrives.
+      // Activity bands are known before the history that fills them arrives; owners are not, so
+      // a link's owner is kept until the history says.
       highlight:
         legend.some((e) => e.label === highlight) ||
-        (colorBy === 'activity' && AGES.some((a) => a.label === highlight))
+        (colorBy === 'activity' && AGES.some((a) => a.label === highlight)) ||
+        colorBy === 'owner'
           ? highlight
           : undefined,
       timeline,

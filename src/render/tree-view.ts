@@ -41,6 +41,7 @@ import {
 } from './framing';
 import { LIGHT, litColor } from './color';
 import { AGES, ageBand, DEAD, type Facts } from '../timeline/facts';
+import { ownerCategories } from '../timeline/owners';
 import { createGround } from './ground';
 import {
   AGE_COLORS,
@@ -98,7 +99,7 @@ export interface TreeView {
   /** Moves the timeline's cursor: what was born by then shows, and nothing after. */
   setTime(cursor: number): void;
   setPalette(id: PaletteId): void;
-  /** Leaf colors by language, top-level folder or, once `setFacts` gave the history, activity. */
+  /** Leaf colors by language, top-level folder or, once `setFacts` gave the history, activity or owner. */
   setColorBy(by: ColorBy): void;
   /**
    * What the repo's history says about the tree on show (timeline/facts.ts), or null; a new
@@ -934,8 +935,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 }
 
 /**
- * What each leaf color stands for: languages, or top-level folders plus the files at the root.
- * `nodeCategory` (folder colors only) is each node's category; a leaf takes its language's.
+ * What each leaf color stands for: languages, top-level folders plus the files at the root,
+ * activity bands, or the owners of those folders (timeline/owners.ts) once the facts are in.
+ * `nodeCategory` (folder and owner colors) is each node's category; a leaf takes its language's.
  */
 export function leafCategories(
   model: TreeModel,
@@ -956,7 +958,7 @@ export function leafCategories(
       })),
     };
   }
-  if (colorBy !== 'folder') {
+  if (colorBy !== 'folder' && !(colorBy === 'owner' && facts)) {
     return leafMapping(
       model.langs.map((l) => ({ label: l.lang, files: l.files })),
       palette,
@@ -977,6 +979,15 @@ export function leafCategories(
       model.folders.range[2 * folder + 1]! + 1,
     );
   });
+  if (colorBy === 'owner' && facts) {
+    // Each top-level folder (the root's own files last) takes its owner's category.
+    const { categories, categoryOf } = ownerCategories(
+      withRoot.map((t, i) => ({ folder: i < tops.length ? t.label : '', files: t.files })),
+      facts.owners,
+    );
+    for (let n = 0; n < nodeCategory.length; n++) nodeCategory[n] = categoryOf[nodeCategory[n]!]!;
+    return { ...leafMapping(categories, palette), nodeCategory };
+  }
   return { ...leafMapping(withRoot, palette), nodeCategory };
 }
 

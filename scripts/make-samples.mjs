@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Regenerates public/samples/ with make-fixture.mjs and writes its index.json.
+// Regenerates public/samples/ with make-fixture.mjs and make-runs.mjs, and writes its index.json.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
@@ -21,9 +21,19 @@ const index = SAMPLES.map(({ label, repo }) => {
       stdio: 'inherit',
     },
   );
-  /** @type {{ tree: { tree: { type: string }[] } }} */
+  /** @type {{ repo: { default_branch: string }; tree: { tree: { type: string }[] } }} */
   const fixture = JSON.parse(gunzipSync(readFileSync(out)).toString());
   const files = fixture.tree.tree.filter((e) => e.type === 'blob').length;
+  execFileSync(
+    'node',
+    [
+      new URL('make-runs.mjs', import.meta.url).pathname,
+      repo,
+      fixture.repo.default_branch,
+      new URL(`${repo.replace('/', '-')}.runs.json`, dir).pathname,
+    ],
+    { stdio: 'inherit' },
+  );
   return { label, repo, file, files };
 });
 

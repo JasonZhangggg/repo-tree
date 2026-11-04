@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Usage: node scripts/perf.mjs [sample] [quality]   (defaults: linux low)
+// Usage: node scripts/perf.mjs [sample] [quality] [weather]   (defaults: linux low, the sample's own)
 // Builds, serves the production preview, and loads the sample in Chromium on the software
 // renderer. Prints the longest main-thread task during load, the average fps over 5 s of
-// spin, and the time from navigation to the first tree frame and to the fully grown tree.
+// spin, and the time from navigation to the first tree frame and to the fully grown tree. A weather
+// (clear, sunny, cloudy, rain or storm) previews that sky with the link's wx.
 import { spawn, spawnSync } from 'node:child_process';
 import { chromium } from 'playwright';
 
-const [sample = 'linux', quality = 'low'] = process.argv.slice(2);
+const [sample = 'linux', quality = 'low', weather] = process.argv.slice(2);
 const PORT = 4174;
 const SPIN_MS = 5000;
 
@@ -38,7 +39,8 @@ try {
     vite: 'vitejs/vite',
     linux: 'torvalds/linux',
   };
-  const url = `http://localhost:${PORT}/#/${repos[/** @type {keyof typeof repos} */ (sample)]}`;
+  const repo = repos[/** @type {keyof typeof repos} */ (sample)];
+  const url = `http://localhost:${PORT}/#/${repo}${weather ? `?wx=${weather}` : ''}`;
   for (let attempt = 0; ; attempt++) {
     try {
       await page.goto(url);
@@ -68,7 +70,9 @@ try {
   }, SPIN_MS);
 
   const ms = (/** @type {number} */ n) => `${Math.round(n)} ms`;
-  console.log(`sample ${sample}, quality ${quality}, 1280x720, Chromium software renderer`);
+  console.log(
+    `sample ${sample}, quality ${quality}${weather ? `, weather ${weather}` : ''}, 1280x720, Chromium software renderer`,
+  );
   const longest = Math.max(0, ...load.tasks.map((/** @type {any} */ t) => t.duration));
   const list = load.tasks.map((/** @type {any} */ t) => `${ms(t.duration)} at ${ms(t.start)}`);
   console.log(`longest main-thread task during load: ${ms(longest)}`);

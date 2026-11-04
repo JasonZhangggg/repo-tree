@@ -232,6 +232,12 @@ export function mountSettings(app: App): {
           set({ weather }),
         ),
         toggle(
+          'Hotspots',
+          'Busiest files glow, from commit history',
+          settings.hotspots,
+          (hotspots) => set({ hotspots }),
+        ),
+        toggle(
           'Growth animation',
           reducedMotion.matches ? 'Off while your system asks for reduced motion' : null,
           settings.growAnim && !reducedMotion.matches,

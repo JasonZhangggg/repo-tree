@@ -13,15 +13,29 @@ const MONTH = new Intl.DateTimeFormat('en-US', {
   timeZone: 'UTC',
 });
 
-/** Why activity colors are not on yet, or null once they are (or not asked for). */
-function activityWait(state: AppState): string | null {
-  if (state.settings.colorBy !== 'activity' || factsOf(state)) return null;
+/** Why the history is not in yet, or null once it is. */
+function historyWait(state: AppState): string | null {
+  if (factsOf(state)) return null;
   const status = state.history?.repo === state.repo ? state.history?.status : 'loading';
   if (status === 'missing') return 'No history for this repo yet. Open the timeline to compute it.';
   if (status === 'unavailable') return 'History is unavailable for this repo.';
   return 'Loading history…';
 }
+
+/** Why activity colors are not on yet, or null once they are (or not asked for). */
+const activityWait = (state: AppState): string | null =>
+  state.settings.colorBy === 'activity' ? historyWait(state) : null;
+
 const SUB_ROWS = 5;
+/** Hottest files listed under the legend. */
+const HOT_ROWS = 5;
+/** The swatch of a hotspot row: the glow's own warm amber. */
+const HOT_COLOR = '#ff8a2a';
+/** A file's name with its folder, so `package.json` in two packages tells apart. */
+const tail = (path: string) => {
+  const parts = path.split('/');
+  return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : path;
+};
 
 /** Children of a folder, most files first. */
 export function childrenOf(repo: Repo, folder: number): number[] {
@@ -206,6 +220,9 @@ export function mountSide(app: App): void {
   const legend = byId('legend');
   const legendTitle = byId('legend-title');
   const legendNote = byId('legend-note');
+  const hot = byId('hot');
+  const hotNote = byId('hot-note');
+  const hotFiles = byId('hot-files');
   const detail = byId('detail');
 
   const setOpen = (open: boolean) => {
@@ -298,7 +315,7 @@ export function mountSide(app: App): void {
     legendTitle.textContent =
       state.settings.colorBy === 'folder'
         ? 'Leaf colors by folder'
-        : factsOf(state)
+        : state.settings.colorBy === 'activity' && factsOf(state)
           ? 'Leaf colors by activity'
           : 'Leaf colors by language';
     legend.replaceChildren(
@@ -341,6 +358,48 @@ export function mountSide(app: App): void {
         (facts
           ? `Last change, as of ${MONTH.format(facts.asOf)}. Dead wood is 3+ years untouched; pick a color to highlight its leaves.`
           : 'Pick a color to highlight its leaves.'));
+  };
+
+  /** The hotspots line under the legend, and the hottest files, each pinning its folder. */
+  const renderHot = (state: AppState) => {
+    hot.hidden = !state.settings.hotspots;
+    if (hot.hidden) return;
+    const repo = state.repo!;
+    const facts = factsOf(state);
+    const n = facts?.hot.length ?? 0;
+    hotNote.textContent =
+      historyWait(state) ??
+      (n === 0
+        ? 'No file has changed often enough to glow yet.'
+        : n === 1
+          ? 'The busiest file glows, from commit history.'
+          : `The ${count(n)} busiest files glow, from commit history.`);
+    const { paths, folder } = repo.index.files;
+    hotFiles.replaceChildren(
+      ...Array.from(facts?.hot.slice(0, HOT_ROWS) ?? [], (file) =>
+        h(
+          'li',
+          {},
+          h(
+            'button',
+            {
+              type: 'button',
+              'data-file': file,
+              'aria-current': String(state.selection?.file === file),
+              title: paths[file]!,
+              onclick: () => app.select({ folder: folder[file]!, file }, true),
+            },
+            h('i', { class: 'swatch', style: `--c:${HOT_COLOR}` }),
+            h('span', { class: 'fn' }, tail(paths[file]!)),
+            h(
+              'span',
+              { class: 'num', title: 'Snapshots it changed in, plus recent commits' },
+              count(facts!.fileChurn[file]!),
+            ),
+          ),
+        ),
+      ),
+    );
   };
 
   const renderDetail = (state: AppState) => {
@@ -533,6 +592,12 @@ export function mountSide(app: App): void {
       state.settings.palette !== prev?.settings.palette ||
       state.settings.colorBy !== prev?.settings.colorBy ||
       state.history !== prev?.history;
+    if (
+      colorsChanged ||
+      state.settings.hotspots !== prev?.settings.hotspots ||
+      state.selection !== prev?.selection
+    )
+      renderHot(state);
     if (colorsChanged || state.selection !== prev?.selection) renderFolders(state);
     const focusChanged = state.selection !== prev?.selection || state.highlight !== prev?.highlight;
     if (colorsChanged) renderLegend(state);

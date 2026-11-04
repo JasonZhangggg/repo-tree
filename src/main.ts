@@ -67,6 +67,7 @@ const view = createTreeView(container, {
   spin: spinning(initial),
   reducedMotion: reducedMotion(initial.settings),
   ground: initial.settings.ground,
+  hotspots: initial.settings.hotspots,
 });
 const showWeather = (state: AppState) => {
   const weather = weatherOf(state);
@@ -204,6 +205,7 @@ store.subscribe((state, prev) => {
   if (s.palette !== prev.settings.palette) view.setPalette(s.palette);
   if (s.colorBy !== prev.settings.colorBy) view.setColorBy(s.colorBy);
   if (factsOf(state) !== factsOf(prev) || state.repo !== prev.repo) view.setFacts(factsOf(state));
+  if (s.hotspots !== prev.settings.hotspots) view.setHotspots(s.hotspots);
   if (s.ground !== prev.settings.ground) {
     view.setGround(s.ground);
     reframe();

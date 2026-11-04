@@ -126,7 +126,17 @@ export function mountCanvas(app: App): { mark(folder: number | null): void } {
     app.select(picked === null || !repo ? null : selectionOf(repo, picked));
   });
 
-  type Pill = { el: HTMLButtonElement; folder: number; width: number };
+  /**
+   * A stem is its own element, moved and stretched by transform alone: resizing a stem drawn
+   * inside its pill repainted the pill every spin frame, about a sixth of each frame's cost.
+   */
+  type Pill = {
+    el: HTMLButtonElement;
+    stem: HTMLElement;
+    folder: number;
+    width: number;
+    height: number;
+  };
   let pills: Pill[] = [];
 
   const buildLabels = (state: AppState) => {
@@ -146,10 +156,13 @@ export function mountCanvas(app: App): { mark(folder: number | null): void } {
         h('span', {}, nameOf(repo.tree.folders.path[folder]!)),
         h('b', {}, count(files)),
       );
-      return { el, folder, width: 0 };
+      return { el, stem: h('i', { class: 'stem' }), folder, width: 0, height: 0 };
     });
-    layer.replaceChildren(...pills.map((p) => p.el));
-    for (const pill of pills) pill.width = pill.el.offsetWidth;
+    layer.replaceChildren(...pills.map((p) => p.stem), ...pills.map((p) => p.el));
+    for (const pill of pills) {
+      pill.width = pill.el.offsetWidth;
+      pill.height = pill.el.offsetHeight;
+    }
   };
 
   const mark = (folder: number | null) => {
@@ -174,11 +187,12 @@ export function mountCanvas(app: App): { mark(folder: number | null): void } {
       width: p.width,
     }));
     const placed = relaxLabels(anchors);
-    for (const pill of pills) pill.el.hidden = !shown.includes(pill);
+    for (const pill of pills) pill.el.hidden = pill.stem.hidden = !shown.includes(pill);
     shown.forEach((pill, i) => {
       const { x, y } = placed[i]!;
+      const stem = Math.max(0, anchors[i]!.y - y - 14);
       pill.el.style.transform = `translate(${x - pill.width / 2}px, ${y - 14}px)`;
-      pill.el.style.setProperty('--stem', `${Math.max(0, anchors[i]!.y - y - 14)}px`);
+      pill.stem.style.transform = `translate(${x}px, ${y - 14 + pill.height}px) scaleY(${stem})`;
     });
   });
 

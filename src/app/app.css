@@ -930,14 +930,15 @@ h1 a[aria-disabled] {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.pill::after {
-  content: '';
+.stem {
   position: absolute;
-  left: 50%;
-  top: 100%;
+  left: 0;
+  top: 0;
   width: 1px;
-  height: var(--stem, 0px);
+  height: 1px;
   background: rgba(37, 34, 30, 0.28);
+  transform-origin: 0 0;
+  will-change: transform;
   pointer-events: none;
 }
 .pill.on {

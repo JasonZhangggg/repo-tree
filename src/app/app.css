@@ -805,6 +805,48 @@ h1 a[aria-disabled] {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.hot {
+  display: grid;
+  gap: 10px;
+}
+.hot[hidden] {
+  display: none;
+}
+.hot-files {
+  display: grid;
+  gap: 1px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.hot-files button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: calc(100% + 14px);
+  min-height: 30px;
+  margin: 0 -7px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+}
+.hot-files button[aria-current='true'] {
+  background: var(--hover);
+}
+.hot-files button[aria-current='true'] .fn {
+  font-weight: 600;
+}
+@media (hover: hover) and (pointer: fine) {
+  .hot-files button:hover {
+    background: var(--hover);
+  }
+}
+.hot-files .swatch {
+  box-shadow: 0 0 6px 1px rgb(255 138 42 / 0.55);
+}
 .swatch {
   width: 12px;
   height: 8px;

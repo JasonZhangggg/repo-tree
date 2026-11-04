@@ -240,7 +240,7 @@ type LegendEntry = { color: hex; label: string; files: number };
 function leafMapping(categories: { label: string; files: number }[], p: Palette): { slotOf: number[]; legend: LegendEntry[] };
 
 // render/tree-view.ts  (three.js, owns GPU state, the canvas and the orbit controls)
-function createTreeView(container: HTMLElement, options: { quality: Quality; palette: PaletteId; colorBy: ColorBy; spin: boolean; reducedMotion: boolean; ground: boolean }): TreeView;
+function createTreeView(container: HTMLElement, options: { quality: Quality; palette: PaletteId; colorBy: ColorBy; spin: boolean; reducedMotion: boolean; ground: boolean; hotspots: boolean }): TreeView;
 interface TreeView {
   setTree(model: TreeModel): void; // frames the stage (tallest tree on the island), grows unless reduced motion
   grow(): void; // replays the growth of the tree on show
@@ -249,6 +249,7 @@ interface TreeView {
   setPalette(id: PaletteId): void; // recolors without regrowing
   setColorBy(by: ColorBy): void; // language, top-level folder, or activity or owner once setFacts gave the history. Owner: each top-level folder's leaves take its Facts.owners owner, ranked by files through leafMapping like folders (owners shared across folders share a slot, the rest share the last)
   setFacts(facts: Facts | null): void; // the history laid over the tree on show; setTree clears it. Activity: each sprig takes its AGES band's color, dead-wood sprigs are born never (no pass draws them) unless that band is highlighted, and dead branches (newest file 3+ years old) take DEAD_BARK
+  setHotspots(on: boolean): void; // once setFacts gave the history, each leaf of a sprig with sprigHeat glows (aHeat per vertex): twice as large about its stem, its color mostly an ember amber, plus uGlowColor emission by heat times uGlow; the other leaves calm (uCalm). uGlow pulses gently (frames every PULSE_FRAME_MS while only the pulse moves), steady under reduced motion
   legend(): LegendEntry[];
   setHighlight(h: { range: [number, number] } | { category: string } | null): void; // fades nodes outside the id range, or bark and every leaf outside the legend entry with that label, drained to grey while that entry's own leaves deepen (a per-leaf slot test in the shader)
   frameFolder(folder: number): void; // eases the camera onto the folder's leaves, never nearer than half the distance that frames the tree on show nor further than the stage; 0 frames the stage
@@ -261,7 +262,7 @@ interface TreeView {
   setReducedMotion(on: boolean): void;
   onFrame(listener: (info: { growth: number; labels: { folder: number; x: number; y: number; visible: boolean }[] }) => void): () => void; // visible: grown, in front, inside the free region
   snapshotPNG(scale: number): Promise<Blob>;
-  stats(): { renders: number; distance: number; calls: number; triangles: number; geometries: number; textures: number }; // distance: camera to orbit target
+  stats(): { renders: number; distance: number; calls: number; triangles: number; geometries: number; textures: number; glowing: number }; // distance: camera to orbit target; glowing: hot sprigs
   dispose(): void;
 }
 
@@ -277,15 +278,16 @@ type Selection = { folder: number; file?: number }; // indices into the shown re
 type AppState = { load: LoadState; repo: Repo | null; selection: Selection | null; highlight: string | null; notice: 'truncated' | null; settings: Settings; autoQuality: Quality;
   ci: Record<string /* ciKey */, readonly CiRun[] | null /* could not be read */>; preview: Sky | null /* from a link's wx */;
   timeline: number | null /* the date (ms) the open timeline settled on; null while closed */;
-  history: HistoryFacts | null /* loaded once needsHistory(state) (activity or owner colors); a new repo clears it */ };
+  history: HistoryFacts | null /* loaded once needsHistory(state) (activity or owner colors, or hotspots); a new repo clears it */ };
 type HistoryFacts = { repo: Repo; status: 'loading' } | { repo: Repo; status: 'ready'; facts: Facts } | { repo: Repo; status: 'missing' | 'unavailable' };
 // app/history-facts.ts watchHistory(store): reads the stored history (historySource(repo).load, never a compute) a microtask after the change that asked, and dispatches { type: 'history' }.
+function needsHistory(state: AppState): boolean; // colorBy activity or owner, or hotspots on
 function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null; // null with weather off, before runs arrive or when they failed
 // highlight is a legend label. A pin and a highlight never coexist: picking one drops the other, and switching colorBy drops the highlight.
 // A loaded link's hl must name a legend entry, except an activity band or (by owner) any name: those wait for the history.
 
 // app/settings.ts  (localStorage 'repo-tree:settings'; each malformed field falls back to its default)
-type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Quality; spin: boolean; labels: boolean; growAnim: boolean; ground: boolean; weather: boolean; hidden: string[]; token: string };
+type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Quality; spin: boolean; labels: boolean; growAnim: boolean; ground: boolean; weather: boolean; hotspots: boolean /* default false */; hidden: string[]; token: string };
 // 'auto' starts from devicePixelRatio and hardwareConcurrency, then steps down once if the first 2 s after growth render under 30 fps.
 // The token is sent only by fetchSnapshot, which only calls api.github.com.
 
@@ -324,8 +326,13 @@ const AGES: { label: 'This month' | 'This year' | '1 to 3 years' | 'Dead wood'; 
 function ageBand(asOf: number, changed: number): number;
 type Facts = { asOf: number /* History.computedAt */; fileChanged: Float64Array /* per RepoIndex file; files the history lacks count as asOf */;
   sprigBand: Uint8Array; folderBand: Uint8Array /* the band most files are in, the fresher on a tie */; nodeChanged: Float64Array /* newest file on the node or beyond it */;
+  fileChurn: Uint32Array /* per RepoIndex file: History.files churn + commits, 0 when the history lacks it */; fileHeat: Float32Array /* 0, or HOT_FLOOR..1 for a hotspot */;
+  sprigHeat: Float32Array /* its hottest file's */; hot: Uint32Array /* hotspot files, hottest first */;
   owners: Owners /* historyOwners(history) */ };
 function historyFacts(history: History, tree: TreeModel, index: RepoIndex): Facts;
+const HOT_SHARE = 0.04, HOT_SPRIGS = 0.05, HOT_MIN = 6, HOT_FLOOR = 0.35;
+function hotspots(churn: Uint32Array, sprigOf: Int32Array /* -1: off the leaves (root rocks) */, sprigCount: number): { heat: Float32Array; hot: Uint32Array };
+// Takes the busiest leaf files (churn >= HOT_MIN) a whole tie at a time while within HOT_SHARE of all files and HOT_SPRIGS of the sprigs (at least one tie); heat runs linearly from HOT_FLOOR at the cut to 1 at the top.
 
 // timeline/owners.ts  (pure; consumes only History.owners, recent and gaps)
 type FolderOwner = { owner: string | null /* CODEOWNERS' first, else the author with most recent commits (then weight) */; from: 'codeowners' | 'authors' | null;
@@ -371,4 +378,4 @@ Each PR is landable on its own and ends in a passing CI run.
 
 ## Out of scope for v1
 
-GitLab or Bitbucket, and file contents. The growth animation shows load order, not git history. Commit history and its server were out of scope for v1 and came after it; the time-lapse timeline landed after it; seasons and dead wood landed as the Activity color mode, color by owner as the Owner color mode; hotspots land in a later PR. GIF or MP4 export of the timeline is not built.
+GitLab or Bitbucket, and file contents. The growth animation shows load order, not git history. Commit history and its server were out of scope for v1 and came after it; the time-lapse timeline landed after it; seasons and dead wood landed as the Activity color mode, color by owner as the Owner color mode, and hotspots as the Hotspots setting. GIF or MP4 export of the timeline is not built.

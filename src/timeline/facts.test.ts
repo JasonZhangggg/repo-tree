@@ -6,7 +6,18 @@ import { indexRepo, type RepoIndex } from '../load/repo-index';
 import { buildHierarchy, DEFAULT_FILTERS } from '../repo/hierarchy';
 import { parseHistory, type History } from '../repo/history';
 import { sample } from '../test/samples';
-import { AGES, ageBand, DEAD, historyFacts, type Facts } from './facts';
+import {
+  AGES,
+  ageBand,
+  DEAD,
+  historyFacts,
+  HOT_FLOOR,
+  HOT_MIN,
+  HOT_SHARE,
+  HOT_SPRIGS,
+  hotspots,
+  type Facts,
+} from './facts';
 
 const DAY = 24 * 3600 * 1000;
 
@@ -20,6 +31,66 @@ describe('ageBand', () => {
     expect(ageBand(now, now - 4 * 365 * DAY)).toBe(DEAD);
     expect(ageBand(now, -Infinity)).toBe(DEAD);
     expect(DEAD).toBe(AGES.length - 1);
+  });
+});
+
+describe('hotspots', () => {
+  /** Every file on a sprig of its own. */
+  const own = (n: number) => Int32Array.from({ length: n }, (_, i) => i);
+
+  test('the busiest share glows, a whole tie at a time, hottest first', () => {
+    const churn = new Uint32Array(100);
+    churn[7] = 40;
+    churn[3] = 20;
+    churn[5] = 10;
+    churn[9] = 10;
+    churn[1] = 9;
+    const { heat, hot } = hotspots(churn, own(100), 100);
+    expect(Array.from(hot)).toEqual([7, 3, 5, 9]);
+    expect(heat[7]).toBe(1);
+    expect(heat[5]).toBeCloseTo(HOT_FLOOR);
+    expect(heat[3]).toBeCloseTo(HOT_FLOOR + ((1 - HOT_FLOOR) * 10) / 30);
+    expect(heat[1]).toBe(0);
+    expect(heat[0]).toBe(0);
+  });
+
+  test('a tie that would pass the share stays out', () => {
+    const churn = new Uint32Array(100);
+    churn[7] = 40;
+    churn[3] = 20;
+    for (const i of [4, 5, 6]) churn[i] = 10;
+    expect(Array.from(hotspots(churn, own(100), 100).hot)).toEqual([7, 3]);
+  });
+
+  test('a big crown lights at most its share of sprigs', () => {
+    // 1,000 files, ten to a sprig: a share of files alone would light every sprig.
+    const churn = Uint32Array.from({ length: 1000 }, (_, i) => (i % 10 === 0 ? 100 + i : 0));
+    const sprigOf = Int32Array.from({ length: 1000 }, (_, i) => Math.floor(i / 10));
+    const { hot } = hotspots(churn, sprigOf, 100);
+    expect(hot.length).toBe(100 * HOT_SPRIGS);
+    expect(hot[0]).toBe(990);
+  });
+
+  test('files off the leaves, the root rocks, never glow', () => {
+    const churn = Uint32Array.from([50, 40, 0, 0]);
+    const { hot } = hotspots(churn, Int32Array.from([-1, 1, 2, 3]), 4);
+    expect(Array.from(hot)).toEqual([1]);
+  });
+
+  test('a young repo, where nothing changed much yet, does not glow', () => {
+    const { heat, hot } = hotspots(
+      Uint32Array.from({ length: 50 }, () => HOT_MIN - 1),
+      own(50),
+      50,
+    );
+    expect(hot.length).toBe(0);
+    expect(heat.every((h) => h === 0)).toBe(true);
+  });
+
+  test('a tiny repo still shows its busiest file', () => {
+    const { hot, heat } = hotspots(Uint32Array.from([2, HOT_MIN, 30, 4]), own(4), 4);
+    expect(Array.from(hot)).toEqual([2]);
+    expect(heat[2]).toBe(1);
   });
 });
 
@@ -79,5 +150,46 @@ describe('historyFacts on vitejs/vite', () => {
     for (const ms of facts.fileChanged) bands[ageBand(facts.asOf, ms)]! += 1;
     expect(bands.every((n) => n > 0)).toBe(true);
     expect(ageBand(facts.asOf, facts.nodeChanged[0]!)).toBe(0);
+  });
+
+  test('a file is as busy as its churn plus its recent commits', () => {
+    const row = new Map(history.files.path.map((p, i) => [p, i]));
+    index.files.paths.forEach((path, i) => {
+      const r = row.get(path);
+      const busy = r === undefined ? 0 : history.files.churn[r]! + history.files.commits[r]!;
+      expect(facts.fileChurn[i]).toBe(busy);
+    });
+  });
+
+  test('the busiest files on the leaves glow, within both shares', () => {
+    const { hot, fileHeat, fileChurn } = facts;
+    const files = index.files.paths.length;
+    const sprigCount = tree.sprigs.vertex.length - 1;
+    expect(hot.length).toBeGreaterThan(10);
+    expect(hot.length).toBeLessThanOrEqual(Math.round(files * HOT_SHARE));
+    for (let k = 1; k < hot.length; k++) {
+      expect(fileChurn[hot[k]!]).toBeLessThanOrEqual(fileChurn[hot[k - 1]!]!);
+    }
+    const lit = facts.sprigHeat.filter((h) => h > 0).length;
+    expect(lit).toBeLessThanOrEqual(Math.round(sprigCount * HOT_SPRIGS));
+    // Root files lie as rocks: vite's busiest, the lockfile, is not a leaf.
+    const paths = Array.from(hot, (i) => index.files.paths[i]!);
+    expect(paths).not.toContain('pnpm-lock.yaml');
+    expect(paths[0]).toBe('packages/vite/package.json');
+    expect(fileHeat[hot[0]!]).toBe(1);
+    expect(fileHeat.filter((h) => h > 0).length).toBe(hot.length);
+    const coolest = Math.min(...Array.from(hot, (i) => fileHeat[i]!));
+    expect(coolest).toBeCloseTo(HOT_FLOOR);
+  });
+
+  test("a sprig glows with its hottest file's heat", () => {
+    const { sprigs } = tree;
+    let lit = 0;
+    for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
+      const files = Array.from(sprigs.files.subarray(sprigs.file[s]!, sprigs.file[s + 1]!));
+      expect(facts.sprigHeat[s]).toBe(Math.max(0, ...files.map((f) => facts.fileHeat[f]!)));
+      if (facts.sprigHeat[s]! > 0) lit++;
+    }
+    expect(lit).toBeGreaterThan(0);
   });
 });

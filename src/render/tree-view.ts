@@ -84,6 +84,8 @@ export type ViewStats = {
   triangles: number;
   geometries: number;
   textures: number;
+  /** Sprigs glowing as hotspots on the tree on show. */
+  glowing: number;
 };
 
 export interface TreeView {
@@ -106,6 +108,11 @@ export interface TreeView {
    * tree clears it. Activity colors need it; without it they fall back to language.
    */
   setFacts(facts: Facts | null): void;
+  /**
+   * Hot leaves glow warm once `setFacts` gave the history: each sprig by its hottest file's heat,
+   * over any leaf color, pulsing gently unless reduced motion is on.
+   */
+  setHotspots(on: boolean): void;
   /** What each leaf color stands for under the current palette and color-by. */
   legend(): LegendEntry[];
   /**
@@ -146,6 +153,7 @@ export type TreeViewOptions = {
   spin: boolean;
   reducedMotion: boolean;
   ground: boolean;
+  hotspots: boolean;
 };
 
 const QUALITY: Record<Quality, { pixelRatio: number; shadowMap: number; antialias: boolean }> = {
@@ -165,6 +173,12 @@ const INSET_RATE = 16;
 const MIN_FREE = 0.2;
 /** The ramp every palette shares, plus the slot for the rest. */
 const SLOTS = PALETTES.autumn.leaves.length + 1;
+/** The hottest leaf's glow, and how it breathes: down to PULSE_LOW of it over PULSE_MS. */
+const GLOW = 0.45;
+const PULSE_LOW = 0.6;
+const PULSE_MS = 2800;
+/** While only the pulse moves, frames come this far apart: a slow glow needs few. */
+const PULSE_FRAME_MS = 70;
 /** A birth past any cursor: the element never shows. */
 const NEVER = ALWAYS * 4;
 
@@ -188,6 +202,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   let colorBy = options.colorBy;
   let facts: Facts | null = null;
   let reducedMotion = options.reducedMotion;
+  let hotspots = options.hotspots;
+  /** Sprigs glowing now; the pulse runs only while some do. */
+  let glowing = 0;
+  let pulseTimer = 0;
   let highlight: Highlight | null = null;
 
   const scene = new Scene();
@@ -448,6 +466,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       busy = true;
     }
     if (controls.update(dt)) busy = true;
+    const pulsing = glowing > 0 && !reducedMotion;
+    if (pulsing) treeUniforms.uGlow.value = glowAt(now);
     showFlash(weather.tick(dt));
     if (weather.animated()) busy = true;
 
@@ -467,7 +487,36 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     renders++;
     emitLabels();
     if (busy) requestRender();
-    else lastFrame = 0;
+    else {
+      lastFrame = 0;
+      if (pulsing) {
+        clearTimeout(pulseTimer);
+        pulseTimer = window.setTimeout(requestRender, PULSE_FRAME_MS);
+      }
+    }
+  };
+
+  const glowAt = (now: number) =>
+    GLOW * (PULSE_LOW + (1 - PULSE_LOW) * (0.5 + 0.5 * Math.cos((now / PULSE_MS) * 2 * Math.PI)));
+
+  /** Writes each leaf's heat (`aHeat`): its sprig's, while hotspots are on and the history is in. */
+  const applyHeat = () => {
+    if (!shown) return;
+    const { leaves, sprigs } = shown.model;
+    const heat = new Float32Array(leaves.nodeId.length);
+    glowing = 0;
+    if (hotspots && facts) {
+      for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
+        const h = facts.sprigHeat[s]!;
+        if (h <= 0) continue;
+        heat.fill(h, sprigs.vertex[s]!, sprigs.vertex[s + 1]!);
+        glowing++;
+      }
+    }
+    shown.leaves.geometry.setAttribute('aHeat', new BufferAttribute(heat, 1));
+    treeUniforms.uGlow.value = glowing === 0 ? 0 : reducedMotion ? GLOW : glowAt(performance.now());
+    treeUniforms.uCalm.value = glowing === 0 ? 0 : 1;
+    requestRender();
   };
 
   const bakeGround = () => {
@@ -601,6 +650,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     shown.bark.geometry.setAttribute('aDead', new BufferAttribute(dead, 1));
     applySlots();
     applyBirths(timelineBirths);
+    applyHeat();
     showHighlight();
   };
 
@@ -778,6 +828,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       applyColorBy();
     },
 
+    setHotspots(on) {
+      hotspots = on;
+      applyHeat();
+    },
+
     legend() {
       return shown ? categories().legend : [];
     },
@@ -863,6 +918,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
     setReducedMotion(on) {
       reducedMotion = on;
+      if (glowing > 0) {
+        treeUniforms.uGlow.value = on ? GLOW : glowAt(performance.now());
+        requestRender();
+      }
       if (on && growingNow) {
         growingNow = false;
         treeUniforms.uGrow.value = 1;
@@ -904,11 +963,13 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         triangles: render.triangles,
         geometries: memory.geometries,
         textures: memory.textures,
+        glowing,
       };
     },
 
     dispose() {
       cancelAnimationFrame(raf);
+      clearTimeout(pulseTimer);
       observer.disconnect();
       controls.removeEventListener('start', onStart);
       controls.removeEventListener('change', requestRender);

@@ -52,7 +52,7 @@ export type AppState = {
    * view directly and settle here when they stop, so the link follows without churning history.
    */
   timeline: number | null;
-  /** Loaded only once something on show needs it (activity or owner colors); null until then. */
+  /** Loaded only once something on show needs it (activity or owner colors, hotspots); null until then. */
   history: HistoryFacts | null;
 };
 
@@ -154,7 +154,9 @@ export function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null 
 
 /** Whether what is on show needs the repo's history. */
 export const needsHistory = (state: AppState): boolean =>
-  state.settings.colorBy === 'activity' || state.settings.colorBy === 'owner';
+  state.settings.colorBy === 'activity' ||
+  state.settings.colorBy === 'owner' ||
+  state.settings.hotspots;
 
 /** The history's facts for the repo on show, once loaded. */
 export const factsOf = (state: AppState): Facts | null =>

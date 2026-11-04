@@ -1110,11 +1110,13 @@ h1 a[aria-disabled] {
   width: 16px;
   height: 16px;
 }
+/* A fixed width: were it to follow the label, the track would resize under the finger as the
+   count changes and the thumb would jump, worst at the ends where the count flips to 0 files. */
 .scrub-when {
   flex: none;
   display: grid;
   margin: 0;
-  min-width: 96px;
+  width: 104px;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
@@ -1122,10 +1124,14 @@ h1 a[aria-disabled] {
   font-size: 15px;
   font-weight: 650;
 }
+.scrub-when :is(strong, span) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .scrub-when span {
   color: var(--muted);
   font-size: 12px;
-  white-space: nowrap;
 }
 .scrub-track {
   position: relative;
@@ -2203,7 +2209,7 @@ body:has(.scrubber:not([hidden])) .toast {
     --thumb: 22px;
   }
   .scrub-when {
-    min-width: 78px;
+    width: 84px;
   }
   .scrub-when strong {
     font-size: 14px;

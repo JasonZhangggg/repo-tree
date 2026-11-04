@@ -199,6 +199,28 @@ test('a repo with no history source shows the timeline as unavailable', async ({
   await expect(timelineButton(page)).toHaveAttribute('aria-pressed', 'false');
 });
 
+test('the track holds still while the count changes, so a drag to either end never jumps', async ({
+  page,
+}) => {
+  // Linux's early counts are lower bounds, the widest label; at 0 they shrink to `0 files`.
+  await page.goto('./#/torvalds/linux');
+  await ready(page, 'torvalds/linux');
+  await timelineButton(page).click();
+  await expect(files(page)).toHaveText('97,141 files');
+  // Let the scrubber finish rising into place before measuring.
+  await scrubber(page).evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+  const range = page.getByRole('slider', { name: 'Timeline position' });
+  const at = async () => JSON.stringify(await range.boundingBox());
+  const whole = await at();
+  for (const s of [0.5, 0.1, 0.03, 0, 1]) {
+    await scrubTo(page, s);
+    expect(await at()).toBe(whole);
+  }
+  await scrubTo(page, 0.1);
+  await expect(files(page)).toHaveText(/^[\d,]+\+ files$/);
+  await expect(range).toHaveAttribute('aria-valuetext', /, at least [\d,]+ files$/);
+});
+
 test.describe('with motion allowed', () => {
   test.use({ reducedMotion: 'no-preference' });
 

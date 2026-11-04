@@ -83,9 +83,13 @@ export function mountTimeline(
     const date = dateAt(timeline, phase.s);
     const { files, atLeast } = filesAt(timeline, phase.s);
     dateEl.textContent = MONTH.format(date);
-    filesEl.textContent = `${atLeast ? 'at least ' : ''}${count(files)} ${files === 1 ? 'file' : 'files'}`;
+    const noun = files === 1 ? 'file' : 'files';
+    // The short form keeps the label inside its fixed slot; the long one is read aloud.
+    filesEl.textContent = `${count(files)}${atLeast ? '+' : ''} ${noun}`;
+    const spoken = `${atLeast ? 'at least ' : ''}${count(files)} ${noun}`;
+    filesEl.title = spoken;
     range.value = String(Math.round(phase.s * STEPS));
-    range.setAttribute('aria-valuetext', `${DAY.format(date)}, ${filesEl.textContent}`);
+    range.setAttribute('aria-valuetext', `${DAY.format(date)}, ${spoken}`);
     scrubber.style.setProperty('--at', String(phase.s));
     const at = phase.s;
     debug.timeline = { s: at, date, files };

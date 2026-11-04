@@ -68,8 +68,25 @@ import { createWeather, SUN_BEARING, weatherLight, weatherSky } from './weather'
 
 /** What a pixel shows: a folder's branch, or a rock lying for some of the root folder's files. */
 export type Picked = { folder: number; rock?: number };
-export type LabelPosition = { folder: number; x: number; y: number; visible: boolean };
-export type FrameInfo = { growth: number; labels: LabelPosition[] };
+/**
+ * `front`: the anchor is nearer the camera than the trunk, not on the far side of the crown.
+ * `depth` eases from 0, facing the camera, to 1, straight behind the trunk, as the tree turns.
+ */
+export type LabelPosition = {
+  folder: number;
+  x: number;
+  y: number;
+  visible: boolean;
+  front: boolean;
+  depth: number;
+};
+/** `crown` is the crown's outline on screen, as an ellipse, which labels sit outside of. */
+export type FrameInfo = {
+  growth: number;
+  labels: LabelPosition[];
+  crown: Ellipse;
+};
+export type Ellipse = { x: number; y: number; rx: number; ry: number };
 /** CSS pixels along each edge of the container that panels cover. */
 export type Insets = { top: number; right: number; bottom: number; left: number };
 /** The sky to show, and whether it must hold still (reduced motion): no drift, fall or flashes. */
@@ -136,8 +153,10 @@ export interface TreeView {
   setQuality(quality: Quality): void;
   setSpin(on: boolean): void;
   setReducedMotion(on: boolean): void;
+  /** The folders whose anchors onFrame reports, or null for the top-level folders. */
+  setLabelFolders(folders: readonly number[] | null): void;
   /**
-   * Called after every rendered frame with each top-level label's screen position; a label is
+   * Called after every rendered frame with each labeled folder's screen position; a label is
    * visible once grown, in front of the camera and inside the free region.
    */
   onFrame(listener: (info: FrameInfo) => void): () => void;
@@ -165,6 +184,15 @@ const QUALITY: Record<Quality, { pixelRatio: number; shadowMap: number; antialia
 const GROW_MS = 2600;
 const BAKED = 1;
 const LABELS_FROM = 0.55;
+/**
+ * A label counts as behind the crown once its anchor's bearing turns more than about 105 degrees
+ * from the camera's, unless the anchor sits within `near` of the trunk.
+ */
+const BACK = { facing: 0.25, near: 0.15 };
+/** Over which share of facing the camera, toward to away, a label's depth eases from 0 to 1. */
+const DEPTH = { near: 0.2, far: -0.7 };
+/** How much of the tree's reach, and from what share of its height up, the crown's outline covers. */
+const CROWN = { reach: 0.8, from: 0.4 };
 const SPIN_SPEED = 0.55;
 /** Spring rates: the camera settles in about a second, the free region in about a third. */
 const GLIDE_RATE = 6.5;
@@ -528,26 +556,66 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   const anchor = new Vector3();
+  const axis = new Vector3();
+  let labelFolders: readonly number[] | null = null;
+  /**
+   * The crown's outline on screen: the box around a ring of points at its widest reach, at the
+   * height leaves start and at the top, shrunk because the crown is rounder than that cylinder.
+   */
+  const crownOnScreen = ({ min, max }: TreeModel['bounds']): Ellipse => {
+    const { width, height } = freeRegion();
+    const reach = Math.max(-min[0], max[0], -min[2], max[2]) * CROWN.reach;
+    const low = min[1] + (max[1] - min[1]) * CROWN.from;
+    let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity];
+    for (let k = 0; k < 16; k++) {
+      const turn = (k / 8) * Math.PI;
+      axis
+        .set(Math.cos(turn) * reach, k % 2 ? low : max[1], Math.sin(turn) * reach)
+        .project(camera);
+      const x = ((axis.x + 1) / 2) * width;
+      const y = ((1 - axis.y) / 2) * height;
+      [x0, x1, y0, y1] = [Math.min(x0, x), Math.max(x1, x), Math.min(y0, y), Math.max(y1, y)];
+    }
+    return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, rx: (x1 - x0) / 2, ry: (y1 - y0) / 2 };
+  };
+
   const emitLabels = () => {
     if (!shown || listeners.size === 0) return;
     const { width, height, x: left, y: top, w, h } = freeRegion();
     const growth = treeUniforms.uGrow.value;
     const { range } = shown.model.folders;
+    const { anchors, bounds } = shown.model;
     const born = (folder: number) =>
       !births || births[range[2 * folder]!]! + treeUniforms.uSpan.value <= treeUniforms.uTime.value;
-    const labels = shown.model.labels.map(({ folder, anchor: [ax, ay, az] }) => {
-      anchor.set(ax, ay, az).project(camera);
-      const x = ((anchor.x + 1) / 2) * width;
-      const y = ((1 - anchor.y) / 2) * height;
+    const screen = (v: Vector3) => {
+      v.project(camera);
+      return { x: ((v.x + 1) / 2) * width, y: ((1 - v.y) / 2) * height, z: v.z };
+    };
+    const folders = labelFolders ?? shown.model.labels.map((l) => l.folder);
+    const labels = folders.map((folder) => {
+      const [ax, ay, az] = [
+        anchors[folder * 3]!,
+        anchors[folder * 3 + 1]!,
+        anchors[folder * 3 + 2]!,
+      ];
+      const reach = Math.hypot(ax, az);
+      const facing = (ax * camera.position.x + az * camera.position.z) / (reach || 1);
+      const toward = facing / (Math.hypot(camera.position.x, camera.position.z) || 1);
+      const front = reach < BACK.near || toward > -BACK.facing;
+      const t = Math.min(1, Math.max(0, (DEPTH.near - toward) / (DEPTH.near - DEPTH.far)));
+      const depth = reach < BACK.near ? 0 : t * t * (3 - 2 * t);
+      const { x, y, z } = screen(anchor.set(ax, ay, az));
       const free = x >= left && x <= left + w && y >= top && y <= top + h;
       return {
         folder,
         x,
         y,
-        visible: growth > LABELS_FROM && anchor.z < 1 && free && born(folder),
+        front,
+        depth,
+        visible: growth > LABELS_FROM && z < 1 && free && born(folder),
       };
     });
-    for (const listener of listeners) listener({ growth, labels });
+    for (const listener of listeners) listener({ growth, labels, crown: crownOnScreen(bounds) });
   };
 
   /** The sky, the light and the weather's own objects for the palette, weather and quality. */
@@ -748,6 +816,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   return {
     setTree(model) {
       releaseTree();
+      labelFolders = null;
       const bark = new Mesh(geometry(model.bark), barkMaterial);
       const leafGeometry = geometry(model.leaves).setAttribute(
         'aShade',
@@ -928,6 +997,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         renderer.shadowMap.needsUpdate = true;
         requestRender();
       }
+    },
+
+    setLabelFolders(folders) {
+      labelFolders = folders;
+      requestRender();
     },
 
     onFrame(listener) {

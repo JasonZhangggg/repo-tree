@@ -8,7 +8,7 @@ A user points at a branch to see which folder it is, clicks to pin that folder's
 - `explore-pin` pins the folder under a click and shows its card with crumbs, languages, largest subfolders and `Open on GitHub`.
 - `explore-crumb` pins an ancestor from the crumbs.
 - `explore-side-list` pins a top-level folder from the side panel list.
-- `explore-label` pins a folder from its label pill over the tree.
+- `explore-label` pins a folder from its label pill over the tree. Pinned, the folder's biggest subfolders get smaller labels of their own, and the other top-level labels fade.
 - `explore-rock` hovers a rock on the ground to see the root file it stands for (name and size, or `N more files` on the last rock past twelve), and clicks it to pin the root folder with that file's card. `view.pickAt` returns `{ folder: 0, rock }` there. e2e covers it in `a rock names its root file on hover and pins it on click`.
 - `explore-clear` clears the pin with Escape or `Clear selection`.
 - `explore-legend` highlights one legend entry's leaves on click (hover previews it on desktop), shows its file count under the legend, writes `hl=` to the URL, and clears on a second click, Escape or a pin.

@@ -1,7 +1,7 @@
 import type { FileEntry } from '../repo/github';
 import type { Dir } from '../repo/hierarchy';
 import { langOf, type Lang } from '../repo/languages';
-import { treeHeight } from './size';
+import { treeHeight, twigBudget } from './size';
 
 /**
  * Sets leaves per sprig, sprigs per twig and tube facets (see QUALITY). The branch skeleton,
@@ -51,8 +51,13 @@ export type TreeModel = {
    * are RepoIndex.files ids (folders in preorder, each folder's own files in order).
    */
   sprigs: { vertex: Uint32Array; file: Uint32Array; files: Uint32Array };
-  /** One per top-level folder, anchored on the twig tip nearest the middle of its limb. */
+  /** One per top-level folder, at its anchor. */
   labels: { folder: number; files: number; anchor: Vec3 }[];
+  /**
+   * A label anchor per folder as xyz, on the outer face of its part of the crown: the twig tip
+   * that reaches farthest out, and a little up, toward the side the folder's twigs lean to.
+   */
+  anchors: Float32Array;
   /**
    * The root folder's own files lie on the ground as rocks, largest first, when the root also
    * has subfolders. `files` index the root folder's own files; the last rock may hold the rest.
@@ -74,11 +79,6 @@ const SHAPE = { trunkLen: 1, spread: 1.25, lenExp: 0.3, lenK: 0.7, tropism: 0.08
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const UP: Vec3 = [0, 1, 0];
 const GROW_END = 0.86;
-/**
- * The crown stays open at any repo size because the twig count is capped: past this many
- * twigs, the lightest branches fold into one twig each instead of forking further.
- */
-const TWIG_BUDGET = 200;
 const MIN_TWIG_FILES = 4;
 /** Leaf length on the approved tree, which had about APPROVED_TWIGS twigs. */
 const LEAF_LENGTH = 0.16;
@@ -124,7 +124,7 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
     return n;
   };
   const top = build(root);
-  const twigs = cut(top);
+  const twigs = cut(top, twigBudget(root.fileCount));
 
   const order: Node[] = [];
   const parentOf: number[] = [];
@@ -153,7 +153,8 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
 
   const trunkR = Math.min(0.24, Math.max(0.09, 0.2 * (top.w / 527) ** 0.2));
   const skeleton = growSkeleton(top, nodeCount, trunkR, mulberry32(params.seed));
-  scaleSkeleton(skeleton, treeHeight(root.fileCount) / tipHeight(skeleton));
+  const height = treeHeight(root.fileCount);
+  scaleSkeleton(skeleton, height / tipHeight(skeleton));
 
   const treeLangs = new Map(root.langs);
   if (rocks.length > 0) {
@@ -180,6 +181,14 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
     mulberry32(params.seed ^ 0x5bd1e995),
   );
 
+  const anchors = new Float32Array(folderPaths.length * 3);
+  for (let folder = 0; folder < folderPaths.length; folder++) {
+    anchors.set(
+      labelAnchor(order, skeleton, range[2 * folder]!, range[2 * folder + 1]!),
+      folder * 3,
+    );
+  }
+
   const nodeFolder = new Uint32Array(nodeCount);
   const nodeFiles = new Uint32Array(nodeCount);
   for (const n of order) {
@@ -201,12 +210,9 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
     folders: { path: folderPaths, range },
     labels: root.dirs.map((dir) => {
       const folder = folderOf.get(dir)!;
-      return {
-        folder,
-        files: dir.fileCount,
-        anchor: labelAnchor(order, skeleton, range[2 * folder]!, range[2 * folder + 1]!),
-      };
+      return { folder, files: dir.fileCount, anchor: vec(anchors, folder) };
     }),
+    anchors,
     rocks,
     bounds: boundsOf([bark.position, leaves.mesh.position]),
   };
@@ -259,12 +265,12 @@ function binarize(n: Node) {
 }
 
 /**
- * Turns the full tree into at most TWIG_BUDGET twigs. It opens the heaviest branches first
- * and folds each branch left closed into one twig that carries all its files and belongs to
+ * Turns the full tree into at most `budget` twigs (see twigBudget), so the crown stays open.
+ * It opens the heaviest branches first and folds each branch left closed into one twig that carries all its files and belongs to
  * the deepest folder that still owns a node. The forks between top-level folders open even
  * past the budget, so every top-level folder keeps its own limb. Returns the twig count.
  */
-function cut(top: Node): number {
+function cut(top: Node, budget: number): number {
   const opened = new Set<Node>();
   let twigs = 1;
   const open = (n: Node) => {
@@ -292,7 +298,7 @@ function cut(top: Node): number {
   for (const n of candidates) for (const k of n.kids) parent.set(k, n);
   const ranked = candidates.map((n, i) => ({ n, i })).sort((a, b) => b.n.w - a.n.w || a.i - b.i);
   for (const { n } of ranked) {
-    if (twigs >= TWIG_BUDGET) break;
+    if (twigs >= budget) break;
     if (!opened.has(n) && opened.has(parent.get(n)!)) open(n);
   }
 
@@ -357,6 +363,8 @@ function growSkeleton(
     roll: number,
     depth: number,
     path: number,
+    az0: number,
+    az1: number,
   ): void => {
     const side = rotate(perp(dir), dir, random() * 6.28);
     const end = addScaled(start, dir, len);
@@ -384,12 +392,25 @@ function growSkeleton(
     if (!b) {
       const jitter: Vec3 = [(random() - 0.5) * 0.25, 0, (random() - 0.5) * 0.25];
       const d = normalize(lerp(add(dir, jitter), UP, SHAPE.tropism));
-      return grow(a, end, d, lenOf(a.w), rChild(a), roll + GOLDEN_ANGLE, depth + 1, path + len);
+      return grow(
+        a,
+        end,
+        d,
+        lenOf(a.w),
+        rChild(a),
+        roll + GOLDEN_ANGLE,
+        depth + 1,
+        path + len,
+        az0,
+        az1,
+      );
     }
+    // Each fork shares its slice of the compass between its kids (see ORDER).
+    const cutAt = az0 + ((az1 - az0) * a.w ** ORDER.exp) / (a.w ** ORDER.exp + b.w ** ORDER.exp);
     const theta = SHAPE.spread * (0.85 + 0.3 * random());
     const angA = (theta * b.w) / (a.w + b.w);
     const angB = Math.max(0.42, (theta * a.w) / (a.w + b.w));
-    const axis = rotate(perp(dir), dir, roll);
+    const axis = forkAxis(dir, roll, az0, cutAt, az1, random);
     grow(
       a,
       end,
@@ -399,6 +420,8 @@ function growSkeleton(
       roll + GOLDEN_ANGLE,
       depth + 1,
       path + len,
+      az0,
+      cutAt,
     );
     grow(
       b,
@@ -409,10 +432,51 @@ function growSkeleton(
       roll + GOLDEN_ANGLE,
       depth + 1,
       path + len,
+      cutAt,
+      az1,
     );
   };
-  grow(top, [0, -0.06, 0], normalize([0.05, 1, 0.02]), SHAPE.trunkLen, trunkR, 0, 0, 0);
+  grow(
+    top,
+    [0, -0.06, 0],
+    normalize([0.05, 1, 0.02]),
+    SHAPE.trunkLen,
+    trunkR,
+    0,
+    0,
+    0,
+    0,
+    Math.PI * 2,
+  );
   return s;
+}
+
+/**
+ * Folders keep to their own side of the crown by how each fork turns, not by bending branches:
+ * every fork shares its slice of the compass between its kids (by files to the power `exp`, so
+ * small folders still get room) and turns about its limb so each kid sets off toward its own
+ * share, give or take `wobble` radians. A slice narrower than `least` radians no longer steers,
+ * and its forks turn by the golden angle as before, so twigs spread naturally.
+ */
+const ORDER = { exp: 0.5, least: 0.35, wobble: 0.25 };
+
+/** The axis a fork turns its kids about: `a` turns toward [az0, cut], `b` toward [cut, az1]. */
+function forkAxis(
+  dir: Vec3,
+  roll: number,
+  az0: number,
+  cut: number,
+  az1: number,
+  random: () => number,
+): Vec3 {
+  const free = rotate(perp(dir), dir, roll);
+  if (Math.min(cut - az0, az1 - cut) < ORDER.least) return free;
+  const toward = (az: number): Vec3 => [Math.cos(az), 0, Math.sin(az)];
+  const apart = sub(toward((az0 + cut) / 2), toward((cut + az1) / 2));
+  const m = addScaled(apart, dir, -dot(apart, dir));
+  if (length(m) < 1e-3) return free;
+  const axis = normalize(cross(dir, normalize(m)));
+  return rotate(axis, dir, (random() - 0.5) * 2 * ORDER.wobble);
 }
 
 function tipHeight(s: Skeleton): number {
@@ -728,17 +792,25 @@ function labelAnchor(order: Node[], s: Skeleton, lo: number, hi: number): Vec3 {
   const tips: Vec3[] = [];
   for (let id = lo; id <= hi; id++) if (order[id]!.files) tips.push(vec(s.end, id));
   const centroid = scale(tips.reduce(add, [0, 0, 0]), 1 / tips.length);
+  const out = normalize([centroid[0], 0, centroid[2]]);
   let best = tips[0]!;
-  let bestDistance = Infinity;
+  let bestScore = -Infinity;
   for (const tip of tips) {
-    const d = dot(sub(tip, centroid), sub(tip, centroid));
-    if (d < bestDistance) {
-      bestDistance = d;
+    const score = ANCHOR_OUT * dot(tip, out) + ANCHOR_UP * tip[1] - length(sub(tip, centroid));
+    if (score > bestScore) {
+      bestScore = score;
       best = tip;
     }
   }
   return best;
 }
+
+/**
+ * A label anchor is the twig tip nearest the middle of its folder's twigs, leaning a little
+ * outward and up so it sits on the crown's surface rather than buried inside it.
+ */
+const ANCHOR_OUT = 0.3;
+const ANCHOR_UP = 0.15;
 
 function boundsOf(buffers: Float32Array[]): TreeModel['bounds'] {
   const min: Vec3 = [Infinity, Infinity, Infinity];
@@ -765,7 +837,7 @@ function mulberry32(seed: number): () => number {
 }
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
-const vec = (buffer: Float64Array, i: number): Vec3 => [
+const vec = (buffer: Float64Array | Float32Array, i: number): Vec3 => [
   buffer[i * 3]!,
   buffer[i * 3 + 1]!,
   buffer[i * 3 + 2]!,

@@ -1270,16 +1270,66 @@ h1 a[aria-disabled] {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.pill span i {
+  font-style: normal;
+  font-weight: 450;
+  color: var(--muted);
+}
+.pill.on span i {
+  color: rgba(255, 255, 255, 0.72);
+}
 .stem {
   position: absolute;
   left: 0;
-  top: 0;
+  top: -0.75px;
   width: 1px;
-  height: 1px;
-  background: rgba(37, 34, 30, 0.28);
+  height: 1.5px;
+  background: rgba(37, 34, 30, 0.55);
   transform-origin: 0 0;
   will-change: transform;
   pointer-events: none;
+}
+.pill {
+  z-index: 2;
+}
+.pill.major {
+  font-size: 14px;
+  padding: 7px 13px;
+}
+.pill.sub {
+  font-size: 12px;
+  font-weight: 550;
+  padding: 4px 9px;
+  background: rgba(255, 255, 255, 0.8);
+}
+.pill.back {
+  z-index: 1;
+  opacity: 0.7;
+}
+.stem.back {
+  opacity: 0.4;
+}
+/* Where a stem meets the branch: a dot with a light ring, so it reads on leaves of any color. */
+.dot {
+  position: absolute;
+  left: -3.5px;
+  top: -3.5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(37, 34, 30, 0.8);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+  will-change: transform;
+  pointer-events: none;
+}
+.dot.back {
+  opacity: 0.4;
+}
+.pill.aside {
+  opacity: 0.5;
+}
+.pill.aside.back {
+  opacity: 0.35;
 }
 .pill.on {
   background: var(--ink);

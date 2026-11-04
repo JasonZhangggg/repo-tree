@@ -321,10 +321,10 @@ const JOURNEYS = {
       await expect(page).toHaveURL(new RegExp(`sel=${hovered}$`));
     });
     await step('crumb', async () => {
-      await detail(page).getByRole('button', { name: 'vite', exact: true }).click();
-      await expect(detail(page).getByRole('navigation', { name: 'Folder path' })).toHaveText(
-        'vite',
-      );
+      // The root crumb: a folder under packages/vite has a second vite crumb, and lists it too.
+      const crumbs = detail(page).getByRole('navigation', { name: 'Folder path' });
+      await crumbs.getByRole('button', { name: 'vite', exact: true }).first().click();
+      await expect(crumbs).toHaveText('vite');
     });
     await step('side-list', async () => {
       await page.locator('#folders button', { hasText: 'playground' }).first().click();

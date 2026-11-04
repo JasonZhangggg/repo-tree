@@ -157,6 +157,25 @@ test('search finds a folder, frames it and pins it', async ({ page }) => {
   await expect(detail(page)).toBeHidden();
 });
 
+test("labels the big top-level folders, then a pinned folder's own subfolders", async ({
+  page,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const pills = page.locator('#labels .pill');
+  await expect(pills.locator('span')).toHaveText(['playground/', 'packages/', 'docs/']);
+  await expect(page.locator('#labels .pill.major')).toHaveCount(2);
+
+  await page.locator('#labels .pill', { hasText: 'packages' }).click();
+  await expectPinned(page, 'vite/packages');
+  const subs = page.locator('#labels .pill.sub span');
+  await expect(subs.first()).toHaveText('vite/');
+  await expect(page.locator('#labels .pill.aside', { hasText: 'playground' })).toHaveCount(1);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#labels .pill.sub')).toHaveCount(0);
+});
+
 test('a palette picked in settings survives a reload', async ({ page }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
@@ -285,26 +304,38 @@ test('pinning a deep folder frames it in context', async ({ page, isMobile }) =>
 
 test('on a phone the tree stays in view as folders are pinned', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'phone layout');
-  await page.goto('./');
-  await ready(page, 'vitejs/vite');
+  // linux grows the tallest tree, so this checks framing, not how big a smaller repo grows.
+  await page.goto('./#/torvalds/linux');
+  await ready(page, 'torvalds/linux');
   await settle(page);
   const sheet = page.locator('#sheet-toggle');
   await expect(sheet).toHaveAttribute('aria-expanded', 'false');
 
-  const label = (await labelsOf(page)).find((l) => l.path === 'playground')!;
-  const playground = await page.evaluate(({ x, y }) => {
+  const label = (await labelsOf(page)).find((l) => l.path === 'drivers')!;
+  const drivers = await page.evaluate(({ x, y }) => {
     const { view, tree } = (window as unknown as Debug).__repoTree;
-    for (let r = 0; r < 16; r++)
+    for (let r = 0; r < 80; r += 2)
       for (let dx = -r; dx <= r; dx++)
         for (const dy of [-r, r]) {
-          const picked = view.pickAt(x + dx, y + dy);
-          if (picked && tree.folders.path[picked.folder]!.startsWith('playground'))
-            return { x: x + dx, y: y + dy };
+          // A point with drivers all around it, on bare canvas, so the tap cannot slip a
+          // pixel onto a neighbouring limb or land on a label pill.
+          const isDrivers = (px: number, py: number) => {
+            const picked = view.pickAt(px, py);
+            return !!picked && tree.folders.path[picked.folder]!.startsWith('drivers');
+          };
+          const [px, py] = [x + dx, y + dy];
+          const rect = document.querySelector('#view canvas')!.getBoundingClientRect();
+          const onCanvas =
+            document.elementFromPoint(rect.left + px, rect.top + py)?.tagName === 'CANVAS';
+          const solid = [-3, 0, 3].every((ox) =>
+            [-3, 0, 3].every((oy) => isDrivers(px + ox, py + oy)),
+          );
+          if (onCanvas && solid) return { x: px, y: py };
         }
     return { x, y };
   }, label);
-  await page.touchscreen.tap(playground.x, playground.y);
-  await expect(sheet, 'the peek names the pinned folder').toContainText('playground');
+  await page.touchscreen.tap(drivers.x, drivers.y);
+  await expect(sheet, 'the peek names the pinned folder').toContainText('drivers');
   await expect(sheet).toHaveAttribute('aria-expanded', 'false');
   await expect(detail(page)).toBeHidden();
 
@@ -322,7 +353,7 @@ test('on a phone the tree stays in view as folders are pinned', async ({ page, i
   await sheet.tap();
   await expect(sheet).toHaveAttribute('aria-expanded', 'true');
   await expect(detail(page).getByRole('navigation', { name: 'Folder path' })).toContainText(
-    'playground',
+    'drivers',
   );
   const height = await page
     .locator('#folders button')

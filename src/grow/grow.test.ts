@@ -3,7 +3,7 @@ import { buildHierarchy, DEFAULT_FILTERS, type Dir } from '../repo/hierarchy';
 import { langOf, type Lang } from '../repo/languages';
 import { sample, type SampleId } from '../test/samples';
 import { growTree, type GrowParams, type MeshData, type TreeModel } from './grow';
-import { TALLEST } from './size';
+import { TALLEST, twigBudget } from './size';
 import { indexRepo } from '../load/repo-index';
 
 const HIGH: GrowParams = { seed: 42, quality: 'high' };
@@ -27,6 +27,24 @@ function triangleNodes(mesh: MeshData): Map<number, number> {
     counts.set(node, (counts.get(node) ?? 0) + 1);
   }
   return counts;
+}
+
+/** Each top-level folder's twig tips as [x, z]: the bark vertex of each twig farthest out. */
+function tipsByTop(tree: TreeModel): [number, number][][] {
+  const ends = new Map<number, [number, number]>();
+  const { position, nodeId } = tree.bark;
+  for (let v = 0; v < nodeId.length; v++) {
+    const n = nodeId[v]!;
+    if (tree.nodes.files[n]! === 0) continue;
+    const at: [number, number] = [position[v * 3]!, position[v * 3 + 2]!];
+    const best = ends.get(n);
+    if (!best || Math.hypot(...at) > Math.hypot(...best)) ends.set(n, at);
+  }
+  return tree.labels.map(({ folder }) => {
+    const lo = tree.folders.range[2 * folder]!;
+    const hi = tree.folders.range[2 * folder + 1]!;
+    return [...ends].filter(([n]) => n >= lo && n <= hi).map(([, at]) => at);
+  });
 }
 
 function positions(tree: TreeModel): Float32Array[] {
@@ -171,9 +189,53 @@ describe.each(SAMPLES)('growTree on %s', (id) => {
     expect(tree.labels.map((l) => [tree.folders.path[l.folder], l.files])).toEqual(top);
   });
 
-  test('keeps the crown open with at most 200 twigs', () => {
+  test('keeps the crown open with at most its twig budget', () => {
     const twigs = tree.nodes.files.filter((n) => n > 0).length;
-    expect(twigs).toBeLessThanOrEqual(200);
+    expect(twigs).toBeLessThanOrEqual(twigBudget(dirOf(id).fileCount));
+  });
+
+  test('anchors every folder that holds twigs, top-level labels on the same anchors', () => {
+    const { folder: nodeFolder, files } = tree.nodes;
+    expect(tree.anchors.length).toBe(tree.folders.path.length * 3);
+    for (let folder = 0; folder < tree.folders.path.length; folder++) {
+      const anchor = [...tree.anchors.subarray(folder * 3, folder * 3 + 3)];
+      expect(anchor.every(Number.isFinite)).toBe(true);
+      const lo = tree.folders.range[2 * folder]!;
+      const hi = tree.folders.range[2 * folder + 1]!;
+      let twigs = 0;
+      for (let n = lo; n <= hi; n++) if (files[n]! > 0) twigs++;
+      expect(twigs, tree.folders.path[folder]).toBeGreaterThan(0);
+      expect(nodeFolder.length).toBeGreaterThan(hi);
+    }
+    for (const label of tree.labels) {
+      expect(label.anchor).toEqual([
+        ...tree.anchors.subarray(label.folder * 3, label.folder * 3 + 3),
+      ]);
+    }
+  });
+
+  test('gathers most of each top-level folder on its own side of the crown', () => {
+    if (tree.labels.length < 2) return;
+    const tips = tipsByTop(tree);
+    const means = tips.map((list) => {
+      const [x, z] = list.reduce(([x, z], [tx, tz]) => [x + tx, z + tz], [0, 0]);
+      return Math.atan2(z, x);
+    });
+    const gap = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+    let own = 0;
+    let all = 0;
+    tips.forEach((list, i) => {
+      for (const [x, z] of list) {
+        const bearing = Math.atan2(z, x);
+        let nearest = 0;
+        means.forEach((m, j) => {
+          if (gap(bearing, m) < gap(bearing, means[nearest]!)) nearest = j;
+        });
+        if (nearest === i) own++;
+        all++;
+      }
+    });
+    expect(own / all).toBeGreaterThan(0.6);
   });
 
   test('gives every top-level folder a limb of its own', () => {
@@ -279,6 +341,11 @@ test('grows a taller, wider, thicker tree for more files, never past the tallest
     expect(height(tree)).toBeLessThanOrEqual(TALLEST.max[1]);
     expect(reach(tree)).toBeLessThanOrEqual(Math.hypot(TALLEST.max[0], TALLEST.max[2]));
   }
+});
+
+test('opens more twigs for a bigger repo', () => {
+  const twigs = (id: SampleId) => growTree(dirOf(id), HIGH).nodes.files.filter((n) => n > 0).length;
+  expect(twigs('torvalds-linux')).toBeGreaterThan(twigs('vitejs-vite') * 1.2);
 });
 
 test('grows the linux tree from its snapshot within the budget', async () => {

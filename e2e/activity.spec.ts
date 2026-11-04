@@ -57,7 +57,9 @@ test('Activity colors leaves by their last change, and dead wood drops its leave
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('radio', { name: 'Activity' }).click();
   await expect(page).toHaveURL(/colorBy=activity/);
-  await expect(page.getByText(/^From commit history: green changed this month/)).toBeVisible();
+  await expect(
+    page.getByText(/^From commit history: how recently each file changed/),
+  ).toBeVisible();
   await page.keyboard.press('Escape');
 
   await openLegend(page);

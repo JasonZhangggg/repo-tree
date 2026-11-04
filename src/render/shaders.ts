@@ -27,7 +27,7 @@ export const treeUniforms = {
    * off, steady under reduced motion, and a slow pulse otherwise.
    */
   uGlow: { value: 0 },
-  uGlowColor: { value: [1, 0.36, 0.05] as [number, number, number] },
+  uGlowColor: { value: [1, 0.34, 0.03] as [number, number, number] },
   /** 1 while some leaves glow: the others calm (drain and pale a little) so the glow reads. */
   uCalm: { value: 0 },
   /**
@@ -162,7 +162,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb, uGlowColor * EMBER_ALBEDO, step(0.001, 
 `;
 const HOT_GLOW = /* glsl */ `
 #include <emissivemap_fragment>
-totalEmissiveRadiance += uGlowColor * (vHeat * uGlow);
+totalEmissiveRadiance += uGlowColor * (step(0.001, vHeat) * (0.55 + 0.45 * vHeat) * uGlow * SELF_LIT);
 `;
 const CALM = /* glsl */ `
 if (uCalm > 0.5 && vHeat <= 0.0) {
@@ -222,7 +222,7 @@ export const leafShader = <M extends Material>(m: M, slots: number) =>
       LEAF_TUNING +
       FADE_UNIFORMS +
       'varying vec3 vLeaf;\nvarying float vSlot;\nvarying float vHeat;\n' +
-      '#define CALM 0.5\n#define EMBER 0.85\n#define EMBER_ALBEDO 0.26\nuniform float uGlow;\nuniform vec3 uGlowColor;\nuniform float uCalm;\n' +
+      '#define CALM 0.65\n#define SELF_LIT 1.4\n#define EMBER 0.85\n#define EMBER_ALBEDO 0.26\nuniform float uGlow;\nuniform vec3 uGlowColor;\nuniform float uCalm;\n' +
       HSL +
       shader.fragmentShader
         .replace('#include <color_fragment>', HOT_COLOR)
@@ -288,7 +288,7 @@ export const haloShader = <M extends Material>(m: M) =>
       'attribute float aSize;\nattribute float aHeat;\nvarying float vHalo;\nuniform float uGlow;\n' +
       shader.vertexShader.replace(
         'gl_PointSize = size;',
-        'gl_PointSize = size * aSize * grown();\nvHalo = aHeat * uGlow * HALO;',
+        'gl_PointSize = size * aSize * projectionMatrix[1][1] * grown();\nvHalo = aHeat * uGlow * HALO;',
       );
     shader.fragmentShader =
       'varying float vHalo;\nuniform vec2 uSel;\nuniform float uCategory;\n' +
@@ -298,10 +298,10 @@ export const haloShader = <M extends Material>(m: M) =>
 vec2 disc = gl_PointCoord * 2.0 - 1.0;
 float r2 = dot(disc, disc);
 if (r2 > 1.0) discard;
-diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.82, 0.35), 0.6 * exp(-r2 * 10.0));
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.72, 0.28), 0.35 * exp(-r2 * 10.0));
 diffuseColor.a *= vHalo * (exp(-r2 * 4.5) - exp(-4.5)) / (1.0 - exp(-4.5));
 if (${OUTSIDE} || uCategory >= 0.0) diffuseColor.a *= 0.25;
 `,
       );
-    shader.vertexShader = '#define HALO 1.6\n' + shader.vertexShader;
+    shader.vertexShader = '#define HALO 0.55\n' + shader.vertexShader;
   });

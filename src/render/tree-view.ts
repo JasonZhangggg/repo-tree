@@ -46,8 +46,6 @@ import { AGES, ageBand, CHANGES, changeBand, DEAD, type Facts } from '../timelin
 import { ownerCategories } from '../timeline/owners';
 import { createGround } from './ground';
 import {
-  AGE_COLORS,
-  CHANGE_COLORS,
   DEAD_BARK,
   leafMapping,
   PALETTES,
@@ -213,10 +211,15 @@ const PULSE_MS = 2800;
 const PULSE_FRAME_MS = 70;
 /** How long dead-wood leaves take to fall when they drop. */
 const FALL_MS = 2600;
-/** A hot sprig's halo spans this many times its own reach, and at least HALO_MIN. */
-const HALO_SPAN = 3.5;
-const HALO_MIN = 0.45;
-const HALO_COLOR = '#ff9d1a';
+/**
+ * Each hot leaf's glow spans HALO_SPAN times the leaf (as drawn, HOT_SIZE large), so the light
+ * hugs the leaf instead of washing over the crown.
+ */
+const HALO_SPAN = 1.2;
+const HOT_SIZE = 2;
+/** A leaf is six triangles of its own three vertices each (grow.ts `leaf`). */
+const LEAF_VERTICES = 18;
+const HALO_COLOR = '#ff961a';
 /** A birth past any cursor: the element never shows. */
 const NEVER = ALWAYS * 4;
 
@@ -332,14 +335,14 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const haloMaterial = haloShader(
     new PointsMaterial({
       color: HALO_COLOR,
-      size: 1 / Math.tan(((FOV / 2) * Math.PI) / 180),
+      // The vertex shader scales by the projection, so a world-size glow survives view offsets.
+      size: 1,
       sizeAttenuation: true,
       transparent: true,
       depthWrite: false,
-      depthTest: false,
     }),
   );
-  /** Soft light over each hot sprig, so a hotspot glows past its own leaves. */
+  /** A soft light hugging each hot leaf, so the leaf itself reads as glowing. */
   const halo = new Points(new BufferGeometry(), haloMaterial);
   halo.frustumCulled = false;
   halo.visible = false;
@@ -584,8 +587,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   /**
-   * One halo point per glowing sprig, at the heart of its leaves and as wide as they reach. It
-   * takes the sprig's first leaf's timing, node and birth, so it grows in, pins and drops with it.
+   * One glow point per hot leaf (each LEAF_VERTICES of a sprig's vertices), at the leaf's heart
+   * as drawn and a little wider than it. It takes the leaf's timing, node and birth, so it grows
+   * in, pins and drops with it.
    */
   const placeHalo = () => {
     halo.geometry.dispose();
@@ -602,29 +606,32 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const births: number[] = [];
     const heats: number[] = [];
     const sizes: number[] = [];
+    const { position: p, base } = leaves;
     for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
-      const from = sprigs.vertex[s]!;
-      const to = sprigs.vertex[s + 1]!;
-      if (to <= from || heat[from]! <= 0) continue;
-      const c = [0, 0, 0];
-      for (let v = from; v < to; v++)
-        for (let i = 0; i < 3; i++) c[i]! += leaves.position[3 * v + i]!;
-      for (let i = 0; i < 3; i++) c[i]! /= to - from;
-      let reach = 0;
-      for (let v = from; v < to; v++) {
-        const d = Math.hypot(
-          leaves.position[3 * v]! - c[0]!,
-          leaves.position[3 * v + 1]! - c[1]!,
-          leaves.position[3 * v + 2]! - c[2]!,
-        );
-        reach = Math.max(reach, d);
+      const end = sprigs.vertex[s + 1]!;
+      if (end <= sprigs.vertex[s]! || heat[sprigs.vertex[s]!]! <= 0) continue;
+      for (let from = sprigs.vertex[s]!; from < end; from += LEAF_VERTICES) {
+        const to = Math.min(end, from + LEAF_VERTICES);
+        const c = [0, 0, 0];
+        for (let v = from; v < to; v++) for (let i = 0; i < 3; i++) c[i]! += p[3 * v + i]!;
+        for (let i = 0; i < 3; i++) c[i]! /= to - from;
+        let reach = 0;
+        for (let v = from; v < to; v++) {
+          reach = Math.max(
+            reach,
+            Math.hypot(p[3 * v]! - c[0]!, p[3 * v + 1]! - c[1]!, p[3 * v + 2]! - c[2]!),
+          );
+        }
+        // Drawn HOT_SIZE large about its stem, so its heart moves out with it.
+        for (let i = 0; i < 3; i++)
+          c[i] = base[3 * from + i]! + (c[i]! - base[3 * from + i]!) * HOT_SIZE;
+        at.push(...c);
+        t.push(leaves.timing[2 * from]!, leaves.timing[2 * from + 1]!);
+        id.push(leaves.nodeId[from]!);
+        births.push(born?.[from] ?? 0);
+        heats.push(heat[from]!);
+        sizes.push(2 * reach * HOT_SIZE * HALO_SPAN);
       }
-      at.push(...c);
-      t.push(leaves.timing[2 * from]!, leaves.timing[2 * from + 1]!);
-      id.push(leaves.nodeId[from]!);
-      births.push(born?.[from] ?? 0);
-      heats.push(heat[from]!);
-      sizes.push(Math.max(HALO_MIN, reach * HALO_SPAN));
     }
     const position = new Float32Array(at);
     halo.geometry = new BufferGeometry()
@@ -778,9 +785,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const applySlots = () => {
     const slots: number[] = [];
     const ramp = byActivity()
-      ? AGE_COLORS
+      ? palette.ages
       : byChanges()
-        ? CHANGE_COLORS
+        ? palette.changes
         : [...palette.leaves, palette.rest];
     for (let i = 0; i < SLOTS; i++) {
       const c = new Color(ramp[Math.min(i, ramp.length - 1)]);
@@ -1213,7 +1220,7 @@ export function leafCategories(
     return {
       slotOf: CHANGES.map((_, i) => i),
       legend: CHANGES.map((c, i) => ({
-        color: litColor(CHANGE_COLORS[i]!, palette),
+        color: litColor(palette.changes[i]!, palette),
         label: c.label,
         files: files[i]!,
       })),
@@ -1226,7 +1233,7 @@ export function leafCategories(
     return {
       slotOf: AGES.map((_, i) => i),
       legend: AGES.map((a, i) => ({
-        color: litColor(AGE_COLORS[i]!, palette),
+        color: litColor(palette.ages[i]!, palette),
         label: a.label,
         files: files[i]!,
       })),

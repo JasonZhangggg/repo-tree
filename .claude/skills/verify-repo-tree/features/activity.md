@@ -6,6 +6,7 @@ Settings' `Color leaves by` has a third choice, `Activity`, that colors leaves b
 
 - `activity-colors` recolors every sprig by the band most of its files are in (the fresher on a tie), from `History.files.changed`, measured from `History.computedAt` ("as of" in the legend note).
 - `activity-dead-wood` drops dead-wood leaves in every pass (color, shadow and pick), and greys the bark of branches whose newest file is 3+ years old.
+- `activity-leaf-fall` lets the dead-wood leaves fall when they drop (Activity chosen, the history arriving, or the `Dead wood` highlight cleared): they turn grey, tumble and drift down to the ground over 2.6 s and shrink away as they land. Reduced motion drops them at once.
 - `activity-highlight` picks a band in the legend to highlight its leaves. Highlighting `Dead wood` brings its dropped leaves back in grey so they can be seen. A link's `hl=` restores a band.
 - `activity-folders` colors each top-level folder bar by its band.
 - `activity-no-history` keeps language colors on a repo with no history and says why in the legend note: `Loading history…`, `No history for this repo yet. Open the timeline to compute it.` or `History is unavailable for this repo.`
@@ -32,4 +33,5 @@ Preconditions:
 
 - `As of` is `History.computedAt`, not today, so a sample's bands are stable until its history is recomputed.
 - A link's `hl=` for a band is kept while the history loads; the view applies it once the facts arrive.
+- Journeys run with reduced motion, so they never show the fall; to see it, open a context without `reducedMotion: 'reduce'` and screenshot every few hundred ms after choosing Activity.
 - Without `VITE_HISTORY_URL` a live repo has no history at all, so it lands in `activity-no-history`.

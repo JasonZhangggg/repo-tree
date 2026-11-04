@@ -18,6 +18,8 @@ import {
   PerspectiveCamera,
   PlaneGeometry,
   ACESFilmicToneMapping,
+  Points,
+  PointsMaterial,
   Scene,
   ShaderMaterial,
   ShadowMaterial,
@@ -40,11 +42,12 @@ import {
   VIEW_DIRECTION,
 } from './framing';
 import { LIGHT, litColor } from './color';
-import { AGES, ageBand, DEAD, type Facts } from '../timeline/facts';
+import { AGES, ageBand, CHANGES, changeBand, DEAD, type Facts } from '../timeline/facts';
 import { ownerCategories } from '../timeline/owners';
 import { createGround } from './ground';
 import {
   AGE_COLORS,
+  CHANGE_COLORS,
   DEAD_BARK,
   leafMapping,
   PALETTES,
@@ -57,6 +60,7 @@ import {
   ALWAYS,
   barkShader,
   growing,
+  haloShader,
   leafShader,
   PICK_FRAGMENT,
   PICK_VERTEX,
@@ -202,11 +206,17 @@ const MIN_FREE = 0.2;
 /** The ramp every palette shares, plus the slot for the rest. */
 const SLOTS = PALETTES.autumn.leaves.length + 1;
 /** The hottest leaf's glow, and how it breathes: down to PULSE_LOW of it over PULSE_MS. */
-const GLOW = 0.45;
+const GLOW = 0.7;
 const PULSE_LOW = 0.6;
 const PULSE_MS = 2800;
 /** While only the pulse moves, frames come this far apart: a slow glow needs few. */
 const PULSE_FRAME_MS = 70;
+/** How long dead-wood leaves take to fall when they drop. */
+const FALL_MS = 2600;
+/** A hot sprig's halo spans this many times its own reach, and at least HALO_MIN. */
+const HALO_SPAN = 3.5;
+const HALO_MIN = 0.45;
+const HALO_COLOR = '#ff9d1a';
 /** A birth past any cursor: the element never shows. */
 const NEVER = ALWAYS * 4;
 
@@ -319,6 +329,22 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     SLOTS,
   );
   const depthMaterial = growing(new MeshDepthMaterial());
+  const haloMaterial = haloShader(
+    new PointsMaterial({
+      color: HALO_COLOR,
+      size: 1 / Math.tan(((FOV / 2) * Math.PI) / 180),
+      sizeAttenuation: true,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+    }),
+  );
+  /** Soft light over each hot sprig, so a hotspot glows past its own leaves. */
+  const halo = new Points(new BufferGeometry(), haloMaterial);
+  halo.frustumCulled = false;
+  halo.visible = false;
+  halo.renderOrder = 1;
+  scene.add(halo);
   const pickMaterial = new ShaderMaterial({
     vertexShader: PICK_VERTEX,
     fragmentShader: PICK_FRAGMENT,
@@ -494,6 +520,15 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       busy = true;
     }
     if (controls.update(dt)) busy = true;
+    if (fallStart >= 0) {
+      const k = (now - fallStart) / FALL_MS;
+      treeUniforms.uFall.value = Math.min(1, k);
+      busy = true;
+      if (k >= 1) {
+        fallStart = -1;
+        applyBirths(timelineBirths);
+      }
+    }
     const pulsing = glowing > 0 && !reducedMotion;
     if (pulsing) treeUniforms.uGlow.value = glowAt(now);
     showFlash(weather.tick(dt));
@@ -542,9 +577,65 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       }
     }
     shown.leaves.geometry.setAttribute('aHeat', new BufferAttribute(heat, 1));
+    placeHalo();
     treeUniforms.uGlow.value = glowing === 0 ? 0 : reducedMotion ? GLOW : glowAt(performance.now());
     treeUniforms.uCalm.value = glowing === 0 ? 0 : 1;
     requestRender();
+  };
+
+  /**
+   * One halo point per glowing sprig, at the heart of its leaves and as wide as they reach. It
+   * takes the sprig's first leaf's timing, node and birth, so it grows in, pins and drops with it.
+   */
+  const placeHalo = () => {
+    halo.geometry.dispose();
+    halo.geometry = new BufferGeometry();
+    halo.visible = false;
+    if (!shown || glowing === 0) return;
+    const { leaves, sprigs } = shown.model;
+    const born = shown.leaves.geometry.getAttribute('aBorn')?.array as Float32Array | undefined;
+    const heat = shown.leaves.geometry.getAttribute('aHeat')?.array as Float32Array | undefined;
+    if (!heat) return;
+    const at: number[] = [];
+    const t: number[] = [];
+    const id: number[] = [];
+    const births: number[] = [];
+    const heats: number[] = [];
+    const sizes: number[] = [];
+    for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
+      const from = sprigs.vertex[s]!;
+      const to = sprigs.vertex[s + 1]!;
+      if (to <= from || heat[from]! <= 0) continue;
+      const c = [0, 0, 0];
+      for (let v = from; v < to; v++)
+        for (let i = 0; i < 3; i++) c[i]! += leaves.position[3 * v + i]!;
+      for (let i = 0; i < 3; i++) c[i]! /= to - from;
+      let reach = 0;
+      for (let v = from; v < to; v++) {
+        const d = Math.hypot(
+          leaves.position[3 * v]! - c[0]!,
+          leaves.position[3 * v + 1]! - c[1]!,
+          leaves.position[3 * v + 2]! - c[2]!,
+        );
+        reach = Math.max(reach, d);
+      }
+      at.push(...c);
+      t.push(leaves.timing[2 * from]!, leaves.timing[2 * from + 1]!);
+      id.push(leaves.nodeId[from]!);
+      births.push(born?.[from] ?? 0);
+      heats.push(heat[from]!);
+      sizes.push(Math.max(HALO_MIN, reach * HALO_SPAN));
+    }
+    const position = new Float32Array(at);
+    halo.geometry = new BufferGeometry()
+      .setAttribute('position', new BufferAttribute(position, 3))
+      .setAttribute('aBase', new BufferAttribute(position, 3))
+      .setAttribute('aT', new BufferAttribute(new Float32Array(t), 2))
+      .setAttribute('aId', new BufferAttribute(new Float32Array(id), 1))
+      .setAttribute('aBorn', new BufferAttribute(new Float32Array(births), 1))
+      .setAttribute('aHeat', new BufferAttribute(new Float32Array(heats), 1))
+      .setAttribute('aSize', new BufferAttribute(new Float32Array(sizes), 1));
+    halo.visible = sizes.length > 0;
   };
 
   const bakeGround = () => {
@@ -665,6 +756,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const categories = () => leafCategories(shown!.model, colorBy, palette, facts);
   /** Activity colors show only once the history is in; until then leaves keep their language. */
   const byActivity = () => colorBy === 'activity' && facts !== null;
+  /** Changes colors likewise wait for the history. */
+  const byChanges = () => colorBy === 'changes' && facts !== null;
   /** Dead wood drops its leaves, unless its legend entry is highlighted to show which they were. */
   const bare = () =>
     byActivity() &&
@@ -684,7 +777,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   /** The colors behind the slots: the palette's ramp, or the activity bands. */
   const applySlots = () => {
     const slots: number[] = [];
-    const ramp = byActivity() ? AGE_COLORS : [...palette.leaves, palette.rest];
+    const ramp = byActivity()
+      ? AGE_COLORS
+      : byChanges()
+        ? CHANGE_COLORS
+        : [...palette.leaves, palette.rest];
     for (let i = 0; i < SLOTS; i++) {
       const c = new Color(ramp[Math.min(i, ramp.length - 1)]);
       slots.push(c.r, c.g, c.b);
@@ -699,7 +796,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const { lang, nodeId } = model.leaves;
     const slot = new Float32Array(lang.length);
     const dead = new Float32Array(model.bark.nodeId.length);
-    if (byActivity()) {
+    if (byChanges()) {
+      const { vertex } = model.sprigs;
+      for (let s = 0; s + 1 < vertex.length; s++) {
+        slot.fill(facts!.sprigChangeBand[s]!, vertex[s]!, vertex[s + 1]!);
+      }
+    } else if (byActivity()) {
       const { vertex } = model.sprigs;
       for (let s = 0; s + 1 < vertex.length; s++) {
         slot.fill(facts!.sprigBand[s]!, vertex[s]!, vertex[s + 1]!);
@@ -763,10 +865,18 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
    */
   let timelineBirths: { nodes: Float32Array; sprigs: Float32Array } | null = null;
   let barren = false;
+  /** When dead-wood leaves began to fall, or -1: they fall as they drop, unless motion is reduced. */
+  let fallStart = -1;
   const applyBirths = (next: { nodes: Float32Array; sprigs: Float32Array } | null) => {
     if (!shown) return;
     timelineBirths = next;
+    const wasBarren = barren;
     barren = bare();
+    if (!barren || reducedMotion) fallStart = -1;
+    else if (!wasBarren) fallStart = performance.now();
+    const falling = fallStart >= 0;
+    treeUniforms.uFall.value = falling ? treeUniforms.uFall.value : 0;
+    const fall = new Float32Array(falling ? shown.model.leaves.nodeId.length : 0);
     const { bark, leaves, sprigs } = shown.model;
     const barkBorn = new Float32Array(bark.nodeId.length);
     const leafBorn = new Float32Array(leaves.nodeId.length);
@@ -775,11 +885,17 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     }
     for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
       const dropped = barren && facts!.sprigBand[s] === DEAD;
-      const born = dropped ? NEVER : next ? next.sprigs[s]! : 0;
+      if (dropped && falling) fall.fill(1, sprigs.vertex[s]!, sprigs.vertex[s + 1]!);
+      const born = dropped && !falling ? NEVER : next ? next.sprigs[s]! : 0;
       if (born) leafBorn.fill(born, sprigs.vertex[s]!, sprigs.vertex[s + 1]!);
     }
     shown.bark.geometry.setAttribute('aBorn', new BufferAttribute(barkBorn, 1));
     shown.leaves.geometry.setAttribute('aBorn', new BufferAttribute(leafBorn, 1));
+    shown.leaves.geometry.setAttribute(
+      'aFall',
+      new BufferAttribute(falling ? fall : new Float32Array(leafBorn.length), 1),
+    );
+    if (glowing > 0) placeHalo();
     births = next?.nodes ?? null;
     if (!next) treeUniforms.uTime.value = ALWAYS;
     renderer.shadowMap.needsUpdate = true;
@@ -789,6 +905,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const releaseTree = () => {
     if (!shown) return;
     scene.remove(shown.bark, shown.leaves);
+    halo.visible = false;
     shown.bark.geometry.dispose();
     shown.leaves.geometry.dispose();
     shown = null;
@@ -843,6 +960,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       };
       highlight = null;
       facts = null;
+      barren = false;
+      fallStart = -1;
+      treeUniforms.uFloor.value = model.bounds.min[1];
       applyBirths(null);
       applyColorBy();
       placeScene();
@@ -937,7 +1057,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       if (!shown) return null;
       const { width, height, x: left, y: top, w, h } = freeRegion();
       if (x < 0 || y < 0 || x >= width || y >= height) return null;
-      const hidden = [sky, baked, terrain.cover, ...weather.objects].filter((o) => o.visible);
+      const hidden = [sky, baked, halo, terrain.cover, ...weather.objects].filter((o) => o.visible);
       for (const mesh of hidden) mesh.visible = false;
       const shadowPending = renderer.shadowMap.needsUpdate;
       renderer.shadowMap.needsUpdate = false;
@@ -1053,7 +1173,14 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         mesh.geometry.dispose();
         mesh.material.dispose();
       }
-      for (const material of [barkMaterial, leafMaterial, depthMaterial, pickMaterial]) {
+      halo.geometry.dispose();
+      for (const material of [
+        barkMaterial,
+        leafMaterial,
+        depthMaterial,
+        pickMaterial,
+        haloMaterial,
+      ]) {
         material.dispose();
       }
       terrain.dispose();
@@ -1080,6 +1207,18 @@ export function leafCategories(
   palette: Palette,
   facts: Facts | null = null,
 ): { slotOf: number[]; legend: LegendEntry[]; nodeCategory?: Int32Array } {
+  if (colorBy === 'changes' && facts) {
+    const files = CHANGES.map(() => 0);
+    for (const churn of facts.fileChurn) files[changeBand(churn)]! += 1;
+    return {
+      slotOf: CHANGES.map((_, i) => i),
+      legend: CHANGES.map((c, i) => ({
+        color: litColor(CHANGE_COLORS[i]!, palette),
+        label: c.label,
+        files: files[i]!,
+      })),
+    };
+  }
   if (colorBy === 'activity' && facts) {
     // Bands keep their order and their slot, so legend index, slot and band agree.
     const files = AGES.map(() => 0);

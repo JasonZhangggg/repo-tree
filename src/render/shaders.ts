@@ -27,9 +27,15 @@ export const treeUniforms = {
    * off, steady under reduced motion, and a slow pulse otherwise.
    */
   uGlow: { value: 0 },
-  uGlowColor: { value: [1, 0.26, 0.03] as [number, number, number] },
+  uGlowColor: { value: [1, 0.36, 0.05] as [number, number, number] },
   /** 1 while some leaves glow: the others calm (drain and pale a little) so the glow reads. */
   uCalm: { value: 0 },
+  /**
+   * How far dead-wood leaves (`aFall` 1) have fallen, 0 to 1: each tumbles down to `uFloor`
+   * after its own small delay and shrinks away as it lands.
+   */
+  uFall: { value: 0 },
+  uFloor: { value: 0 },
 };
 
 const GROW_VERTEX = /* glsl */ `
@@ -110,6 +116,9 @@ const LEAF_VERTEX = /* glsl */ `
 attribute float aSlot;
 attribute vec2 aShade;
 attribute float aHeat;
+attribute float aFall;
+uniform float uFall;
+uniform float uFloor;
 uniform vec3 uSlots[SLOTS];
 varying vec3 vLeaf;
 varying float vSlot;
@@ -124,6 +133,22 @@ vec3 offsetHSL(vec3 c, float dh, float dl) {
 /** A hot leaf stands HOT_SIZE times as large about its stem, so a few read in a big crown. */
 const HOT_GROW = /* glsl */ `
 transformed = aBase + (transformed - aBase) * (1.0 + (HOT_SIZE - 1.0) * step(0.001, aHeat));
+`;
+/** A falling leaf tumbles about its stem as it drops and drifts, then shrinks away on the ground. */
+const FALL = /* glsl */ `
+if (aFall > 0.5 && uFall > 0.0) {
+  float r = fract(sin(dot(aBase.xz, vec2(12.9898, 78.233)) + aId) * 43758.5453);
+  float f = clamp((uFall - r * 0.35) / 0.65, 0.0, 1.0);
+  vec3 off = transformed - aBase;
+  float a = f * (3.0 + 4.0 * r);
+  vec3 ax = normalize(vec3(r - 0.5, 0.4, 0.7 - r));
+  off = off * cos(a) + cross(ax, off) * sin(a) + ax * dot(ax, off) * (1.0 - cos(a));
+  vec3 stem = aBase;
+  stem.y = mix(aBase.y, uFloor, f * f);
+  stem.x += sin(f * 6.0 + r * 6.28) * 0.12 * f;
+  stem.z += cos(f * 5.0 + r * 6.28) * 0.12 * f;
+  transformed = stem + off * (1.0 - smoothstep(0.85, 1.0, f));
+}
 `;
 /**
  * A hot leaf glows: its color turns EMBER of the way to a dark `uGlowColor` (light brings it up to
@@ -190,7 +215,8 @@ export const leafShader = <M extends Material>(m: M, slots: number) =>
       shader.vertexShader.replace(
         '#include <begin_vertex>',
         '#include <begin_vertex>\nvLeaf = offsetHSL(uSlots[int(aSlot)], aShade.x, aShade.y);\nvSlot = aSlot;\nvHeat = aHeat;\n' +
-          HOT_GROW,
+          HOT_GROW +
+          FALL,
       );
     shader.fragmentShader =
       LEAF_TUNING +
@@ -250,3 +276,32 @@ void main() {
   gl_FragColor = vec4(c + (noise - 0.5) / 255.0, 1.0);
 }
 `;
+
+/**
+ * The halo over each hot sprig: a soft additive disc `aSize` across (world units) at the sprig's
+ * heart, as bright as its `aHeat` times the pulse `uGlow`. It grows in with its sprig, so it waits
+ * for the sprig's birth on the timeline, and dims outside a pinned folder or a highlight.
+ */
+export const haloShader = <M extends Material>(m: M) =>
+  hook(m, 'halo', (shader) => {
+    shader.vertexShader =
+      'attribute float aSize;\nattribute float aHeat;\nvarying float vHalo;\nuniform float uGlow;\n' +
+      shader.vertexShader.replace(
+        'gl_PointSize = size;',
+        'gl_PointSize = size * aSize * grown();\nvHalo = aHeat * uGlow * HALO;',
+      );
+    shader.fragmentShader =
+      'varying float vHalo;\nuniform vec2 uSel;\nuniform float uCategory;\n' +
+      shader.fragmentShader.replace(
+        '#include <map_particle_fragment>',
+        /* glsl */ `
+vec2 disc = gl_PointCoord * 2.0 - 1.0;
+float r2 = dot(disc, disc);
+if (r2 > 1.0) discard;
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.82, 0.35), 0.6 * exp(-r2 * 10.0));
+diffuseColor.a *= vHalo * (exp(-r2 * 4.5) - exp(-4.5)) / (1.0 - exp(-4.5));
+if (${OUTSIDE} || uCategory >= 0.0) diffuseColor.a *= 0.25;
+`,
+      );
+    shader.vertexShader = '#define HALO 1.6\n' + shader.vertexShader;
+  });

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { serveSampleRuns } from './github';
 
 test('built page renders a non-blank canvas without console errors', async ({ page }) => {
   const errors: string[] = [];
@@ -6,6 +7,7 @@ test('built page renders a non-blank canvas without console errors', async ({ pa
     if (msg.type() === 'error') errors.push(msg.text());
   });
   page.on('pageerror', (err) => errors.push(err.message));
+  await serveSampleRuns(page);
 
   await page.goto('./');
   const canvas = page.locator('canvas');

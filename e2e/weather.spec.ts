@@ -130,6 +130,16 @@ test('bundled samples carry their own weather, and a link can preview any', asyn
   await expect(page).toHaveURL(/&wx=storm$/);
 });
 
+test('a sample shows its live CI when GitHub answers, and its bundled runs when not', async ({
+  page,
+}) => {
+  await serveRuns(page, 'torvalds/linux', 'x' + '.'.repeat(19), { branch: 'master' });
+  await page.goto('./#/torvalds/linux');
+  await ready(page, 'torvalds/linux');
+  await expect(chip(page)).toHaveAttribute('data-sky', 'rain');
+  await expect(chip(page)).toHaveAttribute('aria-label', 'CI failing, last run failed 2 hours ago');
+});
+
 test('turning weather off in settings clears the sky and survives a reload', async ({
   page,
   isMobile,

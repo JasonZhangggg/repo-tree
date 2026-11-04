@@ -1,7 +1,7 @@
 import { AGES } from '../timeline/facts';
 import { cachedRuns, cacheRuns } from '../load/cache';
 import { loadInWorker, type LoadSource } from '../load/load-in-worker';
-import { ciKey, fetchRuns, loadSampleRuns } from '../repo/ci';
+import { ciKey, fetchRuns, loadSampleRuns, type CiRun } from '../repo/ci';
 import type { RepoRef } from '../repo/ref';
 import { PALETTES } from '../render/palette';
 import { leafCategories } from '../render/tree-view';
@@ -39,14 +39,13 @@ export function createLoader(store: Store) {
     runsInFlight = { key, abort };
     try {
       const base = new URL('./', location.href).href;
-      let runs = sample
-        ? await loadSampleRuns(sample.id, branch, base)
-        : fresh
-          ? undefined
-          : await cachedRuns(key);
+      let runs: CiRun[] | null | undefined = fresh ? undefined : await cachedRuns(key);
       if (runs === undefined) {
+        // The live runs, a sample's too: its bundled ones are a snapshot, and its CI moves on.
         runs = await fetchRuns(ref, branch, token, abort.signal);
         if (runs) void cacheRuns(key, runs);
+        // Offline, or rate-limited: a sample still shows the weather it was bundled with.
+        else if (sample) runs = await loadSampleRuns(sample.id, branch, base);
       }
       store.dispatch({ type: 'ci', key, runs });
     } catch {

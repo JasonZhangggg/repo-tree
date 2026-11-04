@@ -76,4 +76,13 @@ describe('describeStep', () => {
     const refused = describeStep({ kind: 'failed', error: { kind: 'unauthorized' } }, ctx);
     expect(refused.buttons[0]!.label).toBe('Sign in with GitHub');
   });
+
+  test('names the default branch for a branch link to another, with nothing to retry', () => {
+    const other = describeStep(
+      { kind: 'failed', error: { kind: 'not-default-branch', defaultBranch: 'main' } },
+      ctx,
+    );
+    expect(other.lines[0]!.text).toContain('default branch, main');
+    expect(other.buttons).toEqual([{ label: 'Close', act: 'close' }]);
+  });
 });

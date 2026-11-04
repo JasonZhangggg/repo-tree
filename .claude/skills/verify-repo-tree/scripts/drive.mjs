@@ -394,6 +394,7 @@ const JOURNEYS = {
       await expect(page).toHaveURL(/palette=winter/);
     });
     await step('color-by', async () => {
+      await page.locator('#color-pick').click();
       await radio('Folder').click();
       await expect(page).toHaveURL(/colorBy=folder/);
       await expect(page.locator('#legend-title')).toHaveText('Leaf colors by folder');
@@ -643,6 +644,7 @@ const JOURNEYS = {
     });
     await step('changes', async () => {
       await page.getByRole('button', { name: 'Settings' }).click();
+      await page.locator('#color-pick').click();
       await page.getByRole('radio', { name: 'Changes' }).click();
       await expect(page).toHaveURL(/colorBy=changes/);
       await page.getByRole('button', { name: 'Close settings' }).click();
@@ -693,6 +695,7 @@ const JOURNEYS = {
     });
     await step('activity', async () => {
       await page.getByRole('button', { name: 'Settings' }).click();
+      await page.locator('#color-pick').click();
       await page.getByRole('radio', { name: 'Activity' }).click();
       await page.getByRole('button', { name: 'Close settings' }).click();
       await inLegend(async () => {
@@ -803,6 +806,7 @@ const JOURNEYS = {
     });
     await step('owner', async () => {
       await page.getByRole('button', { name: 'Settings' }).click();
+      await page.locator('#color-pick').click();
       await page.getByRole('radio', { name: 'Owner' }).click();
       await page.getByRole('button', { name: 'Close settings' }).click();
       await inLegend(async () => {

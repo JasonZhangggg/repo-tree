@@ -47,6 +47,10 @@ export function icon(...paths: string[]): SVGSVGElement {
 export const ICONS = {
   close: ['M6 6l12 12M18 6 6 18'],
   check: ['m5.5 12.5 4 4 9-9'],
+  chevron: ['m6 9 6 6 6-6'],
+  code: ['m8.5 8-4 4 4 4', 'm15.5 8 4 4-4 4'],
+  pulse: ['M3 12h4l2.5-6 5 12 2.5-6h4'],
+  person: ['M12 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z', 'M5 20a7 7 0 0 1 14 0'],
   external: ['M14 5h5v5m0-5-8 8', 'M18 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4'],
   folder: ['M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2h7.4a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z'],
   file: [

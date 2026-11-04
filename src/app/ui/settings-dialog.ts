@@ -19,6 +19,13 @@ const COLOR_BY_HINT = {
   changes: 'How often it changed',
   owner: 'Code owner',
 };
+const COLOR_BY_ICON = {
+  language: ICONS.code,
+  folder: ICONS.folder,
+  activity: ICONS.clock,
+  changes: ICONS.pulse,
+  owner: ICONS.person,
+};
 const QUALITY_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' };
 const FOLDER_NAME = /^[^/\\]{1,100}$/;
 
@@ -92,6 +99,80 @@ export function mountSettings(app: App): {
         onchange: (event: Event) => change((event.target as HTMLInputElement).checked),
       }),
     );
+
+  /**
+   * Color leaves by: a field showing the current way, which opens a menu of all five. The menu is
+   * a radio group, so arrow keys and screen readers treat it like the other choices here.
+   */
+  let colorMenu: HTMLElement | null = null;
+  const colorButton = () => dialog.querySelector<HTMLElement>('#color-pick');
+  const setColorOpen = (open: boolean) => {
+    if (!colorMenu) return;
+    colorMenu.hidden = !open;
+    colorButton()?.setAttribute('aria-expanded', String(open));
+    if (open) colorMenu.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+  };
+  const colorPicker = (current: Settings['colorBy']) => {
+    const menu = radioGroup(
+      'Color leaves by',
+      COLOR_BYS,
+      current,
+      (v) => [
+        icon(...COLOR_BY_ICON[v]),
+        h('span', { class: 'name' }, COLOR_BY_LABEL[v]),
+        h('span', { class: 'hint' }, COLOR_BY_HINT[v]),
+        icon(...ICONS.check),
+      ],
+      (colorBy) => {
+        set({ colorBy });
+        setColorOpen(false);
+        focusAfter('#color-pick');
+      },
+      'pick-menu',
+    );
+    menu.hidden = true;
+    colorMenu = menu;
+    return h(
+      'div',
+      { class: 'pick-wrap' },
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'pick',
+          id: 'color-pick',
+          'aria-haspopup': 'true',
+          'aria-expanded': 'false',
+          'aria-label': `Color leaves by: ${COLOR_BY_LABEL[current]}`,
+          onclick: () => setColorOpen(colorMenu?.hidden === true),
+        },
+        icon(...COLOR_BY_ICON[current]),
+        h('span', { class: 'name' }, COLOR_BY_LABEL[current]),
+        h('span', { class: 'hint' }, COLOR_BY_HINT[current]),
+        icon(...ICONS.chevron),
+      ),
+      menu,
+    );
+  };
+  // A press anywhere else in the panel, or Escape, closes the menu before anything else.
+  dialog.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (colorMenu && !colorMenu.hidden && !(event.target as Element).closest('.pick-wrap'))
+        setColorOpen(false);
+    },
+    true,
+  );
+  window.addEventListener(
+    'keydown',
+    (event) => {
+      if (event.key !== 'Escape' || dialog.hidden || !colorMenu || colorMenu.hidden) return;
+      event.stopPropagation();
+      setColorOpen(false);
+      colorButton()?.focus();
+    },
+    true,
+  );
 
   const render = (state: AppState) => {
     const { settings, autoQuality } = state;
@@ -202,18 +283,7 @@ export function mountSettings(app: App): {
         'div',
         { class: 'field' },
         h('p', { class: 'h' }, 'Color leaves by'),
-        radioGroup(
-          'Color leaves by',
-          COLOR_BYS,
-          settings.colorBy,
-          (v) => [
-            h('span', { class: 'name' }, COLOR_BY_LABEL[v]),
-            h('span', { class: 'hint' }, COLOR_BY_HINT[v]),
-            icon(...ICONS.check),
-          ],
-          (colorBy) => set({ colorBy }),
-          'choices',
-        ),
+        colorPicker(settings.colorBy),
         settings.colorBy === 'activity' &&
           h(
             'p',
@@ -368,7 +438,7 @@ export function mountSettings(app: App): {
       ...dialog.querySelectorAll<HTMLElement>(
         'button:not([tabindex="-1"]), input:not([disabled]), [tabindex="0"]',
       ),
-    ];
+    ].filter((el) => el.getClientRects().length > 0);
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
     if (event.shiftKey && document.activeElement === first) {

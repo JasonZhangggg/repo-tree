@@ -1601,35 +1601,36 @@ h1 a[aria-disabled] {
   flex-wrap: wrap;
   border-radius: 18px;
 }
-/* Color leaves by: a list, one row per way, each with what it reads from. */
-.choices {
-  display: grid;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
-  overflow: hidden;
+/* Color leaves by: a field with the current way, opening a menu of all five over the panel. */
+.pick-wrap {
+  position: relative;
 }
-.choices button {
+.pick,
+.pick-menu button {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   min-width: 0;
-  padding: 9px 12px;
   border: 0;
   background: none;
   text-align: left;
   font-size: 14px;
-  color: var(--ink);
-  transition: background 0.15s;
-}
-.choices button + button {
-  border-top: 1px solid var(--line);
-}
-.choices .name {
-  flex: none;
   font-weight: 550;
+  color: var(--ink);
 }
-.choices .hint {
+.pick {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  transition: border-color 0.15s;
+}
+.pick[aria-expanded='true'] {
+  border-color: var(--ink);
+}
+.pick .hint,
+.pick-menu .hint {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1637,35 +1638,78 @@ h1 a[aria-disabled] {
   white-space: nowrap;
   color: var(--muted);
   font-size: 12.5px;
+  font-weight: 400;
 }
-.choices svg {
+.pick svg,
+.pick-menu svg {
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.2;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: 0;
-  transform: scale(0.6);
-  transition:
-    opacity 0.15s,
-    transform 0.2s var(--ease);
 }
-.choices button[aria-checked='true'] {
-  background: rgba(37, 34, 30, 0.05);
+.pick svg:last-child {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  transition: transform 0.2s var(--ease);
 }
-.choices button[aria-checked='true'] svg {
-  opacity: 1;
-  transform: none;
+.pick[aria-expanded='true'] svg:last-child {
+  transform: rotate(180deg);
 }
-.choices button:active {
+.pick-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 5;
+  display: grid;
+  padding: 5px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: var(--shadow-lift);
+  transform-origin: top center;
+  animation: pick-in 0.16s var(--ease);
+}
+.pick-menu[hidden] {
+  display: none;
+}
+@keyframes pick-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+.pick-menu button {
+  padding: 9px 10px;
+  border-radius: 9px;
+}
+.pick-menu svg:last-child {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.2;
+  visibility: hidden;
+}
+.pick-menu button[aria-checked='true'] {
+  background: var(--wash);
+}
+.pick-menu button[aria-checked='true'] svg:last-child {
+  visibility: visible;
+}
+.pick-menu button:active {
   background: rgba(37, 34, 30, 0.09);
 }
-.choices button:focus-visible {
+.pick-menu button:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pick-menu {
+    animation: none;
+  }
 }
 .settings .seg button {
   flex: 1;
@@ -1833,6 +1877,7 @@ body:has(.scrubber:not([hidden])) .toast {
   .btn,
   .seg button,
   .swatches button,
+  .pick,
   .chip,
   .close,
   .icon-btn,
@@ -1851,6 +1896,7 @@ body:has(.scrubber:not([hidden])) .toast {
   .btn,
   .seg button,
   .swatches button,
+  .pick,
   .chip,
   .close,
   .icon-btn,
@@ -1868,8 +1914,11 @@ body:has(.scrubber:not([hidden])) .toast {
     background: #fbfaf8;
     box-shadow: var(--shadow-lift);
   }
-  .choices button:not([aria-checked='true']):hover {
-    background: rgba(37, 34, 30, 0.03);
+  .pick:not([aria-expanded='true']):hover {
+    border-color: rgba(37, 34, 30, 0.25);
+  }
+  .pick-menu button:not([aria-checked='true']):hover {
+    background: var(--hover);
   }
   .swatches button:not([aria-checked='true']):hover {
     border-color: rgba(37, 34, 30, 0.25);
@@ -2457,7 +2506,8 @@ body:has(.scrubber:not([hidden])) .toast {
   }
   .settings .seg button,
   .swatches button,
-  .choices button,
+  .pick,
+  .pick-menu button,
   .switch,
   .chip,
   .btn,

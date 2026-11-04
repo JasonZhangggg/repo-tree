@@ -607,3 +607,35 @@ test('settings fit their panel without a sideways scroll', async ({ page }) => {
   const [scroll, client] = await panel.evaluate((el) => [el.scrollWidth, el.clientWidth]);
   expect(scroll, 'no content past the right edge').toBeLessThanOrEqual(client);
 });
+
+test('Color leaves by is a dropdown: it opens, picks, and Escape closes only the menu', async ({
+  page,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const pick = page.locator('#color-pick');
+  const menu = page.getByRole('radiogroup', { name: 'Color leaves by' });
+  await expect(pick).toHaveAccessibleName('Color leaves by: Language');
+  await expect(menu).toBeHidden();
+
+  await pick.click();
+  await expect(menu).toBeVisible();
+  await expect(pick).toHaveAttribute('aria-expanded', 'true');
+  await expect(menu.getByRole('radio', { name: /Language/ })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(page.locator('#settings')).toBeVisible();
+  await expect(pick).toBeFocused();
+
+  await pick.click();
+  await menu.getByRole('radio', { name: /Folder/ }).click();
+  await expect(page).toHaveURL(/colorBy=folder/);
+  await expect(menu).toBeHidden();
+  await expect(page.locator('#color-pick')).toHaveAccessibleName('Color leaves by: Folder');
+
+  // A press elsewhere in the panel closes it too.
+  await page.locator('#color-pick').click();
+  await page.getByRole('heading', { name: 'Settings' }).click();
+  await expect(menu).toBeHidden();
+});

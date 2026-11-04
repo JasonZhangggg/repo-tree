@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { failRepo, quietSettings, ready, serveRepo } from './github';
 import { treePixels } from './pixels';
-import { settle } from './view';
+import { chooseAction, settle } from './view';
 
 test.use({ reducedMotion: 'reduce' });
 
@@ -110,7 +110,7 @@ test('a shared link restores repo, palette and pinned folder', async ({ page, co
   await expectPinned(page, 'vite/packages/vite');
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.getByRole('button', { name: /Copy link/ }).click();
+  await chooseAction(page, /Copy link/);
   await expect(page.getByRole('status').last()).toHaveText('Link copied');
   const link = await page.evaluate(() => navigator.clipboard.readText());
   expect(link).toMatch(

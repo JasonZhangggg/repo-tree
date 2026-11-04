@@ -19,6 +19,7 @@ import { createStore, qualityOf, weatherOf, type AppState } from './app/state';
 import { mountCanvas } from './app/ui/canvas';
 import { mountHeader } from './app/ui/header';
 import { mountHint } from './app/ui/hint';
+import { mountMoreMenu } from './app/ui/more-menu';
 import { mountSearch } from './app/ui/search-dialog';
 import { mountSettings } from './app/ui/settings-dialog';
 import { childrenOf, mountSide } from './app/ui/side';
@@ -317,6 +318,7 @@ const placeTools = () => {
 };
 phone.addEventListener('change', placeTools);
 placeTools();
+mountMoreMenu(phone);
 
 /** A panel covers the union of its visible children, so a row holding two buttons covers just them. */
 function footprint(panel: HTMLElement, origin: DOMRect): Rect | null {

@@ -302,6 +302,11 @@ kbd {
   padding: 0;
   width: 40px;
 }
+/* The More button and its menu exist only on a phone, where the menu holds the actions that
+   don't fit the bottom row. */
+#more {
+  display: none;
+}
 
 /* Title block: repo name, meta, load status, samples. */
 .title {
@@ -1938,6 +1943,55 @@ body:has(.scrubber:not([hidden])) .toast {
   }
   .controls #settings-open {
     width: 44px;
+  }
+  .controls #more {
+    display: flex;
+  }
+  .controls #more[aria-expanded='true'] {
+    background: var(--ink);
+    color: #fff;
+  }
+  .controls .tools {
+    position: relative;
+  }
+  .more-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 10px);
+    z-index: 4;
+    display: grid;
+    gap: 2px;
+    min-width: 210px;
+    padding: 6px;
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: var(--shadow-lift);
+    transform-origin: bottom right;
+    animation: pop 0.2s var(--ease);
+  }
+  .controls .more-menu :is(.pill-btn, .tool) {
+    width: 100%;
+    height: 48px;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 14px;
+    border-radius: 12px;
+    background: none;
+    color: var(--ink);
+    box-shadow: none;
+    font-weight: 550;
+    font-size: 15px;
+  }
+  .controls .more-menu :is(.pill-btn, .tool):active {
+    background: rgba(37, 34, 30, 0.07);
+  }
+  .controls .more-menu :is(.pill-btn span, .tool .label) {
+    display: inline;
+  }
+  .controls .more-menu svg {
+    width: 19px;
+    height: 19px;
+    color: var(--muted);
   }
   .controls :is(.pill-btn, .tool) {
     flex: none;

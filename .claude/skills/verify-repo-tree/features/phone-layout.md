@@ -1,6 +1,6 @@
 # Phone layout
 
-On a narrow screen the side panel becomes a bottom sheet with a peek row, the tools join the bottom controls, and a tap on a branch pins it while the tree stays in view.
+On a narrow screen the side panel becomes a bottom sheet with a peek row, the bottom row keeps Timeline, Search, Settings and `More actions`, and a tap on a branch pins it while the tree stays in view.
 
 ## Sub-features
 
@@ -11,6 +11,7 @@ On a narrow screen the side panel becomes a bottom sheet with a peek row, the to
 - `phone-clear` clears the pin from inside the sheet.
 - `phone-settings` opens Settings as a bottom sheet from the bottom controls.
 - `phone-orbit` orbits by touch drag.
+- `phone-more` opens `More actions` from the bottom row, which holds Grow again, Spin, Copy link and Export PNG. Choosing one, Escape or a tap outside closes it. e2e covers it in `the phone row keeps four buttons and the rest sit behind More actions`; journeys choose those actions through it.
 
 ## How to get to it (user POV)
 
@@ -36,6 +37,6 @@ Preconditions:
 ## Gotchas
 
 - The plan's target is a 390 px phone. `Pixel 7` is 412 px. For the narrower width, add `--viewport` support or prove it by hand with `viewport: { width: 390, height: 844 }`.
-- While the sheet is open, the bottom controls (Settings, Search, Share, PNG) are hidden. Collapse the sheet before tapping them.
+- While the sheet is open, the bottom controls (Timeline, Search, Settings, More actions) are hidden. Collapse the sheet before tapping them.
 - Framing waits for a drag to settle: `reframe` skips while `#side` has `data-dragging` and runs when it clears.
 - Labels are hidden while the sheet or Settings is open, so `__repoTree.labels` positions are not tappable then.

@@ -134,6 +134,12 @@ async function doctor() {
   if (Object.values(checks).includes(false)) process.exitCode = 1;
 }
 
+/** Chooses a tree action; on a phone it sits behind `More actions`, so that opens first. */
+const action = async (page, name) => {
+  const more = page.getByRole('button', { name: 'More actions' });
+  if (await more.isVisible()) await more.click();
+  await page.getByRole('button', { name }).click();
+};
 const enter = async (page, text) => {
   await page.getByLabel('GitHub repository').fill(text);
   await page.getByLabel('GitHub repository').press('Enter');
@@ -410,7 +416,7 @@ const JOURNEYS = {
     let link = '';
     await step('copy-link', async () => {
       await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-      await page.getByRole('button', { name: 'Copy link to this view' }).click();
+      await action(page, 'Copy link to this view');
       await expect(page.locator('#toast')).toHaveText('Link copied');
       link = await page.evaluate(() => navigator.clipboard.readText());
       expect(link).toMatch(
@@ -426,7 +432,7 @@ const JOURNEYS = {
     await step('export-png', async () => {
       const [download] = await Promise.all([
         page.waitForEvent('download'),
-        page.getByRole('button', { name: 'Export PNG' }).click(),
+        action(page, 'Export PNG'),
       ]);
       expect(download.suggestedFilename()).toBe('vitejs-vite-tree.png');
       await download.saveAs(`${out}/vitejs-vite-tree.png`);
@@ -527,7 +533,7 @@ const JOURNEYS = {
     await step('export-png', async () => {
       const [download] = await Promise.all([
         page.waitForEvent('download'),
-        page.getByRole('button', { name: 'Export PNG' }).click(),
+        action(page, 'Export PNG'),
       ]);
       expect(download.suggestedFilename()).toBe('vitejs-vite-tree-2022-06-15.png');
       await download.saveAs(`${out}/vitejs-vite-tree-2022-06-15.png`);

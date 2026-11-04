@@ -109,7 +109,25 @@ export function mountHeader(app: App): void {
       input.focus();
     }
   });
+  // A tap on a suggestion must reach its click. iOS Safari doesn't focus a tapped button, so
+  // the input blurs with no related target and the list would close before the click lands.
+  // A press inside the list keeps the input focused and holds the list open until it ends.
+  let pressing = false;
+  suggest.addEventListener('pointerdown', () => (pressing = true));
+  suggest.addEventListener('mousedown', (event) => event.preventDefault());
+  const release = () => {
+    if (!pressing) return;
+    pressing = false;
+    // iOS sends the click after pointerup and touchend, so check a moment later whether
+    // focus really left before closing.
+    setTimeout(() => {
+      if (!form.contains(document.activeElement)) closeSuggest();
+    }, 400);
+  };
+  addEventListener('pointerup', release);
+  addEventListener('pointercancel', release);
   form.addEventListener('focusout', (event) => {
+    if (pressing) return;
     if (!form.contains(event.relatedTarget as Node | null)) closeSuggest();
   });
 

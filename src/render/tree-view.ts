@@ -25,7 +25,7 @@ import {
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MeshData, Quality, TreeModel, Vec3 } from '../grow/grow';
-import { distanceOf, FOV, frameFolder, frameTree, VIEW_DIRECTION } from './framing';
+import { distanceOf, FOV, frameFolder, frameTree, stage, VIEW_DIRECTION } from './framing';
 import { LIGHT } from './color';
 import { createGround } from './ground';
 import {
@@ -320,17 +320,21 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     camera.setViewOffset(w, h, -x, -y, width, height);
   };
 
-  /** Points the camera springs at what `aim` frames; `snap` jumps there. */
+  /**
+   * Points the camera springs at what `aim` frames; `snap` jumps there. The whole view frames
+   * the stage, the tallest tree on the island, not the tree on show, so every repo is seen at
+   * one scale and a bigger repo shows as a bigger tree.
+   */
   const reaim = (snap: boolean) => {
     if (!shown || !aim) return;
-    const { bounds } = shown;
-    const whole = frameTree(bounds, camera.aspect);
+    const room = stage(groundOn);
+    const whole = frameTree(room, camera.aspect);
     controls.minDistance = whole.minDistance;
     controls.maxDistance = whole.maxDistance;
     const goal =
       aim.kind === 'tree'
         ? { target: whole.target, distance: distanceOf(whole.position, whole.target) }
-        : frameFolder(aim, bounds, camera.aspect);
+        : frameFolder(aim, shown.bounds, camera.aspect, room);
     if (!gliding) {
       look.value = [...controls.target.toArray(), camera.position.distanceTo(controls.target)];
       look.velocity.fill(0);

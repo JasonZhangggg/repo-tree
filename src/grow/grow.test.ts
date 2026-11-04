@@ -3,6 +3,7 @@ import { buildHierarchy, DEFAULT_FILTERS, type Dir } from '../repo/hierarchy';
 import { langOf, type Lang } from '../repo/languages';
 import { sample, type SampleId } from '../test/samples';
 import { growTree, type GrowParams, type MeshData, type TreeModel } from './grow';
+import { TALLEST } from './size';
 
 const HIGH: GrowParams = { seed: 42, quality: 'high' };
 const SAMPLES: SampleId[] = ['mathiasbynens-dotfiles', 'vitejs-vite', 'torvalds-linux'];
@@ -239,6 +240,22 @@ test('keeps the files of a repo with no subfolders on twigs, with no rocks', () 
   const tree = growTree(flat, HIGH);
   expect(tree.rocks).toEqual([]);
   expect(tree.nodes.files.reduce((sum, n) => sum + n, 0)).toBe(3);
+});
+
+test('grows a taller, wider, thicker tree for more files, never past the tallest', () => {
+  const trees = SAMPLES.map((id) => growTree(dirOf(id), HIGH));
+  const height = (t: TreeModel) => t.bounds.max[1];
+  const reach = (t: TreeModel) =>
+    Math.max(...[0, 2].flatMap((axis) => [-t.bounds.min[axis]!, t.bounds.max[axis]!]));
+  for (let i = 1; i < trees.length; i++) {
+    expect(height(trees[i]!)).toBeGreaterThan(height(trees[i - 1]!) * 1.2);
+    expect(reach(trees[i]!)).toBeGreaterThan(reach(trees[i - 1]!));
+    expect(trees[i]!.nodes.radius[0]!).toBeGreaterThan(trees[i - 1]!.nodes.radius[0]!);
+  }
+  for (const tree of trees) {
+    expect(height(tree)).toBeLessThanOrEqual(TALLEST.max[1]);
+    expect(reach(tree)).toBeLessThanOrEqual(Math.hypot(TALLEST.max[0], TALLEST.max[2]));
+  }
 });
 
 test('grows the linux tree from its snapshot within the budget', async () => {

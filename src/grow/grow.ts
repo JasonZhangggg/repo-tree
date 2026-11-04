@@ -1,6 +1,7 @@
 import type { FileEntry } from '../repo/github';
 import type { Dir } from '../repo/hierarchy';
 import { langOf, type Lang } from '../repo/languages';
+import { treeHeight } from './size';
 
 /**
  * Sets leaves per sprig, sprigs per twig and tube facets (see QUALITY). The branch skeleton,
@@ -144,6 +145,7 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
 
   const trunkR = Math.min(0.24, Math.max(0.09, 0.2 * (top.w / 527) ** 0.2));
   const skeleton = growSkeleton(top, nodeCount, trunkR, mulberry32(params.seed));
+  scaleSkeleton(skeleton, treeHeight(root.fileCount) / tipHeight(skeleton));
 
   const treeLangs = new Map(root.langs);
   if (rocks.length > 0) {
@@ -401,6 +403,20 @@ function growSkeleton(
   };
   grow(top, [0, -0.06, 0], normalize([0.05, 1, 0.02]), SHAPE.trunkLen, trunkR, 0, 0, 0);
   return s;
+}
+
+function tipHeight(s: Skeleton): number {
+  let top = 0;
+  for (let i = 1; i < s.end.length; i += 3) top = Math.max(top, s.end[i]!);
+  return top;
+}
+
+/** Scales the whole tree about its root, trunk thickness included, so its proportions hold. */
+function scaleSkeleton(s: Skeleton, k: number) {
+  for (const buffer of [s.start, s.mid, s.end, s.radius, s.path]) {
+    for (let i = 0; i < buffer.length; i++) buffer[i]! *= k;
+  }
+  s.maxPath *= k;
 }
 
 class MeshWriter {

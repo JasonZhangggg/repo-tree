@@ -59,12 +59,11 @@ export function createGround() {
   return {
     land,
     cover,
-    /** Grows the ground for a tree; the bounds it adds are returned for framing. */
+    /** Grows the ground for a tree; the bounds it adds are returned to size the light. */
     setTree(tree: TreeModel, quality: Quality): GroundModel['bounds'] {
       model = growGround(
         {
           trunk: tree.nodes.radius[0]! * FLARE,
-          bounds: tree.bounds,
           front: Math.atan2(VIEW_DIRECTION[2], VIEW_DIRECTION[0]),
           rocks: tree.rocks.map((r) => r.bytes),
         },

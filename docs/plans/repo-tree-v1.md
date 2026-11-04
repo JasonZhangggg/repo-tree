@@ -66,8 +66,14 @@ type TreeModel = {
 };
 function growTree(root: Dir, params: GrowParams): TreeModel; // throws RangeError when root has no files; every file sits on exactly one twig or rock
 
+// grow/size.ts  (world size, the same for every repo)
+const ISLAND_RADIUS: number; // every island is this wide
+function treeHeight(files: number): number; // highest twig tip: 1 at one file, linear in log10(files), 3.8 from 100k files
+const TALLEST: Box; // the room the tallest tree can fill; framing fits it, not the tree on show
+
 // grow/ground.ts  (pure, deterministic; the view calls it on the main thread, about 10 to 35 ms at high)
-type GroundSite = { trunk: number /* flare radius */; bounds: Box; front: number /* view direction, radians */; rocks: number[] /* bytes per rock */ };
+type GroundSite = { trunk: number /* flare radius */; front: number /* view direction, radians */; rocks: number[] /* bytes per rock */ }; // the island is ISLAND_RADIUS for every tree
+const ISLAND: Box; // the room any island takes
 type GroundMesh = { position: Float32Array; normal: Float32Array; kind: Uint8Array /* KIND */; tone: Float32Array; pick: Float32Array; rock: Float32Array /* TreeModel.rocks index or -1 */ };
 type GroundModel = { land: GroundMesh; cover: GroundMesh & { blades: number; flowers: number; litter: number } /* vertex runs in that order */; bounds: Box };
 function growGround(site: GroundSite, params: { seed: number; quality: Quality }): GroundModel; // under 3k triangles at low, 6k at high
@@ -102,13 +108,13 @@ function leafMapping(categories: { label: string; files: number }[], p: Palette)
 // render/tree-view.ts  (three.js, owns GPU state, the canvas and the orbit controls)
 function createTreeView(container: HTMLElement, options: { quality: Quality; palette: PaletteId; colorBy: ColorBy; spin: boolean; reducedMotion: boolean; ground: boolean }): TreeView;
 interface TreeView {
-  setTree(model: TreeModel): void; // frames the whole tree, grows unless reduced motion
+  setTree(model: TreeModel): void; // frames the stage (tallest tree on the island), grows unless reduced motion
   grow(): void; // replays the growth of the tree on show
   setPalette(id: PaletteId): void; // recolors without regrowing
   setColorBy(by: ColorBy): void; // language, or top-level folder
   legend(): LegendEntry[];
   setHighlight(h: { range: [number, number] } | { category: string } | null): void; // fades nodes outside the id range, or bark and every leaf outside the legend entry with that label, drained to grey while that entry's own leaves deepen (a per-leaf slot test in the shader)
-  frameFolder(folder: number): void; // eases the camera onto the folder's leaves, never nearer than half the whole tree's distance; 0 frames the whole tree
+  frameFolder(folder: number): void; // eases the camera onto the folder's leaves, never nearer than half the distance that frames the tree on show nor further than the stage; 0 frames the stage
   setInsets(insets: { top: number; right: number; bottom: number; left: number }): void; // CSS px the panels cover; the tree frames into the rest
   pickAt(x: number, y: number): { folder: number; rock?: number } | null; // folder or rock under a CSS pixel of the container; a rock's folder is 0
   setGround(on: boolean): void; // the island with its rocks and grass, or the bare baked shadow; framing includes it while shown
@@ -159,6 +165,7 @@ Palettes are a table (`render/palette.ts` above). Autumn is the approved default
 - Render on demand. The loop runs only while growing, spinning, damping or after input, so an idle tab costs nothing.
 - Spin orbits the camera and leaves the tree still, so the shadow map renders once per tree, palette or quality change (and each frame of the grow animation), not per frame. The ground shadow is baked into a texture after each shadow map update.
 - The tree stands on a low-poly floating island (`grow/ground.ts`, `render/ground.ts`): grass, a dirt patch at the trunk, a soil cross-section, flowers, tufts and fallen leaves. Each rock is a root-level file. It is two draws, colored per palette on the CPU so a palette switch never regrows it. The island receives the live shadow map, so the baked ground shadow only shows with the ground off. Rocks pick in the id pass after the tree's node ids; grass and soil write no id but still hide what lies behind them. A floating island beat a gentle hill and a small rock bed in a side-by-side comparison: its soil edge anchors the tree against the plain backdrop.
+- Size shows repo size. Every island has one radius, a tree's height grows with log10 of its files (`grow/size.ts`), and the camera frames the stage (the tallest tree on the island), not the tree on show. On a desktop the free region reserves the side panel's whole column and a typical title width, so panel content never changes the scale.
 - No environment map: generating the mock's RoomEnvironment blocked the main thread for up to 1.7 s on a software GL. A calibrated hemisphere light stands in for its fill.
 - Quality tiers set pixel ratio cap, shadow map size, antialias, and leaf sprigs per twig.
 - `vite build` output loads three.js in its own chunk. Generation runs in a module worker and returns geometry as transferable buffers.

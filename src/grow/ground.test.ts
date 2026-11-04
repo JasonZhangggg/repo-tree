@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from 'vitest';
 import { buildHierarchy, DEFAULT_FILTERS } from '../repo/hierarchy';
 import { sample, type SampleId } from '../test/samples';
 import { growTree, type Quality, type TreeModel } from './grow';
-import { growGround, KIND, type GroundMesh, type GroundSite } from './ground';
+import { growGround, ISLAND, KIND, type GroundMesh, type GroundSite } from './ground';
 
 const FLARE = 1.55;
 const BUDGET: Record<Quality, number> = { low: 3000, medium: 4500, high: 6000 };
@@ -16,7 +16,6 @@ beforeAll(async () => {
 
 const siteOf = (tree: TreeModel): GroundSite => ({
   trunk: tree.nodes.radius[0]! * FLARE,
-  bounds: tree.bounds,
   front: Math.atan2(0.95, 0.3),
   rocks: tree.rocks.map((r) => r.bytes),
 });
@@ -44,7 +43,7 @@ describe.each(['mathiasbynens-dotfiles', 'torvalds-linux'] as SampleId[])(
       },
     );
 
-    test('keeps every vertex inside its bounds, and its bounds near the crown', () => {
+    test('keeps every vertex inside its bounds, and its bounds inside the island room', () => {
       const tree = trees.get(id)!;
       const { land, cover, bounds } = growGround(siteOf(tree), { seed: 7, quality: 'high' });
       for (const { position } of [land, cover]) {
@@ -53,14 +52,14 @@ describe.each(['mathiasbynens-dotfiles', 'torvalds-linux'] as SampleId[])(
           expect(position[i]!).toBeLessThanOrEqual(bounds.max[i % 3]!);
         }
       }
-      const span = Math.max(
-        tree.bounds.max[0] - tree.bounds.min[0],
-        tree.bounds.max[2] - tree.bounds.min[2],
-      );
-      expect(Math.max(-bounds.min[0], bounds.max[0], -bounds.min[2], bounds.max[2])).toBeLessThan(
-        span * 0.6,
-      );
-      expect(bounds.max[1], 'nothing rises past the lower trunk').toBeLessThan(span * 0.15);
+      const reach = Math.hypot(ISLAND.max[0], ISLAND.max[2]);
+      for (const mesh of [land, cover]) {
+        for (let v = 0; v < mesh.kind.length; v++) {
+          expect(horizontal(mesh, v)).toBeLessThanOrEqual(reach);
+        }
+      }
+      expect(bounds.min[1]).toBeGreaterThanOrEqual(ISLAND.min[1]);
+      expect(bounds.max[1]).toBeLessThanOrEqual(ISLAND.max[1]);
     });
 
     test('lays rocks and grass around the trunk, never inside it', () => {

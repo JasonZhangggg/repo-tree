@@ -2,7 +2,7 @@ import '@fontsource-variable/hanken-grotesk';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/600.css';
 import './app/app.css';
-import { distanceOf, frameTree } from './render/framing';
+import { distanceOf, frameTree, stage } from './render/framing';
 import { createTreeView } from './render/tree-view';
 import { parseRepoRef, type RepoRef } from './repo/ref';
 import { nameOf, type App } from './app/app';
@@ -181,7 +181,10 @@ store.subscribe((state, prev) => {
   }
   if (s.palette !== prev.settings.palette) view.setPalette(s.palette);
   if (s.colorBy !== prev.settings.colorBy) view.setColorBy(s.colorBy);
-  if (s.ground !== prev.settings.ground) view.setGround(s.ground);
+  if (s.ground !== prev.settings.ground) {
+    view.setGround(s.ground);
+    reframe();
+  }
   if (spinning(state) !== spinning(prev)) view.setSpin(spinning(state));
   if (reducedMotion(s) !== reducedMotion(prev.settings)) view.setReducedMotion(reducedMotion(s));
   if (qualityOf(state) !== qualityOf(prev)) view.setQuality(qualityOf(state));
@@ -304,24 +307,42 @@ function footprint(panel: HTMLElement, origin: DOMRect): Rect | null {
   };
 }
 
+const title = byId('title');
 const panels = [
   document.querySelector<HTMLElement>('.bar')!,
-  byId('title'),
+  title,
   side,
   controls,
   byId('settings'),
 ];
+/** Content width of a title card with a name and counts as long as torvalds/linux's. */
+const TITLE_ROOM = 460;
+/**
+ * On a desktop the title card and the side panel grow with the repo's name and lists. Framing
+ * reserves room for a typical title and the side panel's whole column, so repos frame into the
+ * same region and their islands show at one size.
+ */
+function reserved(panel: HTMLElement, rect: Rect, origin: DOMRect): Rect {
+  if (phone.matches) return rect;
+  if (panel === title) return { ...rect, right: Math.max(rect.right, rect.left + TITLE_ROOM) };
+  if (panel === side) return { ...rect, bottom: origin.height };
+  return rect;
+}
 let reframing = 0;
 /** Frames the tree into the largest region the panels leave uncovered. */
 function reframe() {
   cancelAnimationFrame(reframing);
   reframing = requestAnimationFrame(() => {
     const origin = container.getBoundingClientRect();
-    const covered = panels.map((p) => footprint(p, origin)).filter((r): r is Rect => r !== null);
-    const bounds = store.get().repo?.tree.bounds;
+    const covered = panels
+      .map((p) => {
+        const rect = footprint(p, origin);
+        return rect && reserved(p, rect, origin);
+      })
+      .filter((r): r is Rect => r !== null);
+    const room = stage(store.get().settings.ground);
     const fit = (w: number, h: number) => {
-      if (!bounds) return Math.min(w, h);
-      const { position, target } = frameTree(bounds, w / h);
+      const { position, target } = frameTree(room, w / h);
       return h / distanceOf(position, target);
     };
     const free = freeRect(origin.width, origin.height, covered, PANEL_GAP, fit);

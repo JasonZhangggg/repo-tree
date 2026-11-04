@@ -3,11 +3,12 @@
 export type UpstreamKind = 'not-found' | 'empty' | 'unauthorized' | 'rate-limited' | 'upstream';
 
 export class UpstreamError extends Error {
-  constructor(
-    readonly kind: UpstreamKind,
-    readonly resetAt = 0,
-  ) {
+  readonly kind: UpstreamKind;
+  readonly resetAt: number;
+  constructor(kind: UpstreamKind, resetAt = 0) {
     super(`github: ${kind}`);
+    this.kind = kind;
+    this.resetAt = resetAt;
   }
 }
 
@@ -23,8 +24,10 @@ export type GitHubOptions = {
   /** e.g. https://api.github.com */
   api: string;
   token?: string;
-  /** Requests this invocation may make. */
+  /** Requests this invocation may make (Infinity for no cap). */
   limit: number;
+  /** Aborts requests in flight; they then reject with the signal's reason. */
+  signal?: AbortSignal;
 };
 
 export type GitHub = {
@@ -44,6 +47,8 @@ export function gitHub(options: GitHubOptions): GitHub {
   let resetAt = 0;
 
   async function request(path: string, accept: string): Promise<Response> {
+    const { signal } = options;
+    signal?.throwIfAborted();
     if (used >= options.limit) throw new OutOfRequests();
     used++;
     const headers: Record<string, string> = {
@@ -54,8 +59,12 @@ export function gitHub(options: GitHubOptions): GitHub {
     if (options.token) headers.Authorization = `Bearer ${options.token}`;
     let res: Response;
     try {
-      res = await options.fetch(`${options.api}${path}`, { headers });
+      res = await options.fetch(
+        `${options.api}${path}`,
+        signal ? { headers, signal } : { headers },
+      );
     } catch {
+      if (signal?.aborted) throw signal.reason;
       throw new UpstreamError('upstream');
     }
     const left = res.headers.get('x-ratelimit-remaining');
@@ -90,6 +99,7 @@ export function gitHub(options: GitHubOptions): GitHub {
       try {
         return { body: await res.json(), link: res.headers.get('link') };
       } catch {
+        if (options.signal?.aborted) throw options.signal.reason;
         throw new UpstreamError('upstream');
       }
     },

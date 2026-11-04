@@ -15,7 +15,8 @@ import { createLoader } from './app/loader';
 import { rememberRecent } from './app/recent';
 import { FIRST_VISIT } from './app/samples';
 import { autoQuality, parseSettings, STEP_DOWN, type Settings } from './app/settings';
-import { createStore, qualityOf, weatherOf, type AppState } from './app/state';
+import { createStore, factsOf, qualityOf, weatherOf, type AppState } from './app/state';
+import { watchHistory } from './app/history-facts';
 import { mountCanvas } from './app/ui/canvas';
 import { mountHeader } from './app/ui/header';
 import { mountHint } from './app/ui/hint';
@@ -52,6 +53,7 @@ const store = createStore({
   ci: {},
   preview: null,
   timeline: null,
+  history: null,
 });
 
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -78,6 +80,7 @@ motion.addEventListener('change', () => {
 debug.view = view;
 
 const loader = createLoader(store);
+watchHistory(store);
 let hovered: number | null = null;
 let hoveredCategory: string | null = null;
 let toastTimer = 0;
@@ -203,6 +206,7 @@ store.subscribe((state, prev) => {
   }
   if (s.palette !== prev.settings.palette) view.setPalette(s.palette);
   if (s.colorBy !== prev.settings.colorBy) view.setColorBy(s.colorBy);
+  if (factsOf(state) !== factsOf(prev) || state.repo !== prev.repo) view.setFacts(factsOf(state));
   if (s.ground !== prev.settings.ground) {
     view.setGround(s.ground);
     reframe();

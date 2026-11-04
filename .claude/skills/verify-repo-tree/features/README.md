@@ -42,5 +42,6 @@ Each feature file starts with an H1 and one paragraph on what the user sees. The
 - [Phone layout](./phone-layout.md) covers tap to pin and the bottom sheet.
 - [Timeline](./timeline.md) covers the Timeline button, scrubbing, play and pause, the `t=` link, the dated PNG and the unavailable state.
 - [History sign-in and compute](./history-compute.md) covers the offer for a repo with no history, the big-repo and phone warning, sign-in, progress, sharing through the history Worker and the token's reach.
+- [Activity](./activity.md) covers leaf colors by last change from the history, dead wood dropping its leaves, the highlighted band and repos with no history.
 - [Weather](./weather.md) covers the sky from recent Actions runs, the chip, sample snapshots, `wx=` previews, failing soft and the setting.
 - [Performance](./performance.md) covers `scripts/perf.mjs`, the plan's targets and the last measured numbers.

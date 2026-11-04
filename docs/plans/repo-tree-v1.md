@@ -227,7 +227,9 @@ function loadInWorker(request: LoadRequest, progress: LoadProgress, signal: Abor
 
 // render/palette.ts  (table)
 type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
-type ColorBy = 'language' | 'folder';
+type ColorBy = 'language' | 'folder' | 'activity'; // activity needs the history (timeline/facts.ts); without it leaves keep language colors
+const AGE_COLORS: hex[]; // one per AGES band, the same in every palette: green, orange, brown, and dead wood's legend grey
+const DEAD_BARK: hex; // bark of a branch whose every file is dead wood
 type Palette = { id: PaletteId; name: string; bark: hex; sky: { center: hex; edge: hex }; shadow: hex;
   light: { key: hex; sky: hex; ground: hex }; leaves: hex[] /* 9, same length in every palette */; rest: hex; precip: 'rain' | 'snow' /* what falls from a rain or storm sky */;
   ground: { grass: hex; meadow: hex; dirt: hex; soil: hex; stone: hex; rock: hex; cap: hex; blade: hex; flowers: hex[] /* none hides them */; litter: boolean; blades: number /* share of tufts shown */ } };
@@ -245,7 +247,8 @@ interface TreeView {
   setTimeline(births: { nodes: Float32Array; sprigs: Float32Array } | null): void; // timeline progress each node and sprig appears at (aBorn per vertex), or the whole tree
   setTime(cursor: number): void; // uTime: elements grow in as it crosses aBorn plus their aT window scaled to SPAN; labels wait for their branch
   setPalette(id: PaletteId): void; // recolors without regrowing
-  setColorBy(by: ColorBy): void; // language, or top-level folder
+  setColorBy(by: ColorBy): void; // language, top-level folder, or activity once setFacts gave the history
+  setFacts(facts: Facts | null): void; // the history laid over the tree on show; setTree clears it. Activity: each sprig takes its AGES band's color, dead-wood sprigs are born never (no pass draws them) unless that band is highlighted, and dead branches (newest file 3+ years old) take DEAD_BARK
   legend(): LegendEntry[];
   setHighlight(h: { range: [number, number] } | { category: string } | null): void; // fades nodes outside the id range, or bark and every leaf outside the legend entry with that label, drained to grey while that entry's own leaves deepen (a per-leaf slot test in the shader)
   frameFolder(folder: number): void; // eases the camera onto the folder's leaves, never nearer than half the distance that frames the tree on show nor further than the stage; 0 frames the stage
@@ -273,7 +276,10 @@ type LoadState =
 type Selection = { folder: number; file?: number }; // indices into the shown repo
 type AppState = { load: LoadState; repo: Repo | null; selection: Selection | null; highlight: string | null; notice: 'truncated' | null; settings: Settings; autoQuality: Quality;
   ci: Record<string /* ciKey */, readonly CiRun[] | null /* could not be read */>; preview: Sky | null /* from a link's wx */;
-  timeline: number | null /* the date (ms) the open timeline settled on; null while closed */ };
+  timeline: number | null /* the date (ms) the open timeline settled on; null while closed */;
+  history: HistoryFacts | null /* loaded once needsHistory(state) (activity colors); a new repo clears it */ };
+type HistoryFacts = { repo: Repo; status: 'loading' } | { repo: Repo; status: 'ready'; facts: Facts } | { repo: Repo; status: 'missing' | 'unavailable' };
+// app/history-facts.ts watchHistory(store): reads the stored history (historySource(repo).load, never a compute) a microtask after the change that asked, and dispatches { type: 'history' }.
 function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null; // null with weather off, before runs arrive or when they failed
 // highlight is a legend label. A pin and a highlight never coexist: picking one drops the other, and switching colorBy drops the highlight.
 
@@ -312,6 +318,13 @@ function positionAt(t: Timeline, ms: number): number; function dateAt(t: Timelin
 function filesAt(t: Timeline, s: number, census?: Census): { files: number; atLeast: boolean }; // files alive then, deleted ones while they lived
 function aliveAt(t: number, born: number, gone?: number): boolean;
 
+// timeline/facts.ts  (pure; consumes only History, TreeModel and RepoIndex)
+const AGES: { label: 'This month' | 'This year' | '1 to 3 years' | 'Dead wood'; within: number /* ms before asOf */ }[]; const DEAD: number; // the last band
+function ageBand(asOf: number, changed: number): number;
+type Facts = { asOf: number /* History.computedAt */; fileChanged: Float64Array /* per RepoIndex file; files the history lacks count as asOf */;
+  sprigBand: Uint8Array; folderBand: Uint8Array /* the band most files are in, the fresher on a tie */; nodeChanged: Float64Array /* newest file on the node or beyond it */ };
+function historyFacts(history: History, tree: TreeModel, index: RepoIndex): Facts;
+
 // app/search.ts  (pure)
 type SearchHit = { kind: 'folder' | 'file'; id: number; path: string; marks: number[] };
 function createSearch(folders: readonly string[], files: readonly string[]): (query: string, limit?: number) => SearchHit[];
@@ -348,4 +361,4 @@ Each PR is landable on its own and ends in a passing CI run.
 
 ## Out of scope for v1
 
-GitLab or Bitbucket, and file contents. The growth animation shows load order, not git history. Commit history and its server were out of scope for v1 and came after it; the time-lapse timeline landed after it; the other history features (seasons and dead wood, hotspots, color by owner) and the sign-in button land in later PRs. GIF or MP4 export of the timeline is not built.
+GitLab or Bitbucket, and file contents. The growth animation shows load order, not git history. Commit history and its server were out of scope for v1 and came after it; the time-lapse timeline landed after it; seasons and dead wood landed as the Activity color mode; hotspots and color by owner land in later PRs. GIF or MP4 export of the timeline is not built.

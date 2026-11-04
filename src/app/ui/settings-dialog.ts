@@ -7,7 +7,7 @@ import type { AppState } from '../state';
 
 const COLOR_BY_LABEL = {
   language: 'Language',
-  folder: 'Top-level folder',
+  folder: 'Folder',
   activity: 'Activity',
   owner: 'Owner',
 };
@@ -200,6 +200,7 @@ export function mountSettings(app: App): {
           settings.colorBy,
           (v) => COLOR_BY_LABEL[v],
           (colorBy) => set({ colorBy }),
+          'seg seg-grid',
         ),
         settings.colorBy === 'activity' &&
           h(
@@ -229,8 +230,8 @@ export function mountSettings(app: App): {
           'p',
           { class: 'note' },
           settings.quality === 'auto'
-            ? `Auto picked ${QUALITY_LABEL[autoQuality].toLowerCase()} for this device. Higher draws more leaves and sharper shadows.`
-            : 'Higher draws more leaves and sharper shadows. Changing it regrows the tree.',
+            ? `Auto chose ${QUALITY_LABEL[autoQuality].toLowerCase()} here. Higher means more leaves, sharper shadows.`
+            : 'Higher means more leaves, sharper shadows.',
         ),
       ),
       h(
@@ -239,18 +240,15 @@ export function mountSettings(app: App): {
         toggle('Spin', null, settings.spin, (spin) => set({ spin })),
         toggle('Folder labels', null, settings.labels, (labels) => set({ labels })),
         toggle('Ground', null, settings.ground, (ground) => set({ ground })),
-        toggle('Weather', 'From recent GitHub Actions runs', settings.weather, (weather) =>
+        toggle('Weather', 'Shows CI from GitHub Actions', settings.weather, (weather) =>
           set({ weather }),
         ),
-        toggle(
-          'Hotspots',
-          'Busiest files glow, from commit history',
-          settings.hotspots,
-          (hotspots) => set({ hotspots }),
+        toggle('Hotspots', 'Busiest files glow', settings.hotspots, (hotspots) =>
+          set({ hotspots }),
         ),
         toggle(
           'Growth animation',
-          reducedMotion.matches ? 'Off while your system asks for reduced motion' : null,
+          reducedMotion.matches ? 'Off: your system asks for reduced motion' : null,
           settings.growAnim && !reducedMotion.matches,
           (growAnim) => set({ growAnim }),
           reducedMotion.matches,
@@ -260,11 +258,7 @@ export function mountSettings(app: App): {
         'div',
         { class: 'field', id: 'hidden-field' },
         h('p', { class: 'h' }, 'Hidden folders'),
-        h(
-          'p',
-          { class: 'note' },
-          'Folders with these names are left out at any depth. Changes regrow the tree.',
-        ),
+        h('p', { class: 'note' }, 'Left out at any depth. Changes regrow the tree.'),
         h(
           'div',
           { class: 'chips' },
@@ -299,7 +293,7 @@ export function mountSettings(app: App): {
         h(
           'p',
           { class: 'note' },
-          'For private repositories and a higher rate limit (5,000 requests an hour). Stored only in this browser and sent only to api.github.com.',
+          'For private repos and a higher rate limit. Kept in this browser, sent only to GitHub.',
         ),
         tokenField,
       ),

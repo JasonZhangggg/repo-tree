@@ -81,9 +81,7 @@ test('Hotspots make the busiest files glow and list them to pin', async ({ page 
   await closeSide(page);
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('switch', { name: /^Hotspots/ }).check();
-  await expect(
-    page.getByText('Busiest files glow, from commit history', { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText('Busiest files glow', { exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   const stored = await page.evaluate(() => localStorage.getItem('repo-tree:settings'));
   expect(JSON.parse(stored!).hotspots).toBe(true);

@@ -60,14 +60,10 @@ export function mountCiCard(app: App): { open(): boolean } {
         'p',
         {},
         health
-          ? `The sun and clouds over the tree show ${name}’s GitHub Actions runs on ${branch}${
-              health.runs ? `: ${detail}` : ', which has none finished yet'
-            }.`
-          : `This sky is a preview from the link (${detail}), not ${name}’s CI.`,
+          ? `The sky shows ${name}’s CI on ${branch}${health.runs ? `: ${detail}` : ', with no finished runs yet'}.`
+          : `A preview from the link (${detail}), not ${name}’s CI.`,
       ),
-      health
-        ? h('p', { class: 'compute-fine' }, 'Opening the runs takes you to GitHub in a new tab.')
-        : '',
+      health ? h('p', { class: 'compute-fine' }, 'Opens GitHub in a new tab.') : '',
       h(
         'div',
         { class: 'actions' },

@@ -223,7 +223,7 @@ test('a tap on the sun says what the sky stands for before leaving for CI', asyn
   const card = page.getByRole('dialog', { name: 'CI passing' });
   await expect(card).toBeVisible();
   await expect(card).toContainText('20 of 20 recent runs');
-  await expect(card).toContainText('takes you to GitHub');
+  await expect(card).toContainText('Opens GitHub in a new tab');
   await expect(card.getByRole('link', { name: 'Open GitHub Actions' })).toHaveAttribute(
     'href',
     /github\.com\/vitejs\/vite\/actions/,

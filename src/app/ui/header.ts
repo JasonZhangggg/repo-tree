@@ -290,11 +290,11 @@ export function mountHeader(app: App): void {
             h(
               'div',
               {},
-              h('strong', {}, 'Showing part of this repository'),
+              h('strong', {}, 'Partial tree'),
               h(
                 'p',
                 {},
-                `GitHub cut the file list short at ${count(repo.info.files)} files, so some folders are missing from the tree.`,
+                `GitHub stopped at ${count(repo.info.files)} files, so some folders are missing.`,
               ),
             ),
             h(

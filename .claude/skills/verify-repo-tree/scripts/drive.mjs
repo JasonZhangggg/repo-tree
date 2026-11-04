@@ -277,7 +277,7 @@ const JOURNEYS = {
       );
       await enter(page, 'acme/partial');
       await ready(page, 'acme/partial');
-      await expect(page.locator('#status')).toContainText('Showing part of this repository');
+      await expect(page.locator('#status')).toContainText('Partial tree');
     });
     await step('unreachable', async () => {
       await enter(page, 'acme/offline');
@@ -394,7 +394,7 @@ const JOURNEYS = {
       await expect(page).toHaveURL(/palette=winter/);
     });
     await step('color-by', async () => {
-      await radio('Top-level folder').click();
+      await radio('Folder').click();
       await expect(page).toHaveURL(/colorBy=folder/);
       await expect(page.locator('#legend-title')).toHaveText('Leaf colors by folder');
     });

@@ -83,7 +83,7 @@ test('a missing repo says so and keeps the tree on screen', async ({ page }) => 
   await enterRepo(page, 'acme/missing');
 
   await expect(page.getByRole('alert')).toContainText('Can’t find acme/missing');
-  await expect(page.getByRole('alert')).toContainText('add a GitHub token');
+  await expect(page.getByRole('alert')).toContainText('Add a GitHub token');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('vitejs/vite');
 
   await page.getByRole('button', { name: 'Add a token' }).click();

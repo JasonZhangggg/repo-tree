@@ -1595,6 +1595,18 @@ h1 a[aria-disabled] {
   flex-wrap: wrap;
   border-radius: 18px;
 }
+.settings .seg-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-radius: 14px;
+}
+.settings .seg-grid button {
+  border-radius: 11px;
+}
+/* An odd one out takes the whole last row. */
+.settings .seg-grid button:last-child:nth-child(odd) {
+  grid-column: span 2;
+}
 .settings .seg button {
   flex: 1;
   justify-content: center;

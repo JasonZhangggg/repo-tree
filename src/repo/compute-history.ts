@@ -15,6 +15,11 @@ export type ComputeRequest = {
   repo: string;
   branch: string;
   token?: string;
+  /**
+   * The history Worker's git-upload-pack route for this repo: with a token, the trees come in
+   * one git fetch through it (server/src/core/pack.ts), GraphQL and REST reading what it missed.
+   */
+  packUrl?: string;
 };
 /** What the page sends the worker: a run, or the cancelling of one. */
 export type ComputeCommand = ComputeRequest | { cancel: number };
@@ -46,6 +51,8 @@ export type ComputeOptions = {
   onProgress?: (progress: number) => void;
   /** Defaults to https://api.github.com. */
   api?: string;
+  /** ComputeRequest.packUrl. */
+  packUrl?: string;
   /** Injected for tests. */
   spawn?: () => WorkerLike;
 };
@@ -110,6 +117,7 @@ export function computeHistoryInWorker(
       repo: `${ref.owner}/${ref.repo}`,
       branch,
       ...(options.token ? { token: options.token } : {}),
+      ...(options.packUrl ? { packUrl: options.packUrl } : {}),
     };
     worker.postMessage(request);
   });

@@ -64,6 +64,6 @@ describe('trace', () => {
     expect(line).toContain('graphql 10 req 0.01 MB 550/1000 ms');
     expect(line).toContain('waited 2.5 s');
     expect(line).toContain('graphql batches 400x2, 1 failed');
-    expect(line).toContain('fell back to REST: no');
+    expect(line).toContain('fell back: no');
   });
 });

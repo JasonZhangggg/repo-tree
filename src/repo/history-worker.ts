@@ -38,6 +38,7 @@ self.onmessage = async ({ data }: MessageEvent<ComputeCommand>) => {
       fetch: (input, init) => fetch(input, init),
       api: data.api,
       ...(data.token ? { token: data.token } : {}),
+      ...(data.packUrl ? { packUrl: data.packUrl } : {}),
       repo: data.repo,
       branch: data.branch,
       checkpoint: kept.checkpoint,

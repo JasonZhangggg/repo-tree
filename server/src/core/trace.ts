@@ -5,13 +5,15 @@
  * adds the upload and logs `formatTrace` (repo/compute-history.ts, app/ui/history-compute.ts).
  */
 
-export type RequestKind = 'listing' | 'probe' | 'tree' | 'graphql' | 'commit' | 'blob' | 'upload';
+export type RequestKind =
+  'listing' | 'probe' | 'pack' | 'tree' | 'graphql' | 'commit' | 'blob' | 'upload';
 
 /** The phases, in the order a run starts them. They overlap: most run side by side. */
 export const PHASES = [
   'listings',
   'probes',
   'head tree',
+  'pack',
   'graphql',
   'rest',
   'recent',
@@ -45,7 +47,10 @@ export type TraceSummary = {
   batches: Record<string, number>;
   /** GraphQL queries GitHub failed (each split and resent). */
   failed: number;
-  /** GraphQL gave up or was not used, so REST read the trees. */
+  /**
+   * The first tree reader did not read them all: the pack failed (GraphQL, then REST, read the
+   * rest), or, without a pack, GraphQL gave up or was not used (REST read them).
+   */
   fellBack: boolean;
   /** Milliseconds of main-thread work folding trees and summarizing. */
   cpuMs: number;
@@ -184,7 +189,7 @@ const mb = (bytes: number) => `${(bytes / 1e6).toFixed(2)} MB`;
 
 /**
  * One line: total, then each phase's wall time, then per kind its requests, bytes and mean/p90
- * latency, then waits, batches and whether GraphQL fell back.
+ * latency, then waits, batches and whether the first tree reader (the pack, else GraphQL) fell back.
  */
 export function formatTrace(repo: string, s: TraceSummary): string {
   const phases = s.phases.map((p) => `${p.name} ${sec(p.ms)}`).join(', ');
@@ -203,6 +208,6 @@ export function formatTrace(repo: string, s: TraceSummary): string {
     `history ${repo}: ${sec(s.ms)}, ${s.requests} requests, ${mb(s.bytes)} | ${phases} | ` +
     `${kinds} (mean/p90) | waited ${sec(s.waitedMs)}, retried ${s.retried} | ` +
     `graphql batches ${batches || 'none'}${s.failed ? `, ${s.failed} failed` : ''} | ` +
-    `fell back to REST: ${s.fellBack ? 'yes' : 'no'} | cpu ${sec(s.cpuMs)}`
+    `fell back: ${s.fellBack ? 'yes' : 'no'} | cpu ${sec(s.cpuMs)}`
   );
 }

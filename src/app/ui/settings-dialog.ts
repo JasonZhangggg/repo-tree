@@ -12,6 +12,13 @@ const COLOR_BY_LABEL = {
   changes: 'Changes',
   owner: 'Owner',
 };
+const COLOR_BY_HINT = {
+  language: 'File type',
+  folder: 'Top-level folder',
+  activity: 'Last change',
+  changes: 'How often it changed',
+  owner: 'Code owner',
+};
 const QUALITY_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' };
 const FOLDER_NAME = /^[^/\\]{1,100}$/;
 
@@ -199,9 +206,13 @@ export function mountSettings(app: App): {
           'Color leaves by',
           COLOR_BYS,
           settings.colorBy,
-          (v) => COLOR_BY_LABEL[v],
+          (v) => [
+            h('span', { class: 'name' }, COLOR_BY_LABEL[v]),
+            h('span', { class: 'hint' }, COLOR_BY_HINT[v]),
+            icon(...ICONS.check),
+          ],
           (colorBy) => set({ colorBy }),
-          'seg seg-grid',
+          'choices',
         ),
         settings.colorBy === 'activity' &&
           h(

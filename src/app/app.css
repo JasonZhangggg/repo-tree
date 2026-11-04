@@ -1601,17 +1601,71 @@ h1 a[aria-disabled] {
   flex-wrap: wrap;
   border-radius: 18px;
 }
-.settings .seg-grid {
+/* Color leaves by: a list, one row per way, each with what it reads from. */
+.choices {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border-radius: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
 }
-.settings .seg-grid button {
-  border-radius: 11px;
+.choices button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 14px;
+  color: var(--ink);
+  transition: background 0.15s;
 }
-/* An odd one out takes the whole last row. */
-.settings .seg-grid button:last-child:nth-child(odd) {
-  grid-column: span 2;
+.choices button + button {
+  border-top: 1px solid var(--line);
+}
+.choices .name {
+  flex: none;
+  font-weight: 550;
+}
+.choices .hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.choices svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity 0.15s,
+    transform 0.2s var(--ease);
+}
+.choices button[aria-checked='true'] {
+  background: rgba(37, 34, 30, 0.05);
+}
+.choices button[aria-checked='true'] svg {
+  opacity: 1;
+  transform: none;
+}
+.choices button:active {
+  background: rgba(37, 34, 30, 0.09);
+}
+.choices button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
 }
 .settings .seg button {
   flex: 1;
@@ -1813,6 +1867,9 @@ body:has(.scrubber:not([hidden])) .toast {
   .pill-btn:not(.primary, [aria-pressed='true']):hover {
     background: #fbfaf8;
     box-shadow: var(--shadow-lift);
+  }
+  .choices button:not([aria-checked='true']):hover {
+    background: rgba(37, 34, 30, 0.03);
   }
   .swatches button:not([aria-checked='true']):hover {
     border-color: rgba(37, 34, 30, 0.25);
@@ -2400,6 +2457,7 @@ body:has(.scrubber:not([hidden])) .toast {
   }
   .settings .seg button,
   .swatches button,
+  .choices button,
   .switch,
   .chip,
   .btn,

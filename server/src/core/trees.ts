@@ -55,7 +55,17 @@ export type Plan = {
   adapt: boolean;
 };
 
-/** Measured on vite and linux against scripts/fake-github.mjs (see scripts/measure.mjs). */
+/**
+ * Tuned on linux and vite against scripts/fake-github.mjs (scripts/measure.mjs --plan). A tree
+ * entry costs 37 to 40 gzipped bytes as GitHub serves it. Linux, all 65 snapshots:
+ *   requestBytes  6,000: 6,015 tree requests, 4.24M entries listed
+ *   requestBytes 12,000: 1,574 tree requests, 4.80M entries (the default)
+ *   requestBytes 25,000:   988 tree requests, 5.11M entries
+ * Reading every snapshot whole lists 5.5M; no planner can go below about 3.1M (the entries of
+ * every distinct tree object), or 4.2M at 1,800 requests, knowing the answers in advance.
+ * Without `adapt` the default costs 2,648 requests for 5.01M entries; `decay` below 1 or
+ * scaling the odds by interval length (tried) bought bytes at worse than 4 KB a request.
+ */
 export const DEFAULT_PLAN: Plan = {
   requestBytes: 12_000,
   entryBytes: 40,
@@ -87,13 +97,15 @@ export type ReadStats = {
 
 type Flat = { path: string; mode: Mode; sha: string };
 
-const NAMES = new Map<string, string>();
-/** One string per distinct name, shared by every snapshot that lists it. */
-function intern(name: string): string {
-  const known = NAMES.get(name);
-  if (known !== undefined) return known;
-  NAMES.set(name, name);
-  return name;
+/** One string per distinct name, shared by every snapshot that lists it (one table per reader). */
+function interner(): (name: string) => string {
+  const names = new Map<string, string>();
+  return (name) => {
+    const known = names.get(name);
+    if (known !== undefined) return known;
+    names.set(name, name);
+    return name;
+  };
 }
 
 function modeOf(text: unknown, type: unknown): Mode | null {
@@ -127,7 +139,12 @@ export function parseListing(body: unknown): { entries: Flat[]; truncated: boole
   return { entries, truncated: body.truncated === true };
 }
 
-function makeNode(sha: string, entries: readonly Flat[], names: readonly string[]): Node {
+function makeNode(
+  sha: string,
+  entries: readonly Flat[],
+  names: readonly string[],
+  intern: (name: string) => string,
+): Node {
   const n = entries.length;
   const modes = new Uint8Array(n);
   const shas: string[] = new Array(n);
@@ -232,6 +249,7 @@ export type Reader = {
  */
 export function treeReader(fetchTree: TreeFetch, partial: Partial<Plan> = {}): Reader {
   const plan: Plan = { ...DEFAULT_PLAN, ...partial };
+  const intern = interner();
   const stats: ReadStats = {
     requests: 0,
     recursive: 0,
@@ -341,6 +359,7 @@ export function treeReader(fetchTree: TreeFetch, partial: Partial<Plan> = {}): R
           sha,
           entries,
           entries.map((e) => e.path),
+          intern,
         ),
         old,
         path,
@@ -395,7 +414,7 @@ export function treeReader(fetchTree: TreeFetch, partial: Partial<Plan> = {}): R
         const shared = index.get(folderSha);
         if (shared) return shared;
         const g = groups.get(folder);
-        const base = makeNode(folderSha, g?.entries ?? [], g?.names ?? []);
+        const base = makeNode(folderSha, g?.entries ?? [], g?.names ?? [], intern);
         if (truncated) {
           const ok =
             g !== undefined && (await treeSha(base.names, base.modes, base.shas)) === folderSha;
@@ -406,6 +425,7 @@ export function treeReader(fetchTree: TreeFetch, partial: Partial<Plan> = {}): R
               folderSha,
               own,
               own.map((e) => e.path),
+              intern,
             );
             // Many subfolders missing from the listing would cost a request each: past the
             // bytes of what the listing held below this folder, read the folder whole instead.

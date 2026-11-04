@@ -1,7 +1,6 @@
 import {
   BufferAttribute,
   BufferGeometry,
-  CircleGeometry,
   Color,
   Group,
   IcosahedronGeometry,
@@ -118,7 +117,7 @@ export const weatherLight = (sky: Sky | null) => LOOKS[sky ?? 'clear'].light;
 /**
  * The weather's scene objects: rain or snow in world space around the island, and a backdrop
  * fixed to the camera far behind the tree (sun, clouds, lightning), so clouds never cover the
- * tree. Everything moves in vertex shaders from one time uniform; a frame costs three draws.
+ * tree. Everything moves in vertex shaders from one time uniform; a frame costs four draws.
  */
 export function createWeather(camera: PerspectiveCamera) {
   let sky: Sky | null = null;
@@ -133,19 +132,20 @@ export function createWeather(camera: PerspectiveCamera) {
   const backdrop = new Group();
   const time$ = { value: time };
 
-  const sunMaterial = (opacity: number) =>
-    new MeshBasicMaterial({ transparent: true, opacity, depthWrite: false, toneMapped: false });
-  const sun = new Group();
-  const discs = [
-    new Mesh(new CircleGeometry(0.2, 10), sunMaterial(0.18)),
-    new Mesh(new CircleGeometry(0.135, 10), sunMaterial(0.35)),
-    new Mesh(new CircleGeometry(0.09, 10), sunMaterial(1)),
-  ];
-  discs.forEach((d, i) => {
-    d.position.z = i * 0.01;
-    d.rotation.z = i * 0.16;
-    sun.add(d);
+  const sunMaterial = new ShaderMaterial({
+    vertexShader: SUN_VERTEX,
+    fragmentShader: SUN_FRAGMENT,
+    uniforms: {
+      uTime: time$,
+      uColor: { value: SUN_LAYERS.flatMap(() => [1, 1, 1]) },
+      uAlpha: { value: SUN_LAYERS.map((l) => l.alpha) },
+    },
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
   });
+  const sun = new Mesh(sunGeometry(), sunMaterial);
+  sun.frustumCulled = false;
 
   const cloudMaterial = new ShaderMaterial({
     vertexShader: CLOUD_VERTEX,
@@ -209,11 +209,11 @@ export function createWeather(camera: PerspectiveCamera) {
     const toward = (from: RGB, to: RGB, k: number) =>
       from.map((c, i) => c + (to[i]! - c) * k) as RGB;
     const sunColor = srgb('#ffe7a8');
-    discs[0]!.material.color.setRGB(...toward(center, sunColor, 0.6), SRGBColorSpace);
-    discs[1]!.material.color.setRGB(...toward(center, sunColor, 0.8), SRGBColorSpace);
-    discs[2]!.material.color.setRGB(...sunColor, SRGBColorSpace);
+    sunMaterial.uniforms.uColor!.value = SUN_LAYERS.flatMap((s) =>
+      toward(center, sunColor, s.tone),
+    );
+    sunMaterial.uniforms.uAlpha!.value = SUN_LAYERS.map((s) => s.alpha * l.sun);
     sun.visible = l.sun > 0;
-    discs.forEach((d, i) => (d.material.opacity = [0.18, 0.35, 1][i]! * l.sun));
 
     clouds.visible = l.clouds.count > 0;
     clouds.geometry.setDrawRange(0, clouds.geometry.userData.ends[l.clouds.count] ?? 0);
@@ -278,7 +278,10 @@ export function createWeather(camera: PerspectiveCamera) {
     return Math.max(Math.exp(-((t - 0.06) ** 2) / 0.002), 0.8 * Math.exp(-((t - 0.3) ** 2) / 0.01));
   };
 
-  const animated = () => !still && sky !== null && sky !== 'clear' && sky !== 'sunny';
+  const animated = () => {
+    const l = look();
+    return !still && (l.sun > 0 || l.clouds.count > 0 || l.fall > 0);
+  };
 
   return {
     /** Objects to add to the scene; the backdrop follows the camera. */
@@ -322,13 +325,102 @@ export function createWeather(camera: PerspectiveCamera) {
       return flash;
     },
     dispose() {
-      for (const mesh of [...discs, clouds, bolt, fall]) {
+      for (const mesh of [sun, clouds, bolt, fall]) {
         mesh.geometry.dispose();
         mesh.material.dispose();
       }
     },
   };
 }
+
+/**
+ * The sun's layers, back to front: slow-turning rays, a breathing halo, a glow that turns the
+ * other way, and the still core. `tone` mixes the sky toward the sun's color.
+ */
+const SUN_LAYERS = [
+  { alpha: 0.36, tone: 0.75 },
+  { alpha: 0.18, tone: 0.6 },
+  { alpha: 0.35, tone: 0.8 },
+  { alpha: 1, tone: 1 },
+];
+const SUN_RAYS = 12;
+const SUN_DISCS = [0.2, 0.135, 0.09];
+
+/**
+ * The whole sun as one mesh, so it costs one draw. Each vertex carries its layer, a phase for
+ * its ray's shimmer, and whether it is a ray's tip, for the vertex shader to move.
+ */
+function sunGeometry(): BufferGeometry {
+  const positions: number[] = [];
+  const sun: number[] = [];
+  const push = (x: number, y: number, layer: number, phase: number, tip: number) => {
+    positions.push(x, y, layer * 0.01);
+    sun.push(layer, phase, tip);
+  };
+  for (let r = 0; r < SUN_RAYS; r++) {
+    const a = (r / SUN_RAYS) * Math.PI * 2;
+    const spread = Math.PI / SUN_RAYS / 2.2;
+    const reach = r % 2 ? 0.215 : 0.285;
+    const phase = r * 2.39;
+    push(Math.cos(a - spread) * 0.12, Math.sin(a - spread) * 0.12, 0, phase, 0);
+    push(Math.cos(a) * reach, Math.sin(a) * reach, 0, phase, 1);
+    push(Math.cos(a + spread) * 0.12, Math.sin(a + spread) * 0.12, 0, phase, 0);
+  }
+  SUN_DISCS.forEach((radius, d) => {
+    const sides = 10;
+    const turn = d * 0.16;
+    for (let s = 0; s < sides; s++) {
+      const a0 = turn + (s / sides) * Math.PI * 2;
+      const a1 = turn + ((s + 1) / sides) * Math.PI * 2;
+      push(0, 0, d + 1, 0, 0);
+      push(Math.cos(a0) * radius, Math.sin(a0) * radius, d + 1, 0, 0);
+      push(Math.cos(a1) * radius, Math.sin(a1) * radius, d + 1, 0, 0);
+    }
+  });
+  return new BufferGeometry()
+    .setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
+    .setAttribute('aSun', new BufferAttribute(new Float32Array(sun), 3));
+}
+
+const SUN_VERTEX = /* glsl */ `
+attribute vec3 aSun;
+uniform float uTime;
+uniform vec3 uColor[4];
+uniform float uAlpha[4];
+varying vec3 vColor;
+varying float vAlpha;
+vec2 turn(vec2 p, float a) {
+  float c = cos(a);
+  float s = sin(a);
+  return vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+}
+void main() {
+  int layer = int(aSun.x + 0.5);
+  vec2 p = position.xy;
+  float alpha = uAlpha[layer];
+  if (layer == 0) {
+    p = turn(p, uTime * 0.06);
+    p *= 1.0 + aSun.z * 0.1 * sin(uTime * 1.3 + aSun.y);
+    alpha *= 0.85 + 0.15 * sin(uTime * 0.9 + aSun.y);
+  } else if (layer == 1) {
+    float breath = sin(uTime * 0.8);
+    p = turn(p, -uTime * 0.04) * (1.0 + 0.07 * breath);
+    alpha *= 0.85 + 0.25 * breath;
+  } else if (layer == 2) {
+    p = turn(p, uTime * 0.05);
+  }
+  vColor = uColor[layer];
+  vAlpha = alpha;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, position.z, 1.0);
+}
+`;
+const SUN_FRAGMENT = /* glsl */ `
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  gl_FragColor = vec4(vColor, vAlpha);
+}
+`;
 
 /**
  * Low-poly clouds of a few flattened icosahedron puffs, merged into one geometry with each

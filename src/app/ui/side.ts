@@ -27,6 +27,160 @@ function langColors(repo: Repo, palette: PaletteId): Map<string, string> {
   return new Map(repo.tree.langs.map((l, i) => [l.lang, shown[slotOf[i]!]!]));
 }
 
+/** How far a press moves before it is a drag (px), and how fast a release counts as a flick (px/ms). */
+const DRAG_SLOP = 8;
+const FLICK = 0.45;
+/** A drag this far toward the other state, in px or share of the sheet's travel, switches it. */
+const SWITCH = { px: 72, share: 0.3 };
+
+/**
+ * On a phone the sheet follows a finger dragged up or down from its handle, or down from its
+ * content once that is scrolled to the top, and snaps open or closed on release. While a drag
+ * runs the sheet carries `data-dragging` and its content shows, offset by `--sheet-y`.
+ */
+function dragSheet(
+  side: HTMLElement,
+  toggle: HTMLElement,
+  body: HTMLElement,
+  setOpen: (open: boolean) => void,
+): void {
+  const phone = matchMedia('(max-width: 760px)');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+  type Press = {
+    id: number;
+    y0: number;
+    wasOpen: boolean;
+    fromBody: boolean;
+    samples: { y: number; t: number }[];
+    travel: number;
+    dragging: boolean;
+  };
+  let press: Press | null = null;
+  let swallowClick = false;
+  let settle: (() => void) | null = null;
+
+  const offsetFor = (p: Press, y: number) =>
+    Math.min(p.travel, Math.max(0, (p.wasOpen ? 0 : p.travel) + y - p.y0));
+  const show = (offset: number, travel: number) => {
+    side.style.setProperty('--sheet-y', `${offset}px`);
+    side.style.setProperty('--sheet-closed', String(travel ? offset / travel : 0));
+  };
+  const finish = (open: boolean) => {
+    settle = null;
+    side.removeAttribute('data-settling');
+    side.style.removeProperty('--sheet-y');
+    side.style.removeProperty('--sheet-closed');
+    body.style.animation = open ? 'none' : '';
+    setOpen(open);
+    side.removeAttribute('data-dragging');
+    markTop();
+  };
+
+  /** Lets the content scroll natively except a downward drag from its top, which closes the sheet. */
+  const markTop = () => body.toggleAttribute('data-top', body.scrollTop <= 0);
+  body.addEventListener('scroll', markTop, { passive: true });
+  toggle.addEventListener('click', () => {
+    body.style.animation = '';
+    requestAnimationFrame(markTop);
+  });
+  markTop();
+
+  side.addEventListener('pointerdown', (event) => {
+    if (!phone.matches || press || settle || !event.isPrimary || event.button > 0) return;
+    const target = event.target as Element;
+    const fromBody = body.contains(target);
+    if (!fromBody && !toggle.contains(target)) return;
+    if (fromBody && (!side.hasAttribute('data-open') || body.scrollTop > 0)) return;
+    swallowClick = false;
+    press = {
+      id: event.pointerId,
+      y0: event.clientY,
+      wasOpen: side.hasAttribute('data-open'),
+      fromBody,
+      samples: [{ y: event.clientY, t: event.timeStamp }],
+      travel: 0,
+      dragging: false,
+    };
+  });
+
+  side.addEventListener('pointermove', (event) => {
+    const p = press;
+    if (!p || event.pointerId !== p.id) return;
+    const dy = event.clientY - p.y0;
+    if (!p.dragging) {
+      if (Math.abs(dy) < DRAG_SLOP) return;
+      if (p.fromBody && dy < 0) {
+        press = null;
+        return;
+      }
+      side.setAttribute('data-dragging', '');
+      p.travel = body.offsetHeight;
+      p.dragging = true;
+      p.y0 += Math.sign(dy) * DRAG_SLOP;
+      side.setPointerCapture(p.id);
+    }
+    p.samples.push({ y: event.clientY, t: event.timeStamp });
+    if (p.samples.length > 6) p.samples.shift();
+    show(offsetFor(p, event.clientY), p.travel);
+  });
+
+  const release = (event: PointerEvent) => {
+    const p = press;
+    if (!p || event.pointerId !== p.id) return;
+    press = null;
+    if (!p.dragging) return;
+    swallowClick = true;
+    const recent = p.samples.filter((s) => event.timeStamp - s.t < 100);
+    const first = recent[0];
+    const velocity =
+      first && event.timeStamp > first.t
+        ? (event.clientY - first.y) / (event.timeStamp - first.t)
+        : 0;
+    const offset = offsetFor(p, event.clientY);
+    const moved = p.wasOpen ? offset : p.travel - offset;
+    const open =
+      event.type === 'pointercancel'
+        ? p.wasOpen
+        : Math.abs(velocity) > FLICK
+          ? velocity < 0
+          : moved > Math.min(SWITCH.px, p.travel * SWITCH.share)
+            ? !p.wasOpen
+            : p.wasOpen;
+    const goal = open ? 0 : p.travel;
+    if (reduce.matches || Math.abs(goal - offset) < 1) {
+      finish(open);
+      return;
+    }
+    side.setAttribute('data-settling', '');
+    show(goal, p.travel);
+    const done = () => {
+      if (settle !== done) return;
+      clearTimeout(timer);
+      side.removeEventListener('transitionend', onEnd);
+      finish(open);
+    };
+    const onEnd = (e: TransitionEvent) => {
+      if (e.target === side && e.propertyName === 'transform') done();
+    };
+    const timer = setTimeout(done, 450);
+    settle = done;
+    side.addEventListener('transitionend', onEnd);
+  };
+  side.addEventListener('pointerup', release);
+  side.addEventListener('pointercancel', release);
+
+  side.addEventListener(
+    'click',
+    (event) => {
+      if (!swallowClick) return;
+      swallowClick = false;
+      event.stopPropagation();
+      event.preventDefault();
+    },
+    true,
+  );
+}
+
 export function mountSide(app: App): void {
   const { store, view } = app;
   const side = byId('side');
@@ -45,6 +199,7 @@ export function mountSide(app: App): void {
     toggle.setAttribute('aria-expanded', String(open));
   };
   toggle.addEventListener('click', () => setOpen(!side.hasAttribute('data-open')));
+  dragSheet(side, toggle, byId('side-body'), setOpen);
   sheetClear.addEventListener('click', () => app.select(null));
 
   const pick = (folder: number) => app.select({ folder }, true);

@@ -1483,8 +1483,16 @@ a.weather[href]:hover {
     box-shadow: 0 -8px 30px rgba(60, 40, 20, 0.12);
     padding-bottom: env(safe-area-inset-bottom, 0px);
     transition: max-height 0.3s var(--ease);
+    touch-action: none;
   }
-  .side:not([data-open]) .side-body {
+  .side[data-dragging] {
+    transform: translateY(var(--sheet-y, 0px));
+    transition: none;
+  }
+  .side[data-settling] {
+    transition: transform 0.28s var(--ease);
+  }
+  .side:not([data-open], [data-dragging]) .side-body {
     display: none;
   }
   .side[data-open] .side-body {
@@ -1535,7 +1543,11 @@ a.weather[href]:hover {
   .side[data-open] .controls {
     display: none;
   }
-  body:has(.side[data-open], #settings:not([hidden])) #labels {
+  .side[data-dragging] .controls {
+    display: flex;
+    opacity: var(--sheet-closed, 1);
+  }
+  body:has(.side[data-open], .side[data-dragging], #settings:not([hidden])) #labels {
     visibility: hidden;
   }
   .grip {
@@ -1548,6 +1560,10 @@ a.weather[href]:hover {
     padding: 0 12px 12px;
     margin: 0;
     gap: 10px;
+    touch-action: pan-y;
+  }
+  .side-body[data-top] {
+    touch-action: pan-down;
   }
   .panel {
     box-shadow: none;

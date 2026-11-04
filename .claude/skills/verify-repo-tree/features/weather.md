@@ -10,7 +10,7 @@ The scene's weather reflects the repo's recent GitHub Actions health on its defa
 - `weather-preview` shows any weather from a link's `wx=clear|sunny|cloudy|rain|storm`, which the chip calls a preview.
 - `weather-fail-soft` shows no weather and no chip when the runs endpoint is rate limited, errors or is unreachable.
 - `weather-off` turns weather off from Settings, persisted with the other settings.
-- `weather-motion` drifts clouds, falls rain or snow and flashes lightning, and holds a still frame under reduced motion.
+- `weather-motion` turns the sun's rays and breathes its halo (sunny and cloudy), drifts clouds, falls rain or snow and flashes lightning, and holds a still frame under reduced motion.
 
 ## How to get to it (user POV)
 
@@ -36,7 +36,7 @@ Preconditions:
 ## Gotchas
 
 - Runs are cached in IndexedDB for ten minutes per `owner/repo@branch`. Use a new repo name per case, as with trees.
-- Journeys and e2e run with reduced motion, so moving weather is still and `settle` returns. Without reduced motion, rain, clouds and storms keep the view rendering every frame, like spin, and `settle` never returns.
+- Journeys and e2e run with reduced motion, so moving weather is still and `settle` returns. Without reduced motion, any weather but clear (the sun too) keeps the view rendering every frame, like spin, and `settle` never returns.
 - A light sky helps the e2e pixel checks that count tree pixels: the sun is pale enough not to count as tree. Darker skies from `wx=` would count, so those checks run on samples without a preview.
 - `api.github.com` is unreachable from this sandbox, so the runs endpoint has only been exercised through the stand-in.
 - Navigating by hash alone (`page.goto(base + '#/...')`) and reloading before the tree is ready reloads the old repo: applying a link dispatches its palette first, and the store writes the shown repo's link back into the hash. Use a `?visit=` query so the navigation is a real page load.

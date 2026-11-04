@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { fetchHistory, parseHistory, MAX_WAIT_MS, type History } from './history';
 import { parseRepoRef, type RepoRef } from './ref';
@@ -124,4 +126,19 @@ describe('parseHistory', () => {
     expect(parseHistory({ ...history, v: 2 })).toBeNull();
     expect(parseHistory({ ...history, folders: { ...history.folders, churn: ['x'] } })).toBeNull();
   });
+});
+
+describe('sample histories', () => {
+  test.each(['mathiasbynens-dotfiles', 'vitejs-vite', 'torvalds-linux'])(
+    '%s covers every file of its bundled tree',
+    (id) => {
+      const read = (file: string) =>
+        JSON.parse(gunzipSync(readFileSync(`public/samples/${file}`)).toString());
+      const history = parseHistory(read(`${id}.history.json.gz`));
+      expect(history).not.toBeNull();
+      const tree = read(`${id}.json.gz`) as { tree: { tree: { path: string; type: string }[] } };
+      const files = tree.tree.tree.filter((e) => e.type === 'blob').map((e) => e.path);
+      expect(new Set(history!.files.path)).toEqual(new Set(files));
+    },
+  );
 });

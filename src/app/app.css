@@ -15,7 +15,11 @@
   --sans: 'Hanken Grotesk Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --edge: 20px;
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* Motion: a strong ease-out for anything entering or answering a press, and a
+     drawer curve for sheets. Interactions stay under 300 ms. */
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --press: 0.97;
   color-scheme: light;
 }
 
@@ -181,11 +185,10 @@ kbd {
     transform 0.15s var(--ease),
     background 0.15s;
 }
-.go:hover {
-  background: #3a352f;
-}
-.go:active {
-  transform: scale(0.97);
+@media (hover: hover) and (pointer: fine) {
+  .go:hover {
+    background: #3a352f;
+  }
 }
 .field-error {
   position: absolute;
@@ -210,7 +213,8 @@ kbd {
   box-shadow: var(--shadow-lift);
   display: grid;
   gap: 2px;
-  animation: pop 0.16s var(--ease);
+  animation: pop 0.18s var(--ease);
+  transform-origin: top left;
 }
 .suggest .h {
   margin: 6px 8px 4px;
@@ -227,10 +231,15 @@ kbd {
   padding: 6px 8px;
   text-align: left;
 }
-.suggest button:hover,
 .suggest button:focus-visible {
   background: var(--hover);
   outline: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .suggest button:hover {
+    background: var(--hover);
+    outline: none;
+  }
 }
 .suggest button span {
   flex: 1;
@@ -277,12 +286,13 @@ kbd {
     background 0.15s,
     transform 0.15s var(--ease);
 }
-.tool:hover,
 .tool[aria-expanded='true'] {
   background: #fff;
 }
-.tool:active {
-  transform: scale(0.96);
+@media (hover: hover) and (pointer: fine) {
+  .tool:hover {
+    background: #fff;
+  }
 }
 .tool svg {
   width: 18px;
@@ -346,10 +356,15 @@ h1 a svg {
     opacity 0.15s,
     transform 0.15s var(--ease);
 }
-h1 a:hover svg,
 h1 a:focus-visible svg {
   opacity: 1;
   transform: translate(0, 0);
+}
+@media (hover: hover) and (pointer: fine) {
+  h1 a:hover svg {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
 }
 h1 a[aria-disabled] {
   color: var(--muted);
@@ -404,8 +419,10 @@ h1 a[aria-disabled] {
 .weather[hidden] {
   display: none;
 }
-a.weather[href]:hover {
-  background: rgba(37, 34, 30, 0.1);
+@media (hover: hover) and (pointer: fine) {
+  a.weather[href]:hover {
+    background: rgba(37, 34, 30, 0.1);
+  }
 }
 .weather svg {
   width: 15px;
@@ -457,9 +474,11 @@ a.weather[href]:hover {
     background 0.15s,
     color 0.15s;
 }
-.icon-btn:hover {
-  background: var(--wash);
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .icon-btn:hover {
+    background: var(--wash);
+    color: var(--ink);
+  }
 }
 .icon-btn svg {
   width: 15px;
@@ -487,8 +506,10 @@ a.weather[href]:hover {
     background 0.15s,
     color 0.15s;
 }
-.seg button:hover {
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .seg button:hover {
+    color: var(--ink);
+  }
 }
 .seg button small {
   font-size: 12px;
@@ -583,15 +604,19 @@ a.weather[href]:hover {
   gap: 6px;
   transition: background 0.15s;
 }
-.btn:hover {
-  background: rgba(37, 34, 30, 0.1);
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover {
+    background: rgba(37, 34, 30, 0.1);
+  }
 }
 .btn.dark {
   background: var(--ink);
   color: #fff;
 }
-.btn.dark:hover {
-  background: #3a352f;
+@media (hover: hover) and (pointer: fine) {
+  .btn.dark:hover {
+    background: #3a352f;
+  }
 }
 .btn svg {
   width: 14px;
@@ -709,10 +734,14 @@ a.weather[href]:hover {
   text-align: left;
   transition: background 0.12s;
 }
-.folders button:hover,
-.subs button:hover,
 .folders button[aria-current='true'] {
   background: var(--hover);
+}
+@media (hover: hover) and (pointer: fine) {
+  .folders button:hover,
+  .subs button:hover {
+    background: var(--hover);
+  }
 }
 .folders button[aria-current='true'] .fn {
   font-weight: 600;
@@ -772,9 +801,13 @@ a.weather[href]:hover {
   border-radius: 6px;
   text-align: left;
 }
-.legend button:hover,
 .legend button[aria-pressed='true'] {
   background: var(--hover);
+}
+@media (hover: hover) and (pointer: fine) {
+  .legend button:hover {
+    background: var(--hover);
+  }
 }
 .legend button[aria-pressed='true'] span:not(.num) {
   font-weight: 600;
@@ -814,9 +847,11 @@ a.weather[href]:hover {
   display: grid;
   place-items: center;
 }
-.close:hover {
-  color: var(--ink);
-  background: rgba(37, 34, 30, 0.1);
+@media (hover: hover) and (pointer: fine) {
+  .close:hover {
+    color: var(--ink);
+    background: rgba(37, 34, 30, 0.1);
+  }
 }
 .close svg {
   width: 14px;
@@ -843,9 +878,11 @@ a.weather[href]:hover {
   text-underline-offset: 3px;
   border-radius: 3px;
 }
-.crumbs button:hover {
-  color: var(--ink);
-  text-decoration-color: currentColor;
+@media (hover: hover) and (pointer: fine) {
+  .crumbs button:hover {
+    color: var(--ink);
+    text-decoration-color: currentColor;
+  }
 }
 .crumbs strong {
   color: var(--ink);
@@ -940,9 +977,6 @@ a.weather[href]:hover {
     transform 0.15s var(--ease),
     background 0.15s;
 }
-.pill-btn:active {
-  transform: scale(0.97);
-}
 .pill-btn svg {
   width: 17px;
   height: 17px;
@@ -951,13 +985,22 @@ a.weather[href]:hover {
   background: var(--ink);
   color: #fff;
 }
-.pill-btn.primary:hover {
-  background: #3a352f;
+@media (hover: hover) and (pointer: fine) {
+  .pill-btn.primary:hover {
+    background: #3a352f;
+  }
 }
 .help {
   margin: 0 0 0 6px;
   color: var(--muted);
   font-size: 12.5px;
+  transition:
+    opacity 0.3s var(--ease),
+    visibility 0.3s;
+}
+.help[data-seen] {
+  opacity: 0;
+  visibility: hidden;
 }
 
 /* Timeline: the button among the controls and the scrubber above them. */
@@ -1016,8 +1059,10 @@ a.weather[href]:hover {
   background: none;
   color: var(--muted);
 }
-.scrub-close:hover {
-  background: var(--hover);
+@media (hover: hover) and (pointer: fine) {
+  .scrub-close:hover {
+    background: var(--hover);
+  }
 }
 .scrub-close svg {
   width: 16px;
@@ -1222,7 +1267,8 @@ a.weather[href]:hover {
   background: #fff;
   border-radius: 16px;
   box-shadow: var(--shadow-lift);
-  animation: pop 0.16s var(--ease);
+  animation: pop 0.18s var(--ease);
+  transform-origin: top center;
 }
 .search {
   top: calc(env(safe-area-inset-top, 0px) + 72px);
@@ -1327,6 +1373,7 @@ a.weather[href]:hover {
   padding: 18px;
   display: grid;
   gap: 18px;
+  transform-origin: top right;
 }
 .settings h2 {
   margin: 0;
@@ -1434,7 +1481,6 @@ a.weather[href]:hover {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  transition: transform 0.2s var(--ease);
 }
 .switch input:checked {
   background: var(--ink);
@@ -1462,8 +1508,10 @@ a.weather[href]:hover {
     color 0.15s,
     border-color 0.15s;
 }
-.chip:hover {
-  border-color: rgba(37, 34, 30, 0.45);
+@media (hover: hover) and (pointer: fine) {
+  .chip:hover {
+    border-color: rgba(37, 34, 30, 0.45);
+  }
 }
 .chip[aria-pressed='true'] {
   background: var(--wash);
@@ -1532,6 +1580,67 @@ a.weather[href]:hover {
   translate: -50% 0;
 }
 
+/* Press feedback. Every button answers a press by settling slightly, so a tap
+   feels registered before anything else changes. Rows darken instead of scaling. */
+:is(
+  .go,
+  .tool,
+  .pill-btn,
+  .btn,
+  .seg button,
+  .swatches button,
+  .chip,
+  .close,
+  .icon-btn,
+  .scrub-play,
+  .scrub-close
+) {
+  transition-property: transform, background, color, box-shadow, border-color;
+  transition-duration: 0.16s;
+  transition-timing-function: var(--ease);
+}
+:is(
+  .go,
+  .tool,
+  .pill-btn,
+  .btn,
+  .seg button,
+  .swatches button,
+  .chip,
+  .close,
+  .icon-btn,
+  .scrub-play,
+  .scrub-close
+):active {
+  transform: scale(var(--press));
+}
+:is(.folders button, .subs button, .legend button, .suggest button, .results li):active {
+  background: rgba(37, 34, 30, 0.09);
+}
+@media (hover: hover) and (pointer: fine) {
+  .pill-btn:not(.primary, [aria-pressed='true']):hover {
+    background: #fbfaf8;
+    box-shadow: var(--shadow-lift);
+  }
+  .swatches button:not([aria-checked='true']):hover {
+    border-color: rgba(37, 34, 30, 0.25);
+  }
+  .scrub-play:hover {
+    background: #3a352f;
+  }
+}
+.switch input:active::after {
+  width: 20px;
+}
+.switch input:checked:active::after {
+  transform: translateX(12px);
+}
+.switch input::after {
+  transition:
+    transform 0.2s var(--ease),
+    width 0.2s var(--ease);
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -1541,7 +1650,7 @@ a.weather[href]:hover {
 @keyframes pop {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.985);
+    transform: scale(0.96);
   }
 }
 @keyframes fade {
@@ -1655,11 +1764,11 @@ a.weather[href]:hover {
     right: 0;
     width: auto;
     max-height: 60%;
-    background: var(--card-solid);
+    background: #fff;
     border-radius: 20px 20px 0 0;
     box-shadow: 0 -8px 30px rgba(60, 40, 20, 0.12);
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    transition: max-height 0.3s var(--ease);
+    transition: max-height 0.36s var(--ease-drawer);
     touch-action: none;
   }
   .side[data-dragging] {
@@ -1667,7 +1776,7 @@ a.weather[href]:hover {
     transition: none;
   }
   .side[data-settling] {
-    transition: transform 0.28s var(--ease);
+    transition: transform 0.32s var(--ease-drawer);
   }
   .side:not([data-open], [data-dragging]) .side-body {
     display: none;
@@ -1749,8 +1858,10 @@ a.weather[href]:hover {
     -webkit-backdrop-filter: none;
   }
   .detail {
-    background: #fff;
-    box-shadow: 0 0 0 1px var(--line);
+    background: none;
+    padding: 4px 4px 14px;
+    border-radius: 0;
+    border-bottom: 1px solid var(--line);
   }
   .folders button,
   .subs button,
@@ -1790,6 +1901,13 @@ a.weather[href]:hover {
     width: 44px;
     height: 44px;
     padding: 0;
+    border-radius: 999px;
+  }
+  .controls #settings-open {
+    width: 44px;
+  }
+  .controls :is(.pill-btn, .tool) {
+    flex: none;
   }
   .controls .tool .label,
   .controls .tool kbd {
@@ -1837,7 +1955,7 @@ a.weather[href]:hover {
     max-height: 60%;
     border-radius: 20px 20px 0 0;
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
-    animation: sheet 0.25s var(--ease);
+    animation: sheet 0.36s var(--ease-drawer);
   }
   .settings .seg button,
   .swatches button,
@@ -1855,10 +1973,15 @@ a.weather[href]:hover {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 124px);
   }
 }
+@media (max-width: 380px) {
+  .controls,
+  .controls .tools {
+    gap: 4px;
+  }
+}
 @keyframes sheet {
   from {
-    transform: translateY(40%);
-    opacity: 0;
+    transform: translateY(100%);
   }
 }
 

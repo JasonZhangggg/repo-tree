@@ -14,6 +14,7 @@ A user points at a branch to see which folder it is, clicks to pin that folder's
 - `explore-legend` highlights one legend entry's leaves on click (hover previews it on desktop), shows its file count under the legend, writes `hl=` to the URL, and clears on a second click, Escape or a pin.
 - `explore-frame` frames the whole tree with `f`.
 - `explore-orbit` orbits by dragging and zooms by scrolling.
+- `explore-hint` shows `Drag to orbit · scroll to zoom · click a branch to pin` beside the desktop controls until the first drag or click on the tree, then fades it out and keeps it hidden on later visits (localStorage `repo-tree:hint-seen`). e2e covers it in `the orbit hint fades after the first drag and stays gone`.
 
 ## How to get to it (user POV)
 

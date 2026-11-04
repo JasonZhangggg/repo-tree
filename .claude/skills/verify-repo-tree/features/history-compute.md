@@ -32,12 +32,12 @@ Preconditions:
 
 - **Offer.** Load `acme/widgets` through the stand-in API and choose `Timeline`. Step `offer`. The dialog names `under 1 MB` and the sharing. On a phone it also shows the small-device warning.
 - **Decline.** Choose `Not now`. Step `decline`. The dialog and the scrubber are hidden.
-- **Big repo.** Load `acme/huge` (the Linux sample's tree) and choose `Timeline`. Step `big-repo`. The dialog warns `This is a big repo.` with `about 85 MB` and offers `Sign in and compute anyway`.
+- **Big repo.** Load `acme/huge` (the Linux sample's tree) and choose `Timeline`. Step `big-repo`. The dialog warns `This is a big repo.` with `about 50 MB` and offers `Sign in and compute anyway`.
 - **Progress.** Choose `Not now`, load `acme/widgets`, choose `Timeline`, then choose `Sign in…`. The popup signs in against the fake and closes. Step `progress`. The bar and `N% ·` show, with `Cancel`.
 - **Timeline.** Step `timeline`. The scrubber opens on `36 files`, and the Worker answers `GET /v1/history/acme/widgets?branch=main` with a manifest `by: visitor`. Only the fake and the Worker received an `Authorization` header, and localStorage holds no token.
 - **Shared.** A second, signed-out browser context opens `#/acme/widgets` and chooses `Timeline`. Step `shared`. The scrubber opens with no dialog. The screenshot shows the first page, and the step only checks the second.
 - **Refresh offer.** The journey moves the fake's head to the newest commit and shifts the page's clock two days on (`addInitScript`), then reopens `#/acme/widgets` signed in and chooses `Timeline`. Step `refresh-offer`. The dialog reads `The timeline of acme/widgets is out of date` with `Refresh history` and `Use this one`.
-- **Refreshed.** Choose `Refresh history`. Step `refreshed`. The scrubber opens and the Worker's manifest names the new head. The journey sets the debug flag (localStorage `repo-tree:debug` = `1`), so a wrapped toast shows the run's breakdown line: `history acme/widgets: N s, N requests, …`, with each phase's time (the upload's included), requests by kind with bytes and mean/p90 latency, waits, GraphQL batches and whether it fell back to REST.
+- **Refreshed.** Choose `Refresh history`. Step `refreshed`. The scrubber opens and the Worker's manifest names the new head. The journey sets the debug flag (localStorage `repo-tree:debug` = `1`), so a wrapped toast shows the run's breakdown line: `history acme/widgets: N s, N requests, …`, with each phase's time (the upload's included), requests by kind with bytes and mean/p90 latency, waits, GraphQL batches (none when the git fetch read the trees: `pack 1 req`) and whether it fell back (`fell back: no`).
 - `history-failed` has no journey step. `src/timeline/compute-view.test.ts` checks each failure's text, and `src/repo/compute-history.test.ts` checks resuming.
 
 ## Gotchas

@@ -3,7 +3,8 @@
 // for a stored history of a given size: GET, an accepted PUT (GitHub and the Ledger answered from
 // memory, so only the Worker's own work counts), one ledger call on node:sqlite (the Durable
 // Object's own CPU, billed to it, not the Worker), and, for comparison, what reading the body
-// would cost.
+// would cost. Also a git-upload-pack fetch of 65 wants: the checks up to the streamed answer,
+// whose body (here 50 MB) the Worker hands on without reading it.
 //
 //   node scripts/worker-cpu.mjs <history.json>
 import { readFileSync } from 'node:fs';
@@ -42,6 +43,19 @@ const github = async (/** @type {string} */ input) => {
   const json = (/** @type {unknown} */ body) =>
     new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
   if (url.pathname === '/user') return json({ login: 'visitor' });
+  if (url.pathname.endsWith('.git/git-upload-pack')) {
+    let left = 50e6;
+    return new Response(
+      new ReadableStream({
+        pull(c) {
+          if (left <= 0) return c.close();
+          c.enqueue(new Uint8Array(65536));
+          left -= 65536;
+        },
+      }),
+      { headers: { 'content-type': 'application/x-git-upload-pack-result' } },
+    );
+  }
   if (url.pathname.endsWith('/commits/' + history.branch)) return new Response(history.head);
   const commit = /\/git\/commits\/([0-9a-f]{40})$/.exec(url.pathname);
   if (commit) {
@@ -131,6 +145,23 @@ const putOnce = async () => {
   );
   if (res.status !== 201) throw new Error(`PUT ${res.status} ${await res.text()}`);
 };
+const { fetchRequest } = await import('../src/core/pack.ts');
+const wants = Array.from({ length: 65 }, (_, i) => i.toString(16).padStart(40, '0'));
+const packOnce = async () => {
+  const res = await worker.fetch(
+    new Request(`https://history.test/v1/git/${owner}/${name}/git-upload-pack`, {
+      method: 'POST',
+      body: fetchRequest(wants),
+      headers: {
+        Authorization: 'Bearer gho_' + 'x'.repeat(36),
+        'Content-Type': 'application/x-git-upload-pack-request',
+      },
+    }),
+    env,
+  );
+  if (res.status !== 200) throw new Error(`pack ${res.status} ${await res.text()}`);
+  await res.body?.cancel();
+};
 const getOnce = async () => {
   const res = await worker.fetch(new Request(path), env);
   if (res.status !== 200) throw new Error(`GET ${res.status}`);
@@ -146,6 +177,7 @@ console.log(
     manifestKB: +(manifest.length / 1024).toFixed(1),
     putCpuMs: await cpu(putOnce),
     getCpuMs: await cpu(getOnce),
+    packCpuMs: await cpu(packOnce),
     ledgerReserveCpuMs: await cpu(reserveOnce),
     gunzipCpuMs: await cpu(async () => gunzipSync(gz), 10),
     gunzipAndParseCpuMs: await cpu(async () => JSON.parse(gunzipSync(gz).toString()), 10),

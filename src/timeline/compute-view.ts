@@ -51,7 +51,7 @@ export function describeStep(
           kind: 'warn',
           text:
             `${estimate.big ? 'This is a big repo.' : 'This looks like a phone or a small device.'} ` +
-            `It downloads ${download} and the tab may use ${megabytes(estimate.memoryMB)} of memory while it runs${estimate.big ? ', for a few minutes' : ''}.` +
+            `It downloads ${download} and the tab may use ${megabytes(estimate.memoryMB)} of memory while it runs${estimate.big ? ', for a minute or more' : ''}.` +
             (phone ? ' On a phone it can be slow, use mobile data and drain the battery.' : ''),
         });
       }

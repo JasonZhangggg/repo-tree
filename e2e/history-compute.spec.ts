@@ -79,8 +79,9 @@ test('signs in, computes in the browser, shares it, and opens the timeline', asy
   const line = logged.find((l) => l.startsWith('history acme/widgets: '));
   expect(line).toMatch(/listings [\d.]+ s, probes/);
   expect(line).toMatch(/upload [\d.]+ s/);
-  expect(line).toMatch(/graphql \d+ req/);
-  expect(line).toContain('fell back to REST: no');
+  // Every tree came in one git fetch through the Worker.
+  expect(line).toMatch(/pack 1 req/);
+  expect(line).toContain('fell back: no');
   const trace = await page.evaluate(
     () =>
       (window as unknown as { __repoTree: { computeTrace: { requests: number } | null } })

@@ -73,6 +73,12 @@ function snapshotDigest(snapshots: { sha: string; at: number }[]): Promise<strin
 // GET <VITE_HISTORY_URL>/v1/history/{owner}/{repo}?branch=  200: the gzipped History JSON, its StoredManifest in X-History-Manifest; 404 missing.
 // PUT the same URL, Authorization: Bearer <visitor token>, body the gzipped History JSON, X-History-Manifest an UploadManifest. 201 stored.
 // POST <...>/{owner}/{repo}/bad?branch=&head=  202 noted: a reader could not use the stored body; the next upload for that head may replace it.
+// POST <VITE_HISTORY_URL>/v1/git/{owner}/{repo}/git-upload-pack  Authorization: Bearer <visitor token>, Content-Type
+//   application/x-git-upload-pack-request, body a git protocol v2 fetch (core/pack.ts fetchRequest). 200: github.com's answer, streamed
+//   untouched (application/x-git-upload-pack-result), fetched with Basic x-access-token:<token> and Git-Protocol: version=2. Refused before
+//   GitHub unless checkFetchRequest(body) passes (command=fetch; caps agent=, object-format=sha1; args only want <sha> (1 to MAX_WANTS = 256),
+//   no-progress, ofs-delta, and deepen 1, filter blob:none, done, all three required; at most 64 KiB) → 400 invalid / 413 too-large; then
+//   GET /user and /repos/{repo} (public) → 401 / 403 private / 404; PACK_LIMITER (6 a minute) keyed ip:<ip> before GitHub, login:<login> after.
 // Uploads are taken for the repo's default branch only. Localhost origins only when the ALLOW_LOCALHOST var is set (local runs, e2e).
 // KV (the store): key `h1:${repo.toLowerCase()}@${branch}` (core/upload.ts historyKey), value the body untouched, metadata the StoredManifest,
 // 90-day TTL, one write per accepted upload (plus a delete per eviction), none per job step or sign-in. The Worker never decompresses or parses a body (10 ms CPU);
@@ -96,9 +102,10 @@ type LedgerLimits = { perLogin: 20; perDay: 200; maxBytes: 500 MB; writesPerDay:
 
 // server/src/core/engine.ts  (pure but for the injected fetch; runs in the visitor's browser in repo/history-worker.ts, and in Node for tests and scripts)
 type EngineOptions = { fetch: typeof fetch; api: string; token?: string; repo: string /* owner/repo */; branch: string; signal?: AbortSignal;
-  onProgress?: (p: number, bytes: number /* body bytes read so far */) => void; concurrency?: number /* 6 */; recentCommits?: number /* 100 */;
+  onProgress?: (p: number /* never falls */, bytes: number /* body bytes read so far */) => void; concurrency?: number /* 6; 12 with a pack */; recentCommits?: number /* 100 */;
   maxSnapshots?: number; sparse?: boolean /* every other week and month past the 12th: a subset of schedule() */; reader?: 'graphql' | 'rest';
   trace?: Trace /* core/trace.ts, filled with where the run's time and bytes went */;
+  packUrl?: string /* the Worker's git-upload-pack route: with a token (and no finite treeBudget), every tree in one git fetch */;
   checkpoint?: Checkpoint /* pass the same one again to resume after a failure */; treeBudget?: number; now?: () => number;
   onStats?: (stats: EngineStats) => void; onSamples?: (snapshots: { sha: string; at: number; tree: string }[]) => void /* the UploadManifest's snapshots */ };
 function computeHistory(options: EngineOptions): Promise<History>; // rejects with { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt }
@@ -110,13 +117,25 @@ function computeHistory(options: EngineOptions): Promise<History>; // rejects wi
 // trees; only a commit whose parent is unlisted or whose trees stayed unread takes a REST /commits/{sha}. The head's trees start before
 // the root lookup; probes go first in the request pool, and a target out of the last page's reach (by twice its span) is probed ahead.
 // GraphQL batches start at 100 trees and grow to 400; a part batch goes once 100 are queued or nothing is in flight.
+// Tree readers in order: the pack (packUrl), then GraphQL, then REST; each reads only the trees still unread below the snapshots' roots
+// (engine.ts unread(store, roots)). With a pack: once the probes have picked every snapshot, one fetch wants the head, every snapshot and
+// the diffed recent commits with their first parents; nothing else is read unless it fails or is cut short. Probes look up to 24 targets
+// ahead; a mainline pick goes out when its ahead page shows it is needed; the branch's length (per_page=1) is asked beside the first page.
+// core/pack.ts: fetchRequest(wants): Uint8Array; checkFetchRequest(body): { ok: true; wants } | { ok: false; reason };
+//   PackReader({ onObject({ oid, type: 'commit' | 'tree' | 'blob' | 'tag', data }), cacheBytes? /* 24 MiB */, segmentBytes? /* 8 MiB */ })
+//   .push(chunk) / .end(): PackStats { bytes, objects, deltas, reinflated, held, shallow }: pkt-lines, side band 1 (2 ignored, 3 or ERR throw
+//   PackError), the pack kept compressed in segments, objects inflated (core/inflate.ts inflateAt) and deltas (ofs and ref) resolved against
+//   an LRU of inflated bases, each named by core/sha1.ts gitOid; a blob throws. fetchPack(wants, store, { url, token, fetch, signal }, onBytes?)
+//   → PackResult = PackStats & { commits: Map<sha, { tree; parents }>; trees; firstByteMs; ms }, trees via TreeStore.addRaw(t, bytes).
 // core/trace.ts: tracer() → Trace { begin/end(phase), request(kind, ms, bytes, wire?), waited, batch, cpu, summary(): TraceSummary };
-// TraceSummary = { ms; phases: { name: 'listings' | 'probes' | 'head tree' | 'graphql' | 'rest' | 'recent' | 'upload'; from; ms }[];
-//   kinds: { kind: 'listing' | 'probe' | 'tree' | 'graphql' | 'commit' | 'blob' | 'upload'; requests; bytes; wire?; meanMs; p90Ms }[];
-//   requests; bytes; waitedMs; retried; batches: Record<size, queries>; failed; fellBack; cpuMs }; formatTrace(repo, s) is one line.
+// TraceSummary = { ms; phases: { name: 'listings' | 'probes' | 'head tree' | 'pack' | 'graphql' | 'rest' | 'recent' | 'upload'; from; ms }[];
+//   kinds: { kind: 'listing' | 'probe' | 'pack' | 'tree' | 'graphql' | 'commit' | 'blob' | 'upload'; requests; bytes; wire?; meanMs; p90Ms }[];
+//   requests; bytes; waitedMs; retried; batches: Record<size, queries>; failed; fellBack /* the first reader left trees unread */; cpuMs };
+//   formatTrace(repo, s) is one line. EngineStats.pack: PackResult less commits, plus wants and commits counts, or { wants; error }, or null.
 type Checkpoint = { pages: Map<string, { commits: CommitSummary[]; link: string | null }>; store: TreeStore; changes: Map<string, { files: FileChange[]; capped: boolean }>; codeowners: Map<string, string> };
 // core/store.ts TreeStore: every distinct tree object read, once, in typed arrays (a tree id per oid; entries of name id, mode, ref sorted by name;
-// a folder's ref is its tree id, a file's the first 52 bits of its blob oid). id(oid), add(t, entries), loaded(t), length/name/mode/ref/find(t, ...), count(t).
+// a folder's ref is its tree id, a file's the first 52 bits of its blob oid). id(oid), add(t, entries), addRaw(t, gitTreeBytes) /* same rows,
+// names interned by their bytes */, loaded(t), length/name/mode/ref/find(t, ...), count(t).
 
 // repo/history.ts  (boundary: network; history features are off when VITE_HISTORY_URL is unset)
 type HistoryResult = { status: 'ready'; history: History } | { status: 'missing' /* nobody computed it yet, or the stored body is unusable */ } | null /* off or failed */;
@@ -129,12 +148,12 @@ function uploadHistory(history: History, snapshots: Snapshot[], token: string, o
 function cacheComputed(ref, branch, history: History): Promise<void>; // a computed history, cached as if fetched
 
 // repo/compute-history.ts  (boundary: the engine in a module Worker; a failed or cancelled run's worker is kept, with its checkpoint, to resume)
-type ComputeRequest = { run: number; repo: string; branch: string; token?: string; api: string }; type ComputeCommand = ComputeRequest | { cancel: number /* run */ };
+type ComputeRequest = { run: number; repo: string; branch: string; token?: string; api: string; packUrl?: string /* timeline/source.ts: <server>/v1/git/<owner>/<repo>/git-upload-pack */ }; type ComputeCommand = ComputeRequest | { cancel: number /* run */ };
 type ComputeMessage = { run: number } & ({ progress: number } | { history: History; snapshots: Snapshot[]; trace?: TraceSummary } | { error: ComputeError; trace?: TraceSummary }); // another run's are ignored
 type Snapshot = { sha: string; at: number; tree: string };
 type ComputeError = { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt: number };
 type ComputeResult = { status: 'ready'; history: History; snapshots: Snapshot[]; trace?: TraceSummary } | { status: 'error'; error: ComputeError; trace?: TraceSummary };
-function computeHistoryInWorker(ref, branch, options?: { token?: string | null; signal?: AbortSignal; onProgress?: (p: number) => void; api?: string; spawn?: () => WorkerLike }): Promise<ComputeResult>; // rejects only on abort
+function computeHistoryInWorker(ref, branch, options?: { token?: string | null; signal?: AbortSignal; onProgress?: (p: number) => void; api?: string; packUrl?: string; spawn?: () => WorkerLike }): Promise<ComputeResult>; // rejects only on abort
 function loadSampleHistory(id: string, base?: string): Promise<History | null>; // <base>samples/<id>.history.json.gz
 function parseHistory(body: unknown): History | null; // version and column alignment checked
 

@@ -15,6 +15,11 @@
  *        uploader's token, then stored: two ledger calls, eight GitHub requests, one KV write.
  *   POST /v1/history/<owner>/<repo>/bad?branch=<b>&head=<sha>   a reader could not use the stored
  *        body: the next good upload may replace it. One ledger call.
+ *   POST /v1/git/<owner>/<repo>/git-upload-pack   (signed in; body a git protocol v2 fetch
+ *        request) the snapshot trees in one pack (core/pack.ts). The request must want commits
+ *        or trees at depth 1 with `filter blob:none` (checkFetchRequest); the repo must be
+ *        public. Two GitHub API requests check the token and the repo, then github.com's answer
+ *        streams back untouched, under the visitor's own token (git's limits are per user).
  */
 
 import { parseRepoRef } from '../../src/repo/ref';
@@ -27,6 +32,13 @@ import {
   type LedgerRequest,
 } from './core/ledger';
 import { callbackPage, finishLogin, startLogin, type OAuthConfig } from './core/oauth';
+import { UpstreamError, gitHub, isRecord } from './core/github';
+import {
+  MAX_REQUEST_BYTES,
+  UPLOAD_PACK_REQUEST,
+  UPLOAD_PACK_RESULT,
+  checkFetchRequest,
+} from './core/pack';
 import { historyKey, parseManifest, verifyUpload } from './core/upload';
 import {
   MAX_INFLATED_BYTES,
@@ -61,9 +73,12 @@ export type Env = {
   /** Requests a minute per IP, and uploads a minute per IP (Workers rate limiting). */
   LIMITER?: RateLimit;
   UPLOAD_LIMITER?: RateLimit;
+  /** Pack fetches a minute, per IP and per GitHub login (keys `ip:` and `login:`). */
+  PACK_LIMITER?: RateLimit;
 };
 
 const HISTORY_ROUTE = /^\/v1\/history\/([^/]+)\/([^/]+?)(\/bad)?\/?$/;
+const GIT_ROUTE = /^\/v1\/git\/([^/]+)\/([^/]+?)\/git-upload-pack$/;
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 /** Git's ref name rules, roughly: printable, no `..`, `//`, `@{`, leading or trailing `/`, or `.lock` end. */
 const BRANCH = /^(?!\/|.*(?:\.\.|\/\/|@\{|\.lock$|\/$))[!-~]{1,255}$/;
@@ -119,6 +134,19 @@ export default {
       });
     }
     if (url.pathname === '/health') return new Response('ok', { headers: cors });
+    const git = GIT_ROUTE.exec(url.pathname);
+    if (git) {
+      if (request.method !== 'POST')
+        return new Response('not found', { status: 404, headers: cors });
+      const ref = parseRepoRef(`${decodeURIComponent(git[1]!)}/${decodeURIComponent(git[2]!)}`);
+      if ('kind' in ref) return send({ status: 'error', error: 'invalid' });
+      const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+      if (env.LIMITER && !(await env.LIMITER.limit({ key: ip })).success) {
+        return send({ status: 'error', error: 'rate-limited', retryAfter: 60 });
+      }
+      const out = await uploadPack(request, env, `${ref.owner}/${ref.repo}`, ip);
+      return out instanceof Response ? withHeaders(out, cors) : send(out);
+    }
     const match = HISTORY_ROUTE.exec(url.pathname);
     const bad = match?.[3] !== undefined;
     if (
@@ -266,6 +294,118 @@ async function upload(
     return error('upstream');
   }
   return { status: 'stored', manifest: verdict.manifest };
+}
+
+/**
+ * POST /v1/git/<repo>/git-upload-pack: checks, then github.com's answer as a stream, or the
+ * reason it was refused. The Worker never reads the answer: its CPU is the checks (well under a
+ * millisecond, scripts/worker-cpu.mjs) however big the pack.
+ */
+async function uploadPack(
+  request: Request,
+  env: Env,
+  repo: string,
+  ip: string,
+): Promise<Response | HistoryReply> {
+  const error = (e: HistoryError, retryAfter?: number): HistoryReply =>
+    retryAfter ? { status: 'error', error: e, retryAfter } : { status: 'error', error: e };
+  const auth = request.headers.get('Authorization');
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  if (!TOKEN.test(token)) return error('unauthorized');
+  if (request.headers.get('Content-Type') !== UPLOAD_PACK_REQUEST) return error('invalid');
+  const length = Number(request.headers.get('Content-Length') ?? NaN);
+  if (Number.isInteger(length) && length > MAX_REQUEST_BYTES) return error('too-large');
+  if (env.PACK_LIMITER && !(await env.PACK_LIMITER.limit({ key: `ip:${ip}` })).success) {
+    return error('rate-limited', 60);
+  }
+  const body = await readCapped(request, MAX_REQUEST_BYTES);
+  if (!body) return error('too-large');
+  if (!checkFetchRequest(body).ok) return error('invalid');
+
+  const gh = gitHub({
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
+    api: env.GITHUB_API ?? 'https://api.github.com',
+    token,
+    limit: 2,
+  });
+  let login: string;
+  try {
+    const [{ body: user }, { body: meta }] = await Promise.all([
+      gh.json('/user'),
+      gh.json(`/repos/${repo}`),
+    ]);
+    if (!isRecord(user) || typeof user.login !== 'string') return error('unauthorized');
+    if (!isRecord(meta)) return error('upstream');
+    if (meta.private !== false) return error('private');
+    login = user.login.toLowerCase();
+  } catch (e) {
+    if (!(e instanceof UpstreamError)) return error('upstream');
+    if (e.kind === 'rate-limited') {
+      return error('rate-limited', Math.max(1, Math.ceil((e.resetAt - Date.now()) / 1000)));
+    }
+    return error(e.kind === 'not-found' || e.kind === 'empty' ? 'not-found' : e.kind);
+  }
+  if (env.PACK_LIMITER && !(await env.PACK_LIMITER.limit({ key: `login:${login}` })).success) {
+    return error('rate-limited', 60);
+  }
+
+  const upstream = await fetch(
+    `${env.GITHUB_WEB ?? 'https://github.com'}/${repo}.git/git-upload-pack`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${btoa(`x-access-token:${token}`)}`,
+        'Content-Type': UPLOAD_PACK_REQUEST,
+        Accept: UPLOAD_PACK_RESULT,
+        'Git-Protocol': 'version=2',
+        'User-Agent': 'git/repo-tree',
+      },
+      body,
+    },
+  ).catch(() => null);
+  if (!upstream) return error('upstream');
+  if (!upstream.ok || !upstream.body) {
+    await upstream.body?.cancel().catch(() => undefined);
+    if (upstream.status === 401 || upstream.status === 403) return error('unauthorized');
+    if (upstream.status === 404) return error('not-found');
+    if (upstream.status === 429) return error('rate-limited', 60);
+    return error('upstream');
+  }
+  return new Response(upstream.body, {
+    headers: { 'Content-Type': UPLOAD_PACK_RESULT, 'Cache-Control': 'no-store' },
+  });
+}
+
+/** The request body, or null past `max` bytes (read no further than that). */
+async function readCapped(request: Request, max: number): Promise<Uint8Array | null> {
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const parts: Uint8Array[] = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.length;
+    if (n > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(n);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}
+
+/** A response with these headers added (CORS). */
+function withHeaders(res: Response, headers: Record<string, string>): Response {
+  const out = new Headers(res.headers);
+  for (const [k, v] of Object.entries(headers)) out.set(k, v);
+  return new Response(res.body, { status: res.status, headers: out });
 }
 
 /**

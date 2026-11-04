@@ -7,8 +7,10 @@
  *   branch commit whose older base would read as churn: found by walking first parents through
  *   the commit listings where they reach (exact), else, when the mainline has one committer
  *   (Linux: Linus Torvalds), the newest of that committer's commits, else the newest by date;
- * - every distinct tree object is read once, through GraphQL many to a query (trees.ts), or,
- *   without it, through REST pruned against the newer snapshot; both fill one compact store;
+ * - every distinct tree object is read once: all of them in one git fetch (pack.ts, through
+ *   the history Worker), else through GraphQL many to a query (trees.ts), else through REST
+ *   pruned against the newer snapshot; each fills one compact store, and each fallback reads
+ *   only what the one before it left unread;
  * - snapshots are folded as diffs of neighbouring trees, so the work per snapshot follows what
  *   changed, and paths are rows in typed arrays, not a map per snapshot;
  * - requests run several at a time and are retried with backoff (5xx, network errors,
@@ -57,6 +59,7 @@ import {
   type ReadStats,
 } from './trees';
 import { kindOf, tracer, type Trace } from './trace';
+import { fetchPack, type PackResult } from './pack';
 
 export type EngineOptions = {
   fetch: typeof fetch;
@@ -84,6 +87,14 @@ export type EngineOptions = {
    * when GraphQL keeps failing) or 'rest' (the default without one: GraphQL needs a token).
    */
   reader?: 'graphql' | 'rest';
+  /**
+   * The history Worker's git-upload-pack route for this repo
+   * (`<worker>/v1/git/<owner>/<repo>/git-upload-pack`). With a token, every snapshot's trees
+   * come in one git fetch from it, once the snapshots are picked; when it fails, `reader`
+   * reads what is missing. Not used with a finite `treeBudget` (that needs the head's size
+   * before the snapshots are picked).
+   */
+  packUrl?: string;
   graphql?: Partial<GraphQLOptions>;
   plan?: Partial<Plan>;
   retry?: RetryPolicy;
@@ -112,6 +123,11 @@ export type EngineStats = {
   retried: number;
   rest: ReadStats;
   graphql: (LoaderStats & { gaveUp: boolean }) | null;
+  /** The git fetch, when one was made: what it read, or why it failed. */
+  pack:
+    | (Omit<PackResult, 'commits'> & { wants: number; commits: number })
+    | { wants: number; error: string }
+    | null;
   store: { trees: number; entries: number; bytes: number };
   snapshots: number;
   rows: number;
@@ -155,7 +171,7 @@ const FILES_CAP = 3000;
 const TYPICAL_SHARE = 0.9;
 const MIN_TARGETS = 6;
 /** Probes asked for ahead at most, and how far past a page's reach a target must be to be one. */
-const LOOKAHEAD = 12;
+const LOOKAHEAD = 24;
 const LOOK_MARGIN = 2;
 /** Snapshots read ahead while REST reads them whole (small and medium repos). */
 const PREFETCH = 4;
@@ -168,6 +184,8 @@ const iso = (ms: number) => new Date(ms).toISOString();
  * then keep GraphQL busy, and behind six tree queries a probe would wait a second each time.
  */
 const PROBES = 0;
+/** Requests in flight at once when a pack reads the trees (EngineOptions.concurrency). */
+const PACK_CONCURRENCY = 12;
 const TREES = 1;
 const RECENT = 2;
 
@@ -191,7 +209,14 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     retry: options.retry ?? PATIENT,
     ...(signal ? { signal } : {}),
   });
-  const pool = createPool(options.concurrency ?? 6, signal);
+  // With a pack, the pool carries only listings and probes (and the odd commit): small requests
+  // whose round trips are the wait, so twice as many go at once. api.github.com speaks HTTP/2,
+  // where the browser's six per host does not apply.
+  const usePack =
+    options.packUrl !== undefined &&
+    options.token !== undefined &&
+    !Number.isFinite(options.treeBudget ?? Infinity);
+  const pool = createPool(options.concurrency ?? (usePack ? PACK_CONCURRENCY : 6), signal);
   const base = `/repos/${repo}`;
   const counts = { listings: 0, trees: 0, graphql: 0, commits: 0, blobs: 0 };
   const get = (path: string, priority: number, kind: keyof typeof counts) =>
@@ -214,7 +239,13 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   const gaps: Gap[] = [];
   trace.begin('listings');
   const newest = `sha=${encodeURIComponent(branch)}&per_page=${PER_PAGE}`;
+  // The branch's length (the Link of a one-commit page) is asked alongside the newest page: the
+  // root lookup needs it, and it saves a round trip before the probes can start.
+  const counted = `sha=${encodeURIComponent(branch)}&per_page=1`;
   cp.pages.delete(newest);
+  cp.pages.delete(counted);
+  const count = list(counted, PROBES);
+  count.catch(() => undefined);
   const first = await list(newest, PROBES);
   const headCommit = first.commits[0];
   if (!headCommit) throw new UpstreamError('empty');
@@ -226,20 +257,30 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   const mainline = mainlineCommitter(first.commits);
 
   let targets: number[] = [];
-  const progress = { probes: 0, trees: 0, recent: 0 };
+  const progress = { probes: 0, trees: 0, recent: 0, packBytes: 0, packObjects: 0, packCount: 0 };
   let loader: GraphQLLoader | null = null;
+  /** 'wait' until the probes are done, 'read' while the pack streams, then 'read' or 'failed'. */
+  let pack: 'none' | 'wait' | 'read' | 'failed' = usePack ? 'wait' : 'none';
+  let shown = 0;
   const report = () => {
     const part = (done: number, total: number) => (total > 0 ? Math.min(1, done / total) : 1);
-    const trees = loader
-      ? part(loader.stats.trees + progress.trees * 50, store.trees + (targets.length + 2) * 50)
-      : part(progress.trees, targets.length + 2);
-    options.onProgress?.(
+    // A pack's objects stand for the trees, then the fold (quick) for the rest.
+    const trees =
+      pack === 'wait' || pack === 'read'
+        ? 0.9 * part(progress.packObjects, progress.packCount) +
+          0.1 * part(progress.trees, targets.length + 2)
+        : loader
+          ? part(loader.stats.trees + progress.trees * 50, store.trees + (targets.length + 2) * 50)
+          : part(progress.trees, targets.length + 2);
+    // Never back: a failed pack starts its fallback from nothing.
+    shown = Math.max(
+      shown,
       0.02 +
         0.08 * part(progress.probes, targets.length) +
         0.75 * trees +
         0.15 * part(progress.recent, recent.length),
-      trace.bytes,
     );
+    options.onProgress?.(shown, trace.bytes + progress.packBytes);
   };
 
   const useGraphQL = (options.reader ?? (options.token ? 'graphql' : 'rest')) === 'graphql';
@@ -273,14 +314,16 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   const diffing = new Set(
     loader ? recent.filter((c) => !cp.changes.has(c.sha) && parentTree(c) !== undefined) : [],
   );
-  // The head's trees are on every path: start them now, before the root is looked up.
+  // The head's trees are on every path: start them now, before the root is looked up (with
+  // a pack, they come in it, once the snapshots are picked).
   trace.begin('head tree');
-  if (loader) trace.begin('graphql');
-  loader?.add(head.tree);
+  const early = usePack ? null : loader;
+  if (early) trace.begin('graphql');
+  early?.add(head.tree);
   for (const c of diffing) {
-    loader?.add(c.tree);
+    early?.add(c.tree);
     const p = parentTree(c);
-    if (p) loader?.add(p);
+    if (p) early?.add(p);
   }
 
   let root: Sample | null = null;
@@ -288,7 +331,7 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     const last = first.commits[first.commits.length - 1]!;
     root = { sha: last.sha, at: last.at, tree: last.tree };
   } else {
-    const { link } = await list(`sha=${head.sha}&per_page=1`, PROBES);
+    const { link } = await count;
     const pages = lastPage(link);
     const found = pages
       ? (await list(`sha=${head.sha}&per_page=1&page=${pages}`, PROBES)).commits[0]
@@ -360,6 +403,7 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     first: first.commits,
     complete: firstComplete,
     ahead: () => aheadProbes++,
+    lookahead: LOOKAHEAD,
     mainline,
     page: (t) =>
       list(`sha=${head.sha}&until=${iso(t)}&per_page=${PER_PAGE}`, PROBES).then((r) => {
@@ -390,7 +434,7 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     try {
       for await (const s of samples) {
         found.push(s);
-        loader?.add(s.sample.tree);
+        early?.add(s.sample.tree);
         wake();
       }
     } finally {
@@ -406,7 +450,68 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     return found[j];
   };
 
-  if (loader) {
+  let packStats: EngineStats['pack'] = null;
+  if (usePack) {
+    // Every snapshot's trees in one git fetch, once the probes have picked them all, with the
+    // recent commits and their parents (their diffs are then free).
+    await probed;
+    const roots = [head.tree, ...found.map((f) => f.sample.tree)];
+    const wants = new Set([head.sha, ...found.map((f) => f.sample.sha)]);
+    for (const c of diffing) {
+      wants.add(c.sha);
+      if (c.parents[0]) wants.add(c.parents[0]);
+      roots.push(c.tree);
+      const p = parentTree(c);
+      if (p) roots.push(p);
+    }
+    trace.begin('pack');
+    // A resumed run may hold them all already.
+    if (unread(store, roots).length > 0)
+      try {
+        const got = await fetchPack(
+          [...wants],
+          store,
+          {
+            url: options.packUrl!,
+            token: options.token!,
+            fetch: options.fetch,
+            ...(signal ? { signal } : {}),
+          },
+          (bytes, objects, count) => {
+            progress.packBytes = bytes;
+            progress.packObjects = objects;
+            progress.packCount = count;
+            report();
+          },
+        );
+        const { commits, ...read } = got;
+        packStats = { ...read, wants: wants.size, commits: commits.size };
+        trace.request('pack', got.ms, got.bytes, got.bytes);
+        pack = 'read';
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        packStats = {
+          wants: wants.size,
+          error: error instanceof Error ? error.message : String(error),
+        };
+        trace.request('pack', 0, progress.packBytes, progress.packBytes);
+        pack = 'failed';
+      }
+    progress.packBytes = 0;
+    trace.end('pack');
+    if (store.complete(store.id(head.tree))) trace.end('head tree');
+    // Whatever the pack left unread (all of it, when it failed) goes to GraphQL, then REST.
+    const missing = unread(store, roots);
+    if (missing.length > 0 && pack === 'read') pack = 'failed';
+    trace.fellBack = missing.length > 0;
+    if (loader && missing.length > 0) {
+      trace.begin('graphql');
+      for (const sha of missing) loader.add(sha);
+      await loader.drain();
+      trace.end('graphql');
+    }
+    treesRead();
+  } else if (loader) {
     // GraphQL reads breadth first across every snapshot; the fold waits for all of it. Where
     // it gave up, the REST reader below reads what is still missing.
     if (Number.isFinite(options.treeBudget ?? Infinity)) {
@@ -538,6 +643,7 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     retried: gh.retried,
     rest: rest.stats,
     graphql: loader ? { ...loader.stats, gaveUp: loader.gaveUp } : null,
+    pack: packStats,
     store: { trees: store.trees, entries: store.entries, bytes: store.bytes },
     snapshots: sampled.length,
     rows: rows.n,
@@ -553,6 +659,29 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   trace.cpu(performance.now() - t0);
   options.onSamples?.(sampled.map(({ sha, at, tree }) => ({ sha, at, tree })).reverse());
   return history;
+}
+
+/**
+ * The oids of the unread trees at or below `roots`: what a reader still has to read, each once.
+ * Read trees are walked, not read again.
+ */
+export function unread(store: TreeStore, roots: readonly string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<number>();
+  const stack = roots.map((r) => store.id(r));
+  while (stack.length > 0) {
+    const t = stack.pop()!;
+    if (seen.has(t) || store.complete(t)) continue;
+    seen.add(t);
+    if (!store.loaded(t)) {
+      out.push(store.oids[t]!);
+      continue;
+    }
+    for (let i = 0, n = store.length(t); i < n; i++) {
+      if (store.isTree(t, i)) stack.push(store.ref(t, i));
+    }
+  }
+  return out;
 }
 
 /**
@@ -582,6 +711,8 @@ type Probing = {
   complete: boolean;
   /** Counts a page asked for ahead of its turn. */
   ahead: () => void;
+  /** How many targets past the current one may be asked for ahead (LOOKAHEAD). */
+  lookahead: number;
   mainline: string | null;
   /** The newest page of commits before a target. */
   page: (target: number) => Promise<CommitSummary[]>;
@@ -608,17 +739,35 @@ async function* probeSamples(p: Probing): AsyncGenerator<{ sample: Sample; betwe
    * go out together instead of one round trip each. A wrong guess costs one request.
    */
   const ahead = new Map<number, Promise<CommitSummary[]>>();
+  /**
+   * Mainline picks asked for ahead: when a page asked ahead holds no mainline commit before its
+   * target, the pick its turn will need goes out as soon as the page is in, not on its turn
+   * (Linux: 31 such picks, one round trip each). A walk that finds the commit wastes one.
+   */
+  const picked = new Map<number, Promise<CommitSummary | undefined>>();
   const spanOf = (l: readonly CommitSummary[]) =>
     l.length > 1 ? l[0]!.at - l[l.length - 1]!.at : Infinity;
   const look = (from: number, oldest: number, span: number) => {
     let reach = oldest;
-    for (let j = from; j < targets.length && j < from + LOOKAHEAD; j++) {
+    for (let j = from; j < targets.length && j < from + p.lookahead; j++) {
       if (targets[j]! >= reach - LOOK_MARGIN * span) continue;
       if (!ahead.has(j)) {
         const page = p.page(targets[j]!);
         page.catch(() => undefined);
         ahead.set(j, page);
         p.ahead();
+        if (p.mainline) {
+          const target = targets[j]!;
+          void page.then(
+            (l) => {
+              if (picked.has(j) || pickIn(l, target)) return;
+              const pick = p.pick(target);
+              pick.catch(() => undefined);
+              picked.set(j, pick);
+            },
+            () => undefined,
+          );
+        }
       }
       reach = targets[j]! - span;
     }
@@ -663,7 +812,7 @@ async function* probeSamples(p: Probing): AsyncGenerator<{ sample: Sample; betwe
     if (covers && found) between = countAuthors(listing, found.at, newer.at);
     p.walked(exact !== undefined);
     if (!found && p.mainline) {
-      found = (await p.pick(target)) ?? listing.find((c) => c.at <= target);
+      found = (await (picked.get(k) ?? p.pick(target))) ?? listing.find((c) => c.at <= target);
     }
     if (!found) break;
     if (found.sha === newer.sha || found.at > newer.at) continue;

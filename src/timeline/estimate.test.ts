@@ -3,11 +3,12 @@ import { constrainedDevice, estimateCompute, megabytes } from './estimate';
 
 describe('estimateCompute', () => {
   test('lands near what the engine measured, and calls Linux big', () => {
-    // Head entries (files and folders) and measured downloads: linux 85 MB, vite 2 MB, dotfiles 0.2 MB.
+    // Head entries (files and folders) and measured downloads with the git fetch: linux 54 MB
+    // (a 350 MB tab), vite 1.8 MB.
     const linux = estimateCompute(104_000);
-    expect(linux.downloadMB).toBeGreaterThan(70);
-    expect(linux.downloadMB).toBeLessThan(100);
-    expect(linux.memoryMB).toBeGreaterThan(400);
+    expect(linux.downloadMB).toBeGreaterThan(45);
+    expect(linux.downloadMB).toBeLessThan(65);
+    expect(linux.memoryMB).toBeGreaterThan(300);
     expect(linux.big).toBe(true);
     const vite = estimateCompute(3_600);
     expect(vite.downloadMB).toBeGreaterThan(1.5);

@@ -125,12 +125,15 @@ test('a signed-in visitor is offered to bring an out-of-date history up to date'
   await page.locator('#timeline').click();
   await expect(dialog(page)).toContainText('The timeline of acme/widgets is out of date');
   await expect(dialog(page)).toContainText('the branch has moved since');
+  await expect(dialog(page)).toContainText('add the commits since then');
   await page.getByRole('button', { name: 'Refresh history' }).click();
   await expect(page.getByRole('group', { name: 'Timeline' })).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('#toast')).toContainText(
     /^history acme\/widgets: [\d.]+ s, \d+ requests/,
   );
   await expect(page.locator('#toast')).toContainText('upload');
+  // Built on the stored history: one new snapshot, the stored ones kept.
+  await expect(page.locator('#toast')).toContainText(/refreshed: 1 new, \d+ kept/);
   const after = await manifest();
   expect(after.head).not.toBe(before.head);
   expect(after.computedAt).toBeGreaterThan(before.computedAt);

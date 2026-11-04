@@ -36,11 +36,50 @@ export type Folded = {
   codeowners: OwnerRule[];
   /** The head's own listing is incomplete, so absence from it proves nothing. */
   headTruncated: boolean;
+  /**
+   * A refresh (refresh.ts): the stored history the new snapshots fold onto. `samples` then runs
+   * from the new head down to the stored snapshots, the fold having stopped at `junction` (the
+   * stored head); paths whose run reaches it carry on with the stored dates and churn.
+   */
+  base?: BaseTotals;
 };
+
+export type BaseRow = { born: number; changed: number; churn: number };
+
+export type BaseTotals = {
+  junction: number;
+  /** The stored history's `recent.since`: its times older than this are snapshot resolution. */
+  since: number;
+  files: Map<string, BaseRow>;
+  folders: Map<string, BaseRow>;
+  gone: History['gone'];
+  gaps: Gap[];
+  /** Each dropped snapshot's time, to the time of the kept one just newer. */
+  moved: Map<number, number>;
+  /**
+   * Churn corrections for merged intervals (refresh.ts churnDelta), each for the paths whose
+   * run reaches back to `older`, the kept snapshot below the merge.
+   */
+  deltas: { older: number; churn: Map<string, number> }[];
+  /** The History's snapshots, newest first. */
+  kept: Sample[];
+};
+
+/** A stored history's path tables, by path, for BaseTotals. */
+export function baseRows(t: PathTable): Map<string, BaseRow> {
+  const out = new Map<string, BaseRow>();
+  t.path.forEach((path, i) =>
+    out.set(path, { born: t.born[i]!, changed: t.changed[i]!, churn: t.churn[i]! }),
+  );
+  return out;
+}
 
 /** Turns folded snapshots into the history the app reads. Pure. */
 export function summarize(job: Folded, now: number): History {
-  const at = (j: number) => job.samples[j]!.at;
+  const { base } = job;
+  /** A snapshot's time; a dropped one's stands for the kept one just newer. */
+  const moved = (t: number) => base?.moved.get(t) ?? t;
+  const at = (j: number) => moved(job.samples[j]!.at);
   const recentDone = job.recent.slice(0, job.recentNext);
   const reachesRoot =
     job.recentIsAll && recentDone.length === job.recent.length && job.recent.length > 0;
@@ -51,6 +90,13 @@ export function summarize(job: Folded, now: number): History {
         ? 0
         : recentDone[recentDone.length - 1]!.at;
   const clamp = (t: number) => (since > 0 ? Math.min(t, since) : t);
+  /** A stored time: exact from the stored history's recent commits, else a snapshot's. */
+  const stored = (t: number) => (base && t < base.since ? moved(t) : t);
+  const churnFix = (key: string, born: number) => {
+    let d = 0;
+    for (const fix of base?.deltas ?? []) if (born <= fix.older) d += fix.churn.get(key) ?? 0;
+    return d;
+  };
   /** The next newer folded snapshot after j: the first one known not to hold a path last seen at j. */
   const newerThan = (j: number) => {
     const i = job.applied.indexOf(j);
@@ -64,18 +110,37 @@ export function summarize(job: Folded, now: number): History {
 
   for (const [path, [newest, oldest, version, churn, , folder]] of Object.entries(job.acc)) {
     const touch = job.touched[folder ? `${path}/` : path];
+    const was =
+      base && oldest === base.junction ? (folder ? base.folders : base.files).get(path) : undefined;
+    const bornAt = touch?.[2] || clamp(was ? stored(was.born) : at(oldest));
     if (newest !== 0) {
       if (folder || headTruncated) continue;
       const removed = touch?.[3] ?? 0;
-      gone.push({ path, born: clamp(at(oldest)), gone: removed || clamp(at(newerThan(newest))) });
+      gone.push({ path, born: bornAt, gone: removed || clamp(at(newerThan(newest))) });
       continue;
     }
     const target = folder ? folders : files;
     target.path.push(path);
-    target.changed.push(touch ? touch[0] : clamp(at(version)));
-    target.born.push(touch?.[2] || clamp(at(oldest)));
-    target.churn.push(churn);
+    target.changed.push(
+      touch
+        ? touch[0]
+        : clamp(was && version === base!.junction ? stored(was.changed) : at(version)),
+    );
+    target.born.push(bornAt);
+    const key = folder ? (path ? `${path}/` : '/') : path;
+    target.churn.push(Math.max(0, churn + (was?.churn ?? 0) + churnFix(key, bornAt)));
     target.commits.push(touch?.[1] ?? 0);
+  }
+  if (base && !headTruncated) {
+    // Files deleted before the stored head, unless a path of the head holds them again.
+    const held = new Set([...files.path, ...folders.path, ...gone.map((g) => g.path)]);
+    for (const g of base.gone) {
+      if (held.has(g.path)) continue;
+      const born = stored(g.born);
+      const at = stored(g.gone);
+      // Seen only in dropped snapshots: no kept one shows it.
+      if (at > born) gone.push({ path: g.path, born, gone: at });
+    }
   }
   gone.sort((a, b) => b.gone - a.gone || (a.path < b.path ? -1 : 1));
 
@@ -98,9 +163,9 @@ export function summarize(job: Folded, now: number): History {
     branch: job.branch,
     head: job.head.sha,
     computedAt: now,
-    gaps: [...job.gaps],
+    gaps: [...new Set([...(base?.gaps ?? []), ...job.gaps])],
     recent: { since: Math.min(since, job.head.at), commits: recentDone.length },
-    snapshots: job.samples.map(({ sha, at }) => ({ sha, at })).reverse(),
+    snapshots: (base?.kept ?? job.samples).map(({ sha, at }) => ({ sha, at })).reverse(),
     files: sorted(files),
     folders: sorted(folders),
     gone: gone.slice(0, GONE_CAP),

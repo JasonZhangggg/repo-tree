@@ -25,7 +25,9 @@ function historyWait(state: AppState): string | null {
 
 /** Why activity or owner colors are not on yet, or null once they are (or not asked for). */
 const colorWait = (state: AppState): string | null =>
-  state.settings.colorBy === 'activity' || state.settings.colorBy === 'owner'
+  state.settings.colorBy === 'activity' ||
+  state.settings.colorBy === 'changes' ||
+  state.settings.colorBy === 'owner'
     ? historyWait(state)
     : null;
 
@@ -277,6 +279,7 @@ export function mountSide(app: App): void {
     const tops = childrenOf(repo, 0);
     const most = files[tops[0] ?? 0] || 1;
     const facts = state.settings.colorBy === 'activity' ? factsOf(state) : null;
+    const changes = state.settings.colorBy === 'changes' ? factsOf(state) : null;
     const owners = ownersOf(state);
     const bands = view.legend();
     // An owner past the named entries is in the last, "N more", entry.
@@ -285,9 +288,11 @@ export function mountSide(app: App): void {
     const colorOf = (f: number) =>
       facts
         ? bands[facts.folderBand[f]!]!.color
-        : state.settings.colorBy === 'folder'
-          ? (byFolder.get(repo.tree.folders.path[f]!) ?? rest)
-          : (colors.get(repo.index.langs[langs[f * TOP_LANGS * 2]!]!) ?? rest);
+        : changes
+          ? bands[changes.folderChangeBand[f]!]!.color
+          : state.settings.colorBy === 'folder'
+            ? (byFolder.get(repo.tree.folders.path[f]!) ?? rest)
+            : (colors.get(repo.index.langs[langs[f * TOP_LANGS * 2]!]!) ?? rest);
     const barColor = owners ? ownerColor : colorOf;
     folders.replaceChildren(
       ...tops.slice(0, FOLDER_ROWS).map((f) =>
@@ -346,7 +351,9 @@ export function mountSide(app: App): void {
           ? 'Leaf colors by owner'
           : state.settings.colorBy === 'activity' && factsOf(state)
             ? 'Leaf colors by activity'
-            : 'Leaf colors by language';
+            : state.settings.colorBy === 'changes' && factsOf(state)
+              ? 'Leaf colors by changes'
+              : 'Leaf colors by language';
     legend.replaceChildren(
       ...entries.map(({ color, label, files }) =>
         h(
@@ -381,12 +388,15 @@ export function mountSide(app: App): void {
     }
     const entry = view.legend().find((e) => e.label === state.highlight);
     const facts = state.settings.colorBy === 'activity' ? factsOf(state) : null;
+    const changes = state.settings.colorBy === 'changes' ? factsOf(state) : null;
     legendNote.textContent = entry
       ? `${shownLabel(state, entry.label)} · ${plural(entry.files, 'file')}`
       : (colorWait(state) ??
         (facts
           ? `Last change, as of ${MONTH.format(facts.asOf)}. Dead wood is 3+ years untouched; pick a color to highlight its leaves.`
-          : (ownerNote(state) ?? 'Pick a color to highlight its leaves.')));
+          : changes
+            ? `How often each file changed, as of ${MONTH.format(changes.asOf)}. Pick a color to highlight its leaves.`
+            : (ownerNote(state) ?? 'Pick a color to highlight its leaves.')));
   };
 
   /** A top-level folder's top authors and CODEOWNERS, while leaves are colored by owner. */

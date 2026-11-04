@@ -54,7 +54,14 @@ export type TraceSummary = {
   fellBack: boolean;
   /** Milliseconds of main-thread work folding trees and summarizing. */
   cpuMs: number;
+  /**
+   * A refresh of a stored history: new snapshots, stored ones kept, and stored ones dropped
+   * as they aged out of the schedule. Absent when the run computed from scratch.
+   */
+  refreshed?: Refreshed;
 };
+
+export type Refreshed = { fresh: number; kept: number; dropped: number };
 
 export type Trace = {
   begin(phase: Phase): void;
@@ -66,6 +73,7 @@ export type Trace = {
   cpu(ms: number): void;
   retried: number;
   fellBack: boolean;
+  refreshed: Refreshed | null;
   /** Bytes read so far, for an honest progress line. */
   readonly bytes: number;
   summary(): TraceSummary;
@@ -92,6 +100,7 @@ export function tracer(now: () => number = () => performance.now()): Trace {
   return {
     retried: 0,
     fellBack: false,
+    refreshed: null,
     get bytes() {
       return bytes;
     },
@@ -153,6 +162,7 @@ export function tracer(now: () => number = () => performance.now()): Trace {
         failed,
         fellBack: this.fellBack,
         cpuMs: Math.round(cpuMs),
+        ...(this.refreshed ? { refreshed: { ...this.refreshed } } : {}),
       };
     },
   };
@@ -208,6 +218,9 @@ export function formatTrace(repo: string, s: TraceSummary): string {
     `history ${repo}: ${sec(s.ms)}, ${s.requests} requests, ${mb(s.bytes)} | ${phases} | ` +
     `${kinds} (mean/p90) | waited ${sec(s.waitedMs)}, retried ${s.retried} | ` +
     `graphql batches ${batches || 'none'}${s.failed ? `, ${s.failed} failed` : ''} | ` +
-    `fell back: ${s.fellBack ? 'yes' : 'no'} | cpu ${sec(s.cpuMs)}`
+    `fell back: ${s.fellBack ? 'yes' : 'no'} | cpu ${sec(s.cpuMs)}` +
+    (s.refreshed
+      ? ` | refreshed: ${s.refreshed.fresh} new, ${s.refreshed.kept} kept, ${s.refreshed.dropped} aged out`
+      : '')
   );
 }

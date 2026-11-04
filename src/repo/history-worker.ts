@@ -39,6 +39,7 @@ self.onmessage = async ({ data }: MessageEvent<ComputeCommand>) => {
       api: data.api,
       ...(data.token ? { token: data.token } : {}),
       ...(data.packUrl ? { packUrl: data.packUrl } : {}),
+      ...(data.base ? { base: data.base } : {}),
       repo: data.repo,
       branch: data.branch,
       checkpoint: kept.checkpoint,

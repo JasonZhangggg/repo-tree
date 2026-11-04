@@ -9,6 +9,7 @@ const COLOR_BY_LABEL = {
   language: 'Language',
   folder: 'Folder',
   activity: 'Activity',
+  changes: 'Changes',
   owner: 'Owner',
 };
 const QUALITY_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' };
@@ -206,7 +207,13 @@ export function mountSettings(app: App): {
           h(
             'p',
             { class: 'note' },
-            'From commit history: green changed this month, orange this year, brown older. Branches untouched for 3 years drop their leaves.',
+            "From commit history: how recently each file changed, in the color scheme's own leaves, brightest for this month. Branches untouched for 3 years drop their leaves.",
+          ),
+        settings.colorBy === 'changes' &&
+          h(
+            'p',
+            { class: 'note' },
+            "From commit history: how often each file changed, in the color scheme's own leaves, deepest for the busiest and palest for files that rarely change.",
           ),
         settings.colorBy === 'owner' &&
           h(

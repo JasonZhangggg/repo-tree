@@ -112,12 +112,22 @@ type EngineOptions = { fetch: typeof fetch; api: string; token?: string; repo: s
   trace?: Trace /* core/trace.ts, filled with where the run's time and bytes went */;
   packUrl?: string /* the Worker's git-upload-pack route: with a token (and no finite treeBudget), every tree in one git fetch */;
   checkpoint?: Checkpoint /* pass the same one again to resume after a failure */; treeBudget?: number; now?: () => number;
+  base?: History /* the stored history to bring up to date (core/refresh.ts); ignored without a token or with a finite treeBudget */;
   onStats?: (stats: EngineStats) => void; onSamples?: (snapshots: { sha: string; at: number; tree: string }[]) => void /* the UploadManifest's snapshots */ };
 function computeHistory(options: EngineOptions): Promise<History>; // rejects with { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt }
 // core/github.ts: limits { core, graphql: { remaining, resetAt } }, kept apart by x-ratelimit-resource. A spent budget (REST 403/429, GraphQL
 // RATE_LIMITED, a secondary limit's 403 or 200 message) waits for retry-after or the reset when it is near, else rejects rate-limited.
 // A GraphQL 5xx (a timeout) is not retried: the loader splits the batch. Partial GraphQL data comes back; its null objects are asked once more.
 // A resumed run re-reads the newest commits page (the branch may have moved); trees held by sha are kept.
+// A refresh (base): one GraphQL query checks every stored snapshot's commit time and root tree, beside the newest page, and
+// GET /compare/<stored head>...<head> that the stored head is an ancestor; any miss computes from scratch. Probes cover only the
+// targets at or after the stored head; the stored snapshots then take the rest of the schedule (refresh.ts keepOld: each target its
+// newest stored snapshot older than the last kept, the root always), so the upload still follows the schedule. The git fetch wants the
+// new snapshots, the stored head (the junction) and, for each stretch of dropped stored snapshots, those and the kept ones beside them.
+// The fold runs from the head to the junction; summarize (Folded.base: BaseTotals) carries stored dates and churn on for paths whose
+// run reaches it, moves a dropped snapshot's times to the kept one just newer, and corrects churn over each merged interval
+// (refresh.ts churnDelta), so churn counts intervals of the History's own snapshots. Stored author weights add on, uncorrected.
+// EngineStats.refresh = { fresh; kept; dropped; corrected } | null; TraceSummary.refreshed = { fresh; kept; dropped } when it refreshed.
 // With GraphQL the recent commits' changes are diffs of their trees and their listed parents' (treeChanges), read with the snapshots'
 // trees; only a commit whose parent is unlisted or whose trees stayed unread takes a REST /commits/{sha}. The head's trees start before
 // the root lookup; probes go first in the request pool, and a target out of the last page's reach (by twice its span) is probed ahead.
@@ -155,12 +165,12 @@ function uploadHistory(history: History, snapshots: Snapshot[], token: string, o
 function cacheComputed(ref, branch, history: History): Promise<void>; // a computed history, cached as if fetched
 
 // repo/compute-history.ts  (boundary: the engine in a module Worker; a failed or cancelled run's worker is kept, with its checkpoint, to resume)
-type ComputeRequest = { run: number; repo: string; branch: string; token?: string; api: string; packUrl?: string /* timeline/source.ts: <server>/v1/git/<owner>/<repo>/git-upload-pack */ }; type ComputeCommand = ComputeRequest | { cancel: number /* run */ };
+type ComputeRequest = { run: number; repo: string; branch: string; token?: string; api: string; packUrl?: string /* timeline/source.ts: <server>/v1/git/<owner>/<repo>/git-upload-pack */; base?: History /* EngineOptions.base */ }; type ComputeCommand = ComputeRequest | { cancel: number /* run */ };
 type ComputeMessage = { run: number } & ({ progress: number } | { history: History; snapshots: Snapshot[]; trace?: TraceSummary } | { error: ComputeError; trace?: TraceSummary }); // another run's are ignored
 type Snapshot = { sha: string; at: number; tree: string };
 type ComputeError = { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt: number } | { kind: 'not-default-branch'; defaultBranch: string }; // the last from historySource's compute, for a branch link to a branch that is not the default
 type ComputeResult = { status: 'ready'; history: History; snapshots: Snapshot[]; trace?: TraceSummary } | { status: 'error'; error: ComputeError; trace?: TraceSummary };
-function computeHistoryInWorker(ref, branch, options?: { token?: string | null; signal?: AbortSignal; onProgress?: (p: number) => void; api?: string; packUrl?: string; spawn?: () => WorkerLike }): Promise<ComputeResult>; // rejects only on abort
+function computeHistoryInWorker(ref, branch, options?: { token?: string | null; signal?: AbortSignal; onProgress?: (p: number) => void; api?: string; packUrl?: string; base?: History; spawn?: () => WorkerLike }): Promise<ComputeResult>; // rejects only on abort
 function loadSampleHistory(id: string, base?: string): Promise<History | null>; // <base>samples/<id>.history.json.gz
 function parseHistory(body: unknown): History | null; // version and column alignment checked
 
@@ -229,8 +239,8 @@ function loadInWorker(request: LoadRequest, progress: LoadProgress, signal: Abor
 
 // render/palette.ts  (table)
 type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
-type ColorBy = 'language' | 'folder' | 'activity' | 'owner'; // activity and owner need the history (timeline/facts.ts); without it leaves keep language colors
-const AGE_COLORS: hex[]; // one per AGES band, the same in every palette: green, orange, brown, and dead wood's legend grey
+type ColorBy = 'language' | 'folder' | 'activity' | 'changes' | 'owner'; // activity, changes and owner need the history (timeline/facts.ts); without it leaves keep language colors
+// Palette.ages: hex[4], one per AGES band from the palette's own leaves (liveliest for this month, oldest for 1 to 3 years, and dead wood's legend grey); Palette.changes: hex[4], one per CHANGES band, deepest for the busiest down to palest
 const DEAD_BARK: hex; // bark of a branch whose every file is dead wood
 type Palette = { id: PaletteId; name: string; bark: hex; sky: { center: hex; edge: hex }; shadow: hex;
   light: { key: hex; sky: hex; ground: hex }; leaves: hex[] /* 9, same length in every palette */; rest: hex; precip: 'rain' | 'snow' /* what falls from a rain or storm sky */;
@@ -249,9 +259,9 @@ interface TreeView {
   setTimeline(births: { nodes: Float32Array; sprigs: Float32Array } | null): void; // timeline progress each node and sprig appears at (aBorn per vertex), or the whole tree
   setTime(cursor: number): void; // uTime: elements grow in as it crosses aBorn plus their aT window scaled to SPAN; labels wait for their branch
   setPalette(id: PaletteId): void; // recolors without regrowing
-  setColorBy(by: ColorBy): void; // language, top-level folder, or activity or owner once setFacts gave the history. Owner: each top-level folder's leaves take its Facts.owners owner, ranked by files through leafMapping like folders (owners shared across folders share a slot, the rest share the last)
-  setFacts(facts: Facts | null): void; // the history laid over the tree on show; setTree clears it. Activity: each sprig takes its AGES band's color, dead-wood sprigs are born never (no pass draws them) unless that band is highlighted, and dead branches (newest file 3+ years old) take DEAD_BARK
-  setHotspots(on: boolean): void; // once setFacts gave the history, each leaf of a sprig with sprigHeat glows (aHeat per vertex): twice as large about its stem, its color mostly an ember amber, plus uGlowColor emission by heat times uGlow; the other leaves calm (uCalm). uGlow pulses gently (frames every PULSE_FRAME_MS while only the pulse moves), steady under reduced motion
+  setColorBy(by: ColorBy): void; // language, top-level folder, or activity, changes or owner once setFacts gave the history. Changes: each sprig takes its sprigChangeBand's Palette.changes color; activity takes Palette.ages, so both follow setPalette. Owner: each top-level folder's leaves take its Facts.owners owner, ranked by files through leafMapping like folders (owners shared across folders share a slot, the rest share the last)
+  setFacts(facts: Facts | null): void; // the history laid over the tree on show; setTree clears it. Activity: each sprig takes its AGES band's color, dead-wood sprigs are born never (no pass draws them) unless that band is highlighted; when they drop, unless motion is reduced, they first fall (aFall per vertex, uFall 0..1 over FALL_MS: tumble down to uFloor and shrink away), then are born never; dead branches (newest file 3+ years old) take DEAD_BARK
+  setHotspots(on: boolean): void; // once setFacts gave the history, each leaf of a sprig with sprigHeat glows (aHeat per vertex): HOT_SIZE (1.5) times as large about its stem, its color mostly an ember amber, self-lit by uGlowColor emission by heat times uGlow; the other leaves calm (uCalm), and a tight gold glow (Points, one per hot leaf of LEAF_VERTICES vertices at its heart as drawn, aSize HALO_SPAN times its drawn width, depth-tested, grown in with the leaf's aT and aBorn) shines by aHeat times uGlow. uGlow pulses gently (frames every PULSE_FRAME_MS while only the pulse moves), steady under reduced motion
   legend(): LegendEntry[];
   setHighlight(h: { range: [number, number] } | { category: string } | null): void; // fades nodes outside the id range, or bark and every leaf outside the legend entry with that label, drained to grey while that entry's own leaves deepen (a per-leaf slot test in the shader)
   frameFolder(folder: number): void; // eases the camera onto the folder's leaves, never nearer than half the distance that frames the tree on show nor further than the stage; 0 frames the stage
@@ -284,7 +294,7 @@ type AppState = { load: LoadState; repo: Repo | null; selection: Selection | nul
   history: HistoryFacts | null /* loaded once needsHistory(state) (activity or owner colors, or hotspots); a new repo clears it */ };
 type HistoryFacts = { repo: Repo; status: 'loading' } | { repo: Repo; status: 'ready'; facts: Facts } | { repo: Repo; status: 'missing' | 'unavailable' };
 // app/history-facts.ts watchHistory(store): reads the stored history (historySource(repo).load, never a compute) a microtask after the change that asked, and dispatches { type: 'history' }.
-function needsHistory(state: AppState): boolean; // colorBy activity or owner, or hotspots on
+function needsHistory(state: AppState): boolean; // colorBy activity, changes or owner, or hotspots on
 function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null; // null with weather off, before runs arrive or when they failed
 // highlight is a legend label. A pin and a highlight never coexist: picking one drops the other, and switching colorBy drops the highlight.
 // A loaded link's hl must name a legend entry, except an activity band or (by owner) any name: those wait for the history.
@@ -306,10 +316,10 @@ type ComputeOutcome = { status: 'ready'; history: History; shared: UploadResult;
 // app/ui/history-compute.ts logs formatTrace for every run (console.info) and keeps it in window.__repoTree.computeTrace; with the debug flag
 // (app/debug.ts debugEnabled: `?debug` in the address, or localStorage repo-tree:debug = 1) it also shows it in a toast.
 type HistorySource = { load(signal: AbortSignal): Promise<HistoryLoad>;
-  compute: ((o: { token: string; signal: AbortSignal; onProgress?: (p: number) => void }) => Promise<ComputeOutcome>) | null /* samples, no server, or a ref other than the default branch */;
+  compute: ((o: { token: string; signal: AbortSignal; onProgress?: (p: number) => void; base?: History /* the out-of-date one, to refresh */ }) => Promise<ComputeOutcome>) | null /* samples, no server, or a ref other than the default branch */;
   outdated: ((history: History, token: string, signal: AbortSignal) => Promise<boolean>) | null /* computedAt over STALE_AFTER_MS (1 day) ago and GitHub's branch head differs */ };
 function historySource(repo: { sample?: string; info: { ref: RepoRef; branch: string } }, options?: { base?: string; server?: string; api?: string /* VITE_GITHUB_API */; spawn? }): HistorySource | null; // sample file, else the history server when VITE_HISTORY_URL is set, else null (timeline unavailable). compute: engine in a Worker, then upload, then cache
-// timeline/estimate.ts: estimateCompute(headEntries) → { downloadMB, memoryMB, big /* ≥ 25 MB */ }; constrainedDevice() = deviceMemory ≤ 4 or a coarse pointer.
+// timeline/estimate.ts: estimateCompute(headEntries) → { downloadMB, memoryMB, big /* ≥ 25 MB */ }; estimateRefresh(headEntries) (about three head trees: Linux ~6 MB); constrainedDevice() = deviceMemory ≤ 4 or a coarse pointer.
 // timeline/compute-view.ts (pure): Step = offer{refresh?: {since}} | computing{progress} | sharing | failed{error}; describeStep(step, ctx) → title, progress, lines, buttons. app/ui/history-compute.ts renders it.
 
 // timeline/timeline.ts  (pure; consumes only History, TreeModel and RepoIndex)
@@ -327,8 +337,11 @@ function aliveAt(t: number, born: number, gone?: number): boolean;
 // timeline/facts.ts  (pure; consumes only History, TreeModel and RepoIndex)
 const AGES: { label: 'This month' | 'This year' | '1 to 3 years' | 'Dead wood'; within: number /* ms before asOf */ }[]; const DEAD: number; // the last band
 function ageBand(asOf: number, changed: number): number;
+const CHANGES: { label: 'Constantly' | 'Often' | 'Sometimes' | 'Rarely'; atLeast: 30 | 10 | 3 | 0 /* fileChurn */ }[]; // busiest first, as many bands as AGES
+function changeBand(churn: number): number;
 type Facts = { asOf: number /* History.computedAt */; fileChanged: Float64Array /* per RepoIndex file; files the history lacks count as asOf */;
   sprigBand: Uint8Array; folderBand: Uint8Array /* the band most files are in, the fresher on a tie */; nodeChanged: Float64Array /* newest file on the node or beyond it */;
+  sprigChangeBand: Uint8Array; folderChangeBand: Uint8Array /* the CHANGES band most files are in, the busier on a tie */;
   fileChurn: Uint32Array /* per RepoIndex file: History.files churn + commits, 0 when the history lacks it */; fileHeat: Float32Array /* 0, or HOT_FLOOR..1 for a hotspot */;
   sprigHeat: Float32Array /* its hottest file's */; hot: Uint32Array /* hotspot files, hottest first */;
   owners: Owners /* historyOwners(history) */ };

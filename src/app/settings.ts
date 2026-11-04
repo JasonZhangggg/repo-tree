@@ -35,7 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const PALETTE_IDS = Object.keys(PALETTES) as PaletteId[];
-export const COLOR_BYS: readonly ColorBy[] = ['language', 'folder', 'activity', 'owner'];
+export const COLOR_BYS: readonly ColorBy[] = ['language', 'folder', 'activity', 'changes', 'owner'];
 export const QUALITIES: readonly QualitySetting[] = ['auto', 'low', 'medium', 'high'];
 
 const oneOf = <T>(allowed: readonly T[], value: unknown, fallback: T): T =>

@@ -38,7 +38,7 @@ async function closeSide(page: Page) {
   }
 }
 
-/** Ember pixels: the glow's vivid amber, which spring's pink and white crown never shows. */
+/** Ember pixels: the glow's amber and gold, which spring's pink and white crown never shows. */
 async function embers(page: Page) {
   await settle(page);
   const veil = await page.addStyleTag({
@@ -59,7 +59,7 @@ async function embers(page: Page) {
     let n = 0;
     for (let i = 0; i < data.length; i += 4) {
       const [r, g, b] = [data[i]!, data[i + 1]!, data[i + 2]!];
-      if (r > 200 && g > 90 && g < 190 && b < 90 && r - g > 50) n++;
+      if (r > 200 && g > 90 && g < 215 && b < 120 && r - b > 100) n++;
     }
     return n;
   }, png.toString('base64'));
@@ -69,7 +69,14 @@ test('Hotspots make the busiest files glow and list them to pin', async ({ page 
   await page.addInitScript(() =>
     localStorage.setItem(
       'repo-tree:settings',
-      JSON.stringify({ quality: 'low', spin: false, ground: false, palette: 'spring' }),
+      // No weather, so the sun's gold is not counted.
+      JSON.stringify({
+        quality: 'low',
+        spin: false,
+        ground: false,
+        weather: false,
+        palette: 'spring',
+      }),
     ),
   );
   await page.goto('./#/vitejs/vite?colorBy=language');
@@ -92,7 +99,7 @@ test('Hotspots make the busiest files glow and list them to pin', async ({ page 
   await expect(hotFile(page).first()).toHaveText(/…\/vite\/package\.json\s*\d+/);
   expect(await glowing(page)).toBeGreaterThan(0);
   const lit = await embers(page);
-  expect(lit, 'hot leaves glow amber').toBeGreaterThan(Math.max(50, before * 3));
+  expect(lit, 'hot leaves glow amber and gold').toBeGreaterThan(Math.max(50, before * 3));
 
   await openSide(page);
   await hotFile(page).first().click();

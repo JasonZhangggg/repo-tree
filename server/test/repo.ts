@@ -19,16 +19,18 @@ export function makeRepo(commits: Commit[]): { dir: string; shas: string[]; remo
   git(['init', '-q', '-b', 'main']);
   const shas: string[] = [];
   for (const c of commits) {
+    // Files are written and removed first, then staged in one `git add -A`: a git process per
+    // file makes setup slow enough to time out a test's hook on a busy CI runner.
     for (const [path, content] of Object.entries(c.files)) {
       const file = join(dir, path);
       if (content === null) {
-        git(['rm', '-q', path]);
+        rmSync(file);
         continue;
       }
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, content);
-      git(['add', path]);
     }
+    git(['add', '-A']);
     const date = new Date(c.at).toISOString();
     const name = c.author ?? 'ada';
     git(['commit', '-q', '--allow-empty', '-m', `at ${date}`], {

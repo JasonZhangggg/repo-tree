@@ -155,6 +155,7 @@ export function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null 
 /** Whether what is on show needs the repo's history. */
 export const needsHistory = (state: AppState): boolean =>
   state.settings.colorBy === 'activity' ||
+  state.settings.colorBy === 'changes' ||
   state.settings.colorBy === 'owner' ||
   state.settings.hotspots;
 

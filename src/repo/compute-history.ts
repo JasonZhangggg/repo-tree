@@ -20,6 +20,8 @@ export type ComputeRequest = {
    * one git fetch through it (server/src/core/pack.ts), GraphQL and REST reading what it missed.
    */
   packUrl?: string;
+  /** The stored history to bring up to date (server/src/core/refresh.ts). */
+  base?: History;
 };
 /** What the page sends the worker: a run, or the cancelling of one. */
 export type ComputeCommand = ComputeRequest | { cancel: number };
@@ -55,6 +57,8 @@ export type ComputeOptions = {
   api?: string;
   /** ComputeRequest.packUrl. */
   packUrl?: string;
+  /** ComputeRequest.base. */
+  base?: History;
   /** Injected for tests. */
   spawn?: () => WorkerLike;
 };
@@ -120,6 +124,7 @@ export function computeHistoryInWorker(
       branch,
       ...(options.token ? { token: options.token } : {}),
       ...(options.packUrl ? { packUrl: options.packUrl } : {}),
+      ...(options.base ? { base: options.base } : {}),
     };
     worker.postMessage(request);
   });

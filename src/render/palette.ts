@@ -2,17 +2,11 @@ import { litColor } from './color';
 
 export type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
 /**
- * `activity` and `owner` need the repo's history: leaves take how long ago their files changed,
- * or who owns their top-level folder.
+ * `activity`, `changes` and `owner` need the repo's history: leaves take how long ago their files
+ * changed, how often they changed, or who owns their top-level folder.
  */
-export type ColorBy = 'language' | 'folder' | 'activity' | 'owner';
+export type ColorBy = 'language' | 'folder' | 'activity' | 'changes' | 'owner';
 
-/**
- * Leaf colors for `activity`, one per timeline/facts.ts AGES band and the same in every palette:
- * spring green for this month, autumn orange for this year, brown for older. Dead wood drops its
- * leaves, so its cool grey shows only in the legend and while that entry is highlighted.
- */
-export const AGE_COLORS: readonly string[] = ['#6fb43f', '#ec8a2c', '#94603a', '#98a0a8'];
 /** Bark of a branch whose every leaf is dead wood: weathered silver-grey. */
 export const DEAD_BARK = '#a59f97';
 
@@ -47,6 +41,17 @@ export type Palette = {
   leaves: readonly string[];
   /** Shared by every language or folder past the end of `leaves`. */
   rest: string;
+  /**
+   * Leaf colors for `activity`, one per timeline/facts.ts AGES band, from the palette's own
+   * leaves: its liveliest for this month, fading to its oldest by 1 to 3 years. Dead wood drops
+   * its leaves, so its cool grey shows only in the legend and while that entry is highlighted.
+   */
+  ages: readonly [string, string, string, string];
+  /**
+   * Leaf colors for `changes`, one per timeline/facts.ts CHANGES band, from the palette's own
+   * leaves: its deepest for the busiest files, down to its palest for the quiet ones.
+   */
+  changes: readonly [string, string, string, string];
   /** What falls from a rain or storm sky. */
   precip: 'rain' | 'snow';
 };
@@ -84,6 +89,8 @@ export const PALETTES: Record<PaletteId, Palette> = {
       '#ff8f5a',
     ],
     rest: '#c9a98a',
+    ages: ['#e5512c', '#f2c443', '#8f5a32', '#98a0a8'],
+    changes: ['#c2302c', '#f07a36', '#f2c443', '#d8c6b0'],
     precip: 'rain',
   },
   spring: {
@@ -118,6 +125,8 @@ export const PALETTES: Record<PaletteId, Palette> = {
       '#b98ad0',
     ],
     rest: '#e6cbd3',
+    ages: ['#e0628f', '#f7c1d4', '#9c7480', '#9aa3ad'],
+    changes: ['#b03a78', '#e0628f', '#f29bbb', '#f1e2e7'],
     precip: 'rain',
   },
   summer: {
@@ -152,6 +161,8 @@ export const PALETTES: Record<PaletteId, Palette> = {
       '#8fcf86',
     ],
     rest: '#a8b98f',
+    ages: ['#9cc84a', '#3c8a3a', '#8a7a3a', '#9aa1a6'],
+    changes: ['#1f5e37', '#3c9b52', '#9cc84a', '#d6dcbf'],
     precip: 'rain',
   },
   winter: {
@@ -186,6 +197,8 @@ export const PALETTES: Record<PaletteId, Palette> = {
       '#b23c52',
     ],
     rest: '#bcc6cf',
+    ages: ['#b23c52', '#6f9cc6', '#c7bde0', '#8c8682'],
+    changes: ['#b23c52', '#4f7aa6', '#8fb0c8', '#e9eef7'],
     precip: 'snow',
   },
 };

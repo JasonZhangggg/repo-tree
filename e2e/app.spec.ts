@@ -324,3 +324,82 @@ test('on a phone the tree stays in view as folders are pinned', async ({ page, i
   await page.getByRole('button', { name: 'Clear selection' }).first().tap();
   await expect(page.locator('#sheet-title')).toHaveText('Folders and leaf colors');
 });
+
+const legendEntry = (page: Page, name: string) =>
+  page.locator('#legend').getByRole('button', { name: new RegExp(`^${name}\\b`) });
+
+/** On a phone the legend waits in the sheet, so this opens it. */
+async function openLegend(page: Page) {
+  const sheet = page.locator('#sheet-toggle');
+  if ((await sheet.isVisible()) && (await sheet.getAttribute('aria-expanded')) === 'false') {
+    await sheet.click();
+  }
+}
+
+/** The share of the page that is unfaded tree, with every panel and label made see-through. */
+async function treeShare(page: Page) {
+  await settle(page);
+  const veil = await page.addStyleTag({
+    content: '.bar, .title, .side, .controls, #labels { opacity: 0 !important }',
+  });
+  await page.evaluate(
+    () => new Promise((paint) => requestAnimationFrame(() => requestAnimationFrame(paint))),
+  );
+  const { share } = await treePixels(page);
+  await veil.evaluate((style) => (style as Element).remove());
+  return share;
+}
+
+test('a legend color highlights only its leaves until clicked again', async ({ page }) => {
+  // Without the island, which never fades, the share counts only bark and leaves.
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      'repo-tree:settings',
+      JSON.stringify({ quality: 'low', spin: false, ground: false }),
+    ),
+  );
+  await page.goto('./#/vitejs/vite?colorBy=language');
+  await ready(page, 'vitejs/vite');
+  await openLegend(page);
+  const typescript = legendEntry(page, 'TypeScript');
+  await expect(typescript).toHaveAttribute('aria-pressed', 'false');
+  const whole = await treeShare(page);
+
+  await typescript.click();
+  await expect(typescript).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#legend-note')).toHaveText(/^TypeScript · [\d,]+ files$/);
+  await expect(page).toHaveURL(/&hl=TypeScript$/);
+  const lit = await treeShare(page);
+  expect(lit, 'TypeScript leaves stay in color').toBeGreaterThan(whole * 0.05);
+  expect(lit, 'bark and other leaves fade').toBeLessThan(whole * 0.6);
+
+  await typescript.click();
+  await expect(typescript).toHaveAttribute('aria-pressed', 'false');
+  await expect(page).not.toHaveURL(/hl=/);
+  expect(await treeShare(page), 'every leaf back in color').toBeCloseTo(whole, 2);
+});
+
+test('a shared highlight comes back, and a pinned folder replaces it', async ({ page }) => {
+  await page.goto('./#/vitejs/vite?colorBy=language&hl=TypeScript');
+  await ready(page, 'vitejs/vite');
+  await openLegend(page);
+  await expect(legendEntry(page, 'TypeScript')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#legend-note')).toHaveText(/^TypeScript · /);
+  await expect(page).toHaveURL(/&hl=TypeScript$/);
+
+  await page.locator('#folders button[data-folder]').first().click();
+  await expect(legendEntry(page, 'TypeScript')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page).toHaveURL(/&sel=[^&]+$/);
+
+  await legendEntry(page, 'JavaScript').click();
+  await expect(legendEntry(page, 'JavaScript')).toHaveAttribute('aria-pressed', 'true');
+  await expect(detail(page)).toBeHidden();
+  await expect(page).toHaveURL(/&hl=JavaScript$/);
+  await page.keyboard.press('Escape');
+  await expect(legendEntry(page, 'JavaScript')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page).toHaveURL(/colorBy=language$/);
+
+  await page.evaluate(() => (location.hash = '#/vitejs/vite?colorBy=language&hl=Cobol'));
+  await expect(page.locator('#legend button[aria-pressed="true"]')).toHaveCount(0);
+  await expect(page).toHaveURL(/colorBy=language$/);
+});

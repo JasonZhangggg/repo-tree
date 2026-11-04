@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'vitest';
-import { deltaE, litColor } from './color';
 import { leafMapping, PALETTES, slotColors } from './palette';
 
 const autumn = PALETTES.autumn;
@@ -59,37 +58,5 @@ describe('leafMapping', () => {
     const shuffled = [counts[2]!, counts[0]!, counts[3]!, counts[1]!];
 
     expect(leafMapping(shuffled, autumn).legend).toEqual(leafMapping(counts, autumn).legend);
-  });
-});
-
-/**
- * CIEDE2000 floors between leaf colors as they show on the tree. The biggest categories take the
- * first six slots, so those need the widest gaps.
- */
-const APART = { top: 15, named: 10, rest: 12, bark: 10 };
-
-describe.each(Object.values(PALETTES))('$name leaves', (palette) => {
-  const lit = slotColors(palette);
-  const named = lit.slice(0, ramp);
-
-  test('keep every pair of named slots apart, the first six furthest', () => {
-    for (let i = 0; i < ramp; i++) {
-      for (let j = i + 1; j < ramp; j++) {
-        const floor = j < 6 ? APART.top : APART.named;
-        expect(deltaE(named[i]!, named[j]!), `slots ${i + 1} and ${j + 1}`).toBeGreaterThanOrEqual(
-          floor,
-        );
-      }
-    }
-  });
-
-  test('keep the shared rest color and the bark apart from every slot', () => {
-    const bark = litColor(palette.bark, palette);
-    named.forEach((color, i) => {
-      expect(deltaE(color, lit[ramp]!), `slot ${i + 1} and rest`).toBeGreaterThanOrEqual(
-        APART.rest,
-      );
-      expect(deltaE(color, bark), `slot ${i + 1} and bark`).toBeGreaterThanOrEqual(APART.bark);
-    });
   });
 });

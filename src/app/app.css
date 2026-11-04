@@ -599,7 +599,7 @@ h1 a[aria-disabled] {
   margin: -2px;
 }
 .sheet-handle,
-.sheet-clear {
+.close.sheet-clear {
   display: none;
 }
 .panel {
@@ -704,8 +704,12 @@ h1 a[aria-disabled] {
   border-radius: 6px;
   text-align: left;
 }
-.legend button:hover {
+.legend button:hover,
+.legend button[aria-pressed='true'] {
   background: var(--hover);
+}
+.legend button[aria-pressed='true'] span:not(.num) {
+  font-weight: 600;
 }
 .legend span:not(.num) {
   flex: 1;
@@ -1445,7 +1449,7 @@ h1 a[aria-disabled] {
     font-size: 12.5px;
     font-variant-numeric: tabular-nums;
   }
-  .sheet-clear {
+  .close.sheet-clear {
     display: grid;
     top: 12px;
     right: 10px;
@@ -1480,7 +1484,8 @@ h1 a[aria-disabled] {
   }
   .folders button,
   .subs button,
-  .crumbs button {
+  .crumbs button,
+  .legend button {
     min-height: 44px;
   }
   .close {

@@ -38,6 +38,7 @@ const store = createStore({
   load: { phase: 'idle' },
   repo: null,
   selection: null,
+  highlight: null,
   notice: null,
   settings: parseSettings(stored),
   autoQuality: autoQuality({
@@ -64,6 +65,7 @@ debug.view = view;
 
 const loader = createLoader(store);
 let hovered: number | null = null;
+let hoveredCategory: string | null = null;
 let toastTimer = 0;
 const toastEl = byId('toast');
 
@@ -80,6 +82,13 @@ const app: App = {
     hovered = folder;
     applyHighlight();
   },
+  highlight(label) {
+    store.dispatch({ type: 'highlight', label });
+  },
+  hoverCategory(label) {
+    hoveredCategory = label;
+    applyHighlight();
+  },
   openSettings: (focus) => settings.open(focus),
   openSearch: () => search.open(),
   toast(message) {
@@ -90,12 +99,18 @@ const app: App = {
   },
 };
 
+/** A legend entry under the pointer shows first, then the pin or highlight, then a hovered folder. */
 function applyHighlight() {
-  const { repo, selection } = store.get();
-  const folder = selection?.folder ?? hovered;
+  const { repo, selection, highlight } = store.get();
+  const category = hoveredCategory ?? highlight;
+  const folder = category === null ? (selection?.folder ?? hovered) : null;
   const range = repo?.tree.folders.range;
   view.setHighlight(
-    folder === null || folder === 0 || !range ? null : [range[2 * folder]!, range[2 * folder + 1]!],
+    category !== null
+      ? { category }
+      : folder === null || folder === 0 || !range
+        ? null
+        : { range: [range[2 * folder]!, range[2 * folder + 1]!] },
   );
   canvas.mark(folder);
 }
@@ -117,12 +132,18 @@ const repoKey = (s: AppState) =>
   s.repo ? `${s.repo.info.ref.owner}/${s.repo.info.ref.repo}@${s.repo.info.branch}` : '';
 
 function linkOf(state: AppState): string | null {
-  const { repo, selection, settings: s } = state;
+  const { repo, selection, highlight, settings: s } = state;
   if (!repo) return null;
   const ref = { ...repo.info.ref, ref: repo.info.branch } as RepoRef;
   const sel =
     selection && selection.folder !== 0 ? repo.tree.folders.path[selection.folder] : undefined;
-  return formatLink({ ref, palette: s.palette, colorBy: s.colorBy, sel });
+  return formatLink({
+    ref,
+    palette: s.palette,
+    colorBy: s.colorBy,
+    sel,
+    hl: highlight ?? undefined,
+  });
 }
 
 function applyLink(link: ViewLink) {
@@ -136,9 +157,12 @@ function applyLink(link: ViewLink) {
     repo.info.ref.owner.toLowerCase() === link.ref.owner.toLowerCase() &&
     repo.info.ref.repo.toLowerCase() === link.ref.repo.toLowerCase() &&
     (link.ref.ref ?? repo.info.branch) === repo.info.branch;
-  if (!same) return app.load(link.ref, { select: link.sel });
+  if (!same) return app.load(link.ref, { select: link.sel, highlight: link.hl });
   const folder = link.sel === undefined ? undefined : repo.folderIds.get(link.sel);
   app.select(folder === undefined ? null : { folder }, true);
+  if (folder === undefined && view.legend().some((e) => e.label === link.hl)) {
+    app.highlight(link.hl!);
+  }
 }
 
 store.subscribe((state, prev) => {
@@ -161,13 +185,20 @@ store.subscribe((state, prev) => {
   if (spinning(state) !== spinning(prev)) view.setSpin(spinning(state));
   if (reducedMotion(s) !== reducedMotion(prev.settings)) view.setReducedMotion(reducedMotion(s));
   if (qualityOf(state) !== qualityOf(prev)) view.setQuality(qualityOf(state));
-  if (state.selection !== prev.selection || state.repo !== prev.repo) applyHighlight();
+  if (
+    state.selection !== prev.selection ||
+    state.highlight !== prev.highlight ||
+    state.repo !== prev.repo
+  ) {
+    applyHighlight();
+  }
 
   const regrow = s.quality !== prev.settings.quality || s.hidden !== prev.settings.hidden;
   if (regrow && state.repo) {
     const path = state.selection ? state.repo.tree.folders.path[state.selection.folder] : undefined;
     const ref = state.repo.info.ref;
-    queueMicrotask(() => app.load(ref, { select: path }));
+    const highlight = state.highlight ?? undefined;
+    queueMicrotask(() => app.load(ref, { select: path, highlight }));
   }
   if (s !== prev.settings) {
     try {
@@ -315,8 +346,9 @@ addEventListener('keydown', (event) => {
   const typing = target.matches('input, textarea, select, [contenteditable]');
   if (event.key === 'Escape') {
     if (search.close() || settings.close() || typing) return;
-    const { selection, load } = store.get();
+    const { selection, highlight, load } = store.get();
     if (selection) app.select(null);
+    else if (highlight !== null) app.highlight(null);
     else if (load.phase === 'loading') loader.cancel();
     else if (load.phase === 'error') store.dispatch({ type: 'dismiss-error' });
     return;

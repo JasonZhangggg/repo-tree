@@ -28,7 +28,14 @@ import type { MeshData, Quality, TreeModel, Vec3 } from '../grow/grow';
 import { distanceOf, FOV, frameFolder, frameTree, VIEW_DIRECTION } from './framing';
 import { LIGHT } from './color';
 import { createGround } from './ground';
-import { leafMapping, PALETTES, type ColorBy, type LegendEntry, type PaletteId } from './palette';
+import {
+  leafMapping,
+  PALETTES,
+  type ColorBy,
+  type LegendEntry,
+  type Palette,
+  type PaletteId,
+} from './palette';
 import {
   barkShader,
   growing,
@@ -46,6 +53,8 @@ export type LabelPosition = { folder: number; x: number; y: number; visible: boo
 export type FrameInfo = { growth: number; labels: LabelPosition[] };
 /** CSS pixels along each edge of the container that panels cover. */
 export type Insets = { top: number; right: number; bottom: number; left: number };
+/** What stands out while the rest fades: a run of node ids, or the leaves of one legend entry. */
+export type Highlight = { range: readonly [number, number] } | { category: string };
 export type ViewStats = {
   renders: number;
   /** How far the camera stands from the point it orbits. */
@@ -65,8 +74,11 @@ export interface TreeView {
   setColorBy(by: ColorBy): void;
   /** What each leaf color stands for under the current palette and color-by. */
   legend(): LegendEntry[];
-  /** Fades every node outside [lo, hi]. */
-  setHighlight(range: readonly [number, number] | null): void;
+  /**
+   * Fades every node outside a range, or the bark and every leaf outside the legend entry
+   * labelled `category`. A label the legend lacks highlights nothing.
+   */
+  setHighlight(highlight: Highlight | null): void;
   /** Glides the camera to a folder in context; the root folder (0) frames the whole tree. */
   frameFolder(folder: number): void;
   /** Frames the tree into the part of the container the insets leave free, easing there. */
@@ -134,6 +146,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   let palette = PALETTES[options.palette];
   let colorBy = options.colorBy;
   let reducedMotion = options.reducedMotion;
+  let highlight: Highlight | null = null;
 
   const scene = new Scene();
   const camera = new PerspectiveCamera(FOV, 1, 0.05, 200);
@@ -431,30 +444,16 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     requestRender();
   };
 
-  const categories = (): { slotOf: number[]; legend: LegendEntry[]; nodeCategory?: Int32Array } => {
-    const model = shown!.model;
-    if (colorBy === 'language') {
-      return leafMapping(
-        model.langs.map((l) => ({ label: l.lang, files: l.files })),
-        palette,
-      );
-    }
-    const tops = model.labels.map((l) => ({
-      label: model.folders.path[l.folder]!,
-      files: l.files,
-    }));
-    const total = model.nodes.files.reduce((sum, n) => sum + n, 0);
-    const atRoot = total - tops.reduce((sum, t) => sum + t.files, 0);
-    const withRoot = atRoot > 0 ? [...tops, { label: 'top-level files', files: atRoot }] : tops;
-    const nodeCategory = new Int32Array(model.nodes.folder.length).fill(tops.length);
-    model.labels.forEach(({ folder }, i) => {
-      nodeCategory.fill(
-        i,
-        model.folders.range[2 * folder]!,
-        model.folders.range[2 * folder + 1]! + 1,
-      );
-    });
-    return { ...leafMapping(withRoot, palette), nodeCategory };
+  const categories = () => leafCategories(shown!.model, colorBy, palette);
+
+  const showHighlight = () => {
+    const h = highlight;
+    treeUniforms.uSel.value = h && 'range' in h ? [h.range[0], h.range[1]] : [-1, -1];
+    treeUniforms.uCategory.value =
+      h && 'category' in h && shown
+        ? categories().legend.findIndex((e) => e.label === h.category)
+        : -1;
+    requestRender();
   };
 
   const applyColorBy = () => {
@@ -467,7 +466,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     }
     shown.leaves.geometry.setAttribute('aSlot', new BufferAttribute(slot, 1));
     renderer.shadowMap.needsUpdate = true;
-    requestRender();
+    showHighlight();
   };
 
   /** Sizes the light, its shadow and the floor to the tree and, while it shows, its ground. */
@@ -556,9 +555,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         bounds: model.bounds,
         groundBounds: terrain.setTree(model, quality),
       };
+      highlight = null;
       applyColorBy();
       placeScene();
-      treeUniforms.uSel.value = [-1, -1];
       aim = { kind: 'tree' };
       gliding = false;
       camera.position.copy(controls.target).add(new Vector3(...VIEW_DIRECTION));
@@ -593,9 +592,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       return shown ? categories().legend : [];
     },
 
-    setHighlight(range) {
-      treeUniforms.uSel.value = range ? [range[0], range[1]] : [-1, -1];
-      requestRender();
+    setHighlight(next) {
+      highlight = next;
+      showHighlight();
     },
 
     frameFolder(folder) {
@@ -739,6 +738,39 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       listeners.clear();
     },
   };
+}
+
+/**
+ * What each leaf color stands for: languages, or top-level folders plus the files at the root.
+ * `nodeCategory` (folder colors only) is each node's category; a leaf takes its language's.
+ */
+export function leafCategories(
+  model: TreeModel,
+  colorBy: ColorBy,
+  palette: Palette,
+): { slotOf: number[]; legend: LegendEntry[]; nodeCategory?: Int32Array } {
+  if (colorBy === 'language') {
+    return leafMapping(
+      model.langs.map((l) => ({ label: l.lang, files: l.files })),
+      palette,
+    );
+  }
+  const tops = model.labels.map((l) => ({
+    label: model.folders.path[l.folder]!,
+    files: l.files,
+  }));
+  const total = model.nodes.files.reduce((sum, n) => sum + n, 0);
+  const atRoot = total - tops.reduce((sum, t) => sum + t.files, 0);
+  const withRoot = atRoot > 0 ? [...tops, { label: 'top-level files', files: atRoot }] : tops;
+  const nodeCategory = new Int32Array(model.nodes.folder.length).fill(tops.length);
+  model.labels.forEach(({ folder }, i) => {
+    nodeCategory.fill(
+      i,
+      model.folders.range[2 * folder]!,
+      model.folders.range[2 * folder + 1]! + 1,
+    );
+  });
+  return { ...leafMapping(withRoot, palette), nodeCategory };
 }
 
 function geometry(mesh: MeshData): BufferGeometry {

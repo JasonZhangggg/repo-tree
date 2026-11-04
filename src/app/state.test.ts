@@ -9,6 +9,7 @@ const INITIAL: AppState = {
   load: { phase: 'idle' },
   repo: null,
   selection: null,
+  highlight: null,
   notice: null,
   settings: DEFAULT_SETTINGS,
   autoQuality: 'medium',
@@ -85,6 +86,43 @@ describe('loading', () => {
       selection: null,
     });
     expect(next.notice).toBeNull();
+  });
+});
+
+describe('pins and highlights', () => {
+  const shown = run(
+    { type: 'load', id: 1, ref: ref('a/one') },
+    { type: 'loaded', id: 1, repo: repo('a/one'), selection: null },
+  );
+
+  test('a highlight unpins the folder, and a pin drops the highlight', () => {
+    const pinned = reduce(shown, { type: 'select', selection: { folder: 4 } });
+    const lit = reduce(pinned, { type: 'highlight', label: 'C' });
+    expect(lit).toMatchObject({ selection: null, highlight: 'C' });
+
+    expect(reduce(lit, { type: 'select', selection: { folder: 2 } })).toMatchObject({
+      selection: { folder: 2 },
+      highlight: null,
+    });
+    expect(reduce(lit, { type: 'select', selection: null }).highlight).toBeNull();
+    expect(reduce(lit, { type: 'highlight', label: null }).highlight).toBeNull();
+  });
+
+  test('switching what colors the leaves drops the highlight, a palette keeps it', () => {
+    const lit = reduce(shown, { type: 'highlight', label: 'C' });
+    expect(reduce(lit, { type: 'settings', patch: { palette: 'winter' } }).highlight).toBe('C');
+    expect(reduce(lit, { type: 'settings', patch: { colorBy: 'language' } }).highlight).toBe('C');
+    expect(reduce(lit, { type: 'settings', patch: { colorBy: 'folder' } }).highlight).toBeNull();
+  });
+
+  test('a load restores a highlight unless it also pins a folder', () => {
+    const load = (selection: { folder: number } | null) =>
+      run(
+        { type: 'load', id: 1, ref: ref('a/one') },
+        { type: 'loaded', id: 1, repo: repo('a/one'), selection, highlight: 'Rust' },
+      );
+    expect(load(null)).toMatchObject({ selection: null, highlight: 'Rust' });
+    expect(load({ folder: 3 })).toMatchObject({ selection: { folder: 3 }, highlight: null });
   });
 });
 

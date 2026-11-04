@@ -3,13 +3,16 @@ import type { Material, WebGLProgramParametersWithUniforms } from 'three';
 /**
  * Shader hooks shared by every tree material, ported from the approved mock. Each vertex moves
  * from `aBase` (the point it grows out of) to its position while `uGrow` crosses its `aT`
- * window. Fragments whose node id `aId` falls outside `uSel` fade toward `uFade`.
+ * window. Fragments whose node id `aId` falls outside `uSel` fade toward `uFade`, and so do
+ * bark and every leaf outside color slot `uCategory` while it is not -1. Those leaves fade harder
+ * and go grey, and the leaves inside that slot deepen, so any category stands out, pale or gold.
  */
 export const treeUniforms = {
   uGrow: { value: 1 },
   uSel: { value: [-1, -1] as [number, number] },
   uFade: { value: [0.93, 0.92, 0.9] as [number, number, number] },
   uSlots: { value: [] as number[] },
+  uCategory: { value: -1 },
 };
 
 const GROW_VERTEX = /* glsl */ `
@@ -24,11 +27,54 @@ const GROW_BEGIN = /* glsl */ `
 transformed = mix(aBase, transformed, smoothstep(aT.x, max(aT.y, aT.x + 0.0001), uGrow));
 vId = aId;
 `;
-export const FADE = /* glsl */ `
+const OUTSIDE = '(uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5))';
+const OTHER_CATEGORY = '(uCategory >= 0.0 && abs(vSlot - uCategory) > 0.5)';
+/**
+ * Mixes a `faded` fragment toward the sky by `amount`. `grey` (0 to 1) first drains its color, so
+ * a leaf of another category goes the grey of faded bark.
+ */
+const fade = (faded: string, grey = '0.0', amount = '0.78') => /* glsl */ `
 #include <dithering_fragment>
-if (uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5)) {
+if (${faded}) {
   float l = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, uFade * (0.75 + 0.25 * l), 0.78);
+  vec3 drained = mix(gl_FragColor.rgb, vec3(l), ${grey});
+  gl_FragColor.rgb = mix(drained, uFade * (0.75 + 0.25 * l), ${amount});
+}
+`;
+export const FADE = fade(OUTSIDE);
+const FADE_UNIFORMS = 'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uCategory;\n';
+
+const HSL = /* glsl */ `
+vec3 hue2rgb(float h) {
+  return clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+}
+vec3 toHSL(vec3 c) {
+  float hi = max(c.r, max(c.g, c.b));
+  float lo = min(c.r, min(c.g, c.b));
+  float l = (hi + lo) * 0.5;
+  float d = hi - lo;
+  float s = d == 0.0 ? 0.0 : d / (1.0 - abs(2.0 * l - 1.0));
+  float h = d == 0.0 ? 0.0
+    : hi == c.r ? mod((c.g - c.b) / d, 6.0) / 6.0
+    : hi == c.g ? ((c.b - c.r) / d + 2.0) / 6.0
+    : ((c.r - c.g) / d + 4.0) / 6.0;
+  return vec3(h, s, l);
+}
+vec3 fromHSL(vec3 hsl) {
+  return hsl.z + hsl.y * (hue2rgb(hsl.x) - 0.5) * (1.0 - abs(2.0 * hsl.z - 1.0));
+}
+`;
+
+/** How far a leaf of another category fades, and how the highlighted ones saturate and darken. */
+const LEAF_TUNING = '#define FADE_OTHER 0.9\n#define POP_S 0.7\n#define POP_L 0.7\n';
+/**
+ * Leaves of the highlighted category deepen: more saturation and a little less lightness, so a
+ * pale or gold one reads against the faded grey and the sky. Runs on the output color.
+ */
+const POP = /* glsl */ `
+if (uCategory >= 0.0 && !${OTHER_CATEGORY}) {
+  vec3 hsl = toHSL(clamp(gl_FragColor.rgb, 0.0, 1.0));
+  gl_FragColor.rgb = fromHSL(vec3(hsl.x, mix(hsl.y, 1.0, POP_S), hsl.z * POP_L));
 }
 `;
 
@@ -41,21 +87,11 @@ attribute float aSlot;
 attribute vec2 aShade;
 uniform vec3 uSlots[SLOTS];
 varying vec3 vLeaf;
-vec3 hue2rgb(float h) {
-  return clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-}
+varying float vSlot;
+${HSL}
 vec3 offsetHSL(vec3 c, float dh, float dl) {
-  float hi = max(c.r, max(c.g, c.b));
-  float lo = min(c.r, min(c.g, c.b));
-  float l = (hi + lo) * 0.5;
-  float d = hi - lo;
-  float s = d == 0.0 ? 0.0 : d / (1.0 - abs(2.0 * l - 1.0));
-  float h = d == 0.0 ? 0.0
-    : hi == c.r ? mod((c.g - c.b) / d, 6.0) / 6.0
-    : hi == c.g ? ((c.b - c.r) / d + 2.0) / 6.0
-    : ((c.r - c.g) / d + 4.0) / 6.0;
-  l = clamp(l * (1.0 + dl), 0.0, 1.0);
-  return l + s * (hue2rgb(fract(h + dh)) - 0.5) * (1.0 - abs(2.0 * l - 1.0));
+  vec3 hsl = toHSL(c);
+  return fromHSL(vec3(fract(hsl.x + dh), hsl.y, clamp(hsl.z * (1.0 + dl), 0.0, 1.0)));
 }
 `;
 
@@ -78,8 +114,11 @@ export const growing = <M extends Material>(m: M) => hook(m, 'grow', () => {});
 export const barkShader = <M extends Material>(m: M) =>
   hook(m, 'bark', (shader) => {
     shader.fragmentShader =
-      'uniform vec2 uSel;\nuniform vec3 uFade;\n' +
-      shader.fragmentShader.replace('#include <dithering_fragment>', FADE);
+      FADE_UNIFORMS +
+      shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        fade(`uCategory >= 0.0 || ${OUTSIDE}`),
+      );
   });
 
 export const leafShader = <M extends Material>(m: M, slots: number) =>
@@ -89,13 +128,23 @@ export const leafShader = <M extends Material>(m: M, slots: number) =>
       LEAF_VERTEX +
       shader.vertexShader.replace(
         '#include <begin_vertex>',
-        '#include <begin_vertex>\nvLeaf = offsetHSL(uSlots[int(aSlot)], aShade.x, aShade.y);',
+        '#include <begin_vertex>\nvLeaf = offsetHSL(uSlots[int(aSlot)], aShade.x, aShade.y);\nvSlot = aSlot;',
       );
     shader.fragmentShader =
-      'uniform vec2 uSel;\nuniform vec3 uFade;\nvarying vec3 vLeaf;\n' +
+      LEAF_TUNING +
+      FADE_UNIFORMS +
+      'varying vec3 vLeaf;\nvarying float vSlot;\n' +
+      HSL +
       shader.fragmentShader
         .replace('#include <color_fragment>', 'diffuseColor.rgb *= vLeaf;')
-        .replace('#include <dithering_fragment>', FADE);
+        .replace(
+          '#include <dithering_fragment>',
+          fade(
+            `${OTHER_CATEGORY} || ${OUTSIDE}`,
+            `float(${OTHER_CATEGORY})`,
+            `${OTHER_CATEGORY} ? FADE_OTHER : 0.78`,
+          ) + POP,
+        );
   });
 
 /** Writes node id + 1 as a 24-bit color, so 0 means no tree under the pixel. */

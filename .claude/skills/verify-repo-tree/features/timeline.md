@@ -37,6 +37,6 @@ Preconditions:
 
 - `aria-disabled` makes Playwright refuse a plain click; the unavailable step clicks with `force`, as a user's tap still lands.
 - The scrubber's thumb is `--thumb` wide on `#scrubber` (18 px on desktop, 22 px on a phone), so a fraction of the track maps to `thumb / 2 + at * (width - thumb)` px. The journey and `e2e/timeline.spec.ts` read the variable.
-- Linux's history keeps only the last 5,000 deletions (to 2025-02), so its earlier counts read `at least N files`.
+- Linux's history keeps only the last 5,000 deletions (to 2025-02), so its earlier counts read `N+ files` (`at least N files` in the slider's `aria-valuetext`). The date and count sit in a fixed-width slot so the track never resizes mid-drag; `e2e/timeline.spec.ts` checks the track holds still on Linux.
 - Early frames still show the rocks: root files sit on the island for the whole timeline.
 - A sample reloaded live (Reload from GitHub) keeps its timeline: with no history shared, the bundled one stands in. A branch link (every shared link names its branch) is offered to compute like a plain one, and told the default branch's name if it names another.

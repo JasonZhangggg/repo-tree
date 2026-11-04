@@ -1,11 +1,13 @@
 import {
   BufferAttribute,
   BufferGeometry,
-  CanvasTexture,
   Color,
+  DataTexture,
   DirectionalLight,
   DoubleSide,
   HemisphereLight,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   Mesh,
   MeshBasicMaterial,
   MeshDepthMaterial,
@@ -164,6 +166,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   );
   sky.frustumCulled = false;
   sky.renderOrder = -1;
+  /**
+   * The container's CSS background shows the same gradient behind a transparent canvas; the sky
+   * quad only draws into PNG snapshots. Filling every pixel on a software GL cost about a fifth
+   * of each spin frame, and the browser rasters a CSS gradient once.
+   */
+  sky.visible = false;
 
   const hemi = new HemisphereLight(0xffffff, 0xffffff, LIGHT.sky);
   const key = new DirectionalLight(0xffffff, LIGHT.key);
@@ -255,11 +263,18 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   let raf = 0;
   let lastFrame = 0;
   let renders = 0;
+  /**
+   * Meshes held back from the first tree frames, one more drawn per frame, so a frame waits on
+   * at most one new program: a software GL links each in 100 to 250 ms, and the first tree frame
+   * waited on all of them at once. A growing tree starts collapsed, so the hold does not show.
+   */
+  let staged: Mesh[] = [];
+  let linked = false;
   const listeners = new Set<(info: FrameInfo) => void>();
 
   const mountRenderer = () => {
     const { antialias, pixelRatio, shadowMap } = QUALITY[quality];
-    const next = new WebGLRenderer({ antialias, powerPreference: 'high-performance' });
+    const next = new WebGLRenderer({ antialias, alpha: true, powerPreference: 'high-performance' });
     next.setPixelRatio(Math.min(pixelRatio, window.devicePixelRatio || 1));
     next.toneMapping = ACESFilmicToneMapping;
     next.shadowMap.enabled = true;
@@ -277,9 +292,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       container.append(next.domElement);
     }
     renderer = next;
+    linked = false;
     key.shadow.mapSize.set(shadowMap, shadowMap);
     groundTarget.setSize(shadowMap, shadowMap);
-    renderer.autoClearColor = false;
+    renderer.setClearColor(0x000000, 0);
     resize();
   };
 
@@ -385,9 +401,16 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     if (controls.update(dt)) busy = true;
 
     const shadowChanged = renderer.shadowMap.needsUpdate;
+    const held = staged.filter((mesh) => mesh.visible);
+    for (const mesh of held) mesh.visible = false;
     renderer.render(scene, camera);
     if (shadowChanged) {
       bakeGround();
+      busy = true;
+    }
+    for (const mesh of held) mesh.visible = true;
+    if (staged.shift()) {
+      renderer.shadowMap.needsUpdate = true;
       busy = true;
     }
     renders++;
@@ -430,6 +453,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const edge = srgb(palette.sky.edge);
     sky.material.uniforms.uCenter!.value = center;
     sky.material.uniforms.uEdge!.value = edge;
+    const { center: c, edge: e } = palette.sky;
+    const mid = `color-mix(in srgb, ${c}, ${e} 28%)`;
+    container.style.background = `radial-gradient(120% 90% at 50% 40%, ${c}, ${mid} 45%, ${e})`;
     treeUniforms.uFade.value = [0, 1, 2].map((i) => (center[i]! + edge[i]!) / 2) as Vec3;
     const slots: number[] = [];
     for (const hex of [...palette.leaves, palette.rest]) {
@@ -550,6 +576,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         mesh.frustumCulled = false;
       }
       scene.add(bark, leaves);
+      if (!linked) staged = [terrain.cover, bark, leaves];
+      linked = true;
       const nodes = model.nodes.folder.length;
       shown = {
         model,
@@ -695,7 +723,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       renderer.setPixelRatio(scale);
       const { width, height } = freeRegion();
       camera.setViewOffset(width, height, 0, 0, width, height);
+      sky.visible = true;
       renderer.render(scene, camera);
+      sky.visible = false;
       applyView();
       const blob = await new Promise<Blob | null>((resolve) =>
         renderer.domElement.toBlob(resolve, 'image/png'),
@@ -869,17 +899,26 @@ function step(s: Spring, dt: number, rate: number, epsilon: number): boolean {
   return moving;
 }
 
-/** A soft round shadow under the trunk, white so the material color tints it. */
-function radialTexture(): CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
-  const g = canvas.getContext('2d')!;
-  const gradient = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-  gradient.addColorStop(0, 'rgba(255,255,255,0.28)');
-  gradient.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = gradient;
-  g.fillRect(0, 0, 256, 256);
-  const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
+/**
+ * A soft round shadow under the trunk, white so the material color tints it. Filled in JS: a
+ * 2D canvas for it started a second GPU context, a 130 to 180 ms wait at startup.
+ */
+function radialTexture(): DataTexture {
+  const size = 256;
+  const data = new Uint8Array(size * size * 4).fill(255);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const t = Math.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) / (size / 2);
+      data[(y * size + x) * 4 + 3] = Math.round(255 * 0.28 * Math.max(0, 1 - t));
+    }
+  }
+  const texture = new DataTexture(data, size, size);
+  Object.assign(texture, {
+    colorSpace: SRGBColorSpace,
+    magFilter: LinearFilter,
+    minFilter: LinearMipmapLinearFilter,
+    generateMipmaps: true,
+    needsUpdate: true,
+  });
   return texture;
 }

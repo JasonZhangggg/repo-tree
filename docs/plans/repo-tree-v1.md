@@ -50,6 +50,31 @@ function fetchRuns(ref: RepoRef, branch: string, token?: string, signal?: AbortS
 function loadSampleRuns(id: string, branch: string, base?: string): Promise<CiRun[] | null>; // <base>samples/<id>.runs.json, in the API's shape
 // load/cache.ts also keeps runs for ten minutes under runs:owner/repo@branch.
 
+// server/src/shape.ts  (wire contract of the history server; repo/history.ts re-exports the types)
+type Gap = 'tree-truncated' /* paths past an over-limit listing assumed unchanged for that interval */ | 'root-unknown' | 'codeowners-unread';
+type PathTable = { path: string[] /* folders without trailing slash, root '' */; changed: number[]; born: number[]; churn: number[] /* snapshot intervals with a sha change */; commits: number[] /* in `recent` */ };
+// A time older than recent.since is known to snapshot resolution: the time of the snapshot that first showed it, an upper bound.
+type History = { v: 1; repo: string; branch: string; head: string; computedAt: number; gaps: Gap[];
+  recent: { since: number /* 0: reaches the first commit */; commits: number }; snapshots: { sha: string; at: number }[] /* oldest first, last is head: time-lapse frames */;
+  files: PathTable; folders: PathTable; gone: { path: string; born: number; gone: number }[] /* most recent first, at most 5000 */;
+  owners: { folder: string /* top-level, '' for root files */; authors: { name: string; commits: number /* recent, exact */; weight: number /* commits in intervals where it changed */ }[] /* up to 5, no bots */; codeowners: string[] }[] };
+type HistoryReply = { status: 'ready'; history: History; stale: boolean } | { status: 'pending'; progress: number; retryAfter: number }
+  | { status: 'needs-auth' } | { status: 'error'; error: 'invalid' | 'not-found' | 'empty' | 'unauthorized' | 'private' | 'rate-limited' | 'busy' | 'upstream' | 'forbidden'; retryAfter?: number };
+// GET <VITE_HISTORY_URL>/v1/history/{owner}/{repo}?branch=  with Authorization: Bearer <token> to compute an uncached repo.
+
+// repo/history.ts  (boundary: network; history features are off when VITE_HISTORY_URL is unset)
+type HistoryResult = { status: 'ready'; history: History } | { status: 'needs-auth'; rejected: boolean /* the token was refused */ } | null /* off or failed */;
+function fetchHistory(ref: RepoRef, branch: string, options?: { token?: string | null; signal?: AbortSignal; onProgress?: (p: number) => void }): Promise<HistoryResult>; // polls pending with backoff (2 s, x1.5, max 30 s, honors retryAfter) for up to 10 min; rejects only on abort
+function loadHistory(ref, branch, options & { fresh?: boolean }): Promise<HistoryResult>; // behind load/cache.ts, six hours under history:owner/repo@branch
+function loadSampleHistory(id: string, base?: string): Promise<History | null>; // <base>samples/<id>.history.json.gz
+function parseHistory(body: unknown): History | null; // version and column alignment checked
+
+// repo/auth.ts  (sign in with GitHub through the history server's OAuth App; no scopes)
+function signIn(base?: string): Promise<string | null>; // popup to <base>/v1/auth/login; the callback posts the token to this origin; kept in localStorage 'repo-tree:github-signin'
+function signedInToken(): string | null;
+function signOut(): void;
+// The sign-in token goes only in the Authorization header of history requests, never in a link.
+
 // repo/languages.ts  (table, not branching)
 type Lang = string & { __brand: 'Lang' };
 const LANGS: ReadonlyArray<{ lang: Lang; exts: string[]; filenames?: string[] }>;
@@ -183,6 +208,7 @@ Palettes are a table (`render/palette.ts` above). Autumn is the approved default
 - No environment map: generating the mock's RoomEnvironment blocked the main thread for up to 1.7 s on a software GL. A calibrated hemisphere light stands in for its fill.
 - Quality tiers set pixel ratio cap, shadow map size, antialias, and leaf sprigs per twig.
 - Weather reflects the repo's recent GitHub Actions runs on its default branch (`repo/ci.ts`, `render/weather.ts`). Its sky tint goes into the container's CSS gradient and the PNG export's sky quad alike; a lightning flash repaints the gradient for its half second. Clouds, the sun and lightning hang on a backdrop fixed to the camera far behind the tree, so they never cover it; rain or snow falls in world space around the island and stops on it. Drift, fall, flashes and the sun's turning rays and breathing halo run in vertex shaders from one time uniform; the whole sun is one mesh, so weather adds four draws at most. Moving weather, the sun included, renders every frame like spin does, stops with the page's animation frames when the tab is hidden, and holds a still frame under reduced motion. Runs load on the main thread beside the tree, never block it, and fail soft to no weather. Samples carry a hand-written `<id>.runs.json`.
+- Commit history comes from a separate server (`server/`, a Cloudflare Worker with KV; setup in `server/README.md`). It compares about 50 to 80 sampled tree snapshots (weekly, monthly, then yearly) by blob and tree sha and reads the newest 100 commits one by one, so its cost is about 120 to 200 GitHub requests whatever the history length. Jobs run in bounded steps across requests. Visitors sign in with GitHub to compute an uncached repo; results come from public data and are shared through the cache, and private repos are refused. Samples carry a `<id>.history.json.gz` made by that server against local clones.
 - `vite build` output loads three.js in its own chunk. Generation runs in a module worker and returns geometry as transferable buffers.
 
 ## PR stack
@@ -198,4 +224,4 @@ Each PR is landable on its own and ends in a passing CI run.
 
 ## Out of scope for v1
 
-Commit history over time, GitLab or Bitbucket, a server or OAuth app, and file contents. The growth animation shows load order, not git history.
+GitLab or Bitbucket, and file contents. The growth animation shows load order, not git history. Commit history and its server were out of scope for v1 and came after it; the history features themselves (seasons and dead wood, hotspots, color by owner, time-lapse) and the sign-in button land in later PRs.

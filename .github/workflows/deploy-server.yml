@@ -1,0 +1,46 @@
+name: Deploy history server
+
+on:
+  push:
+    branches: [main]
+    paths: ['server/**', 'src/repo/ref.ts', '.github/workflows/deploy-server.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: history-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      # Secrets cannot gate a job directly, so a step checks them and later steps follow it.
+      - id: secrets
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set, so the history server was not deployed. See server/README.md."
+          fi
+      - if: steps.secrets.outputs.ready == 'true'
+        uses: actions/checkout@v7
+      - if: steps.secrets.outputs.ready == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - if: steps.secrets.outputs.ready == 'true'
+        run: npm ci --prefix server
+      - if: steps.secrets.outputs.ready == 'true'
+        run: npm run check --prefix server
+      - if: steps.secrets.outputs.ready == 'true'
+        working-directory: server
+        run: npx wrangler deploy

@@ -1,10 +1,12 @@
 import type { CiRun } from '../repo/ci';
 import type { Snapshot } from '../repo/github';
+import type { History } from '../repo/history';
 
 const DB = 'repo-tree';
 const STORE = 'snapshots';
 const FRESH_MS = 60 * 60 * 1000;
 const RUNS_FRESH_MS = 10 * 60 * 1000;
+const HISTORY_FRESH_MS = 6 * 60 * 60 * 1000;
 
 let opened: Promise<IDBDatabase> | undefined;
 
@@ -60,3 +62,10 @@ export const cachedRuns = async (key: string) =>
   (await cached<StoredRuns>(`runs:${key}`, RUNS_FRESH_MS))?.runs;
 export const cacheRuns = (key: string, runs: CiRun[]) =>
   cache<StoredRuns>(`runs:${key}`, { runs, fetchedAt: Date.now() });
+
+type StoredHistory = { history: History; fetchedAt: number };
+/** A history fetched within six hours, the time the server trusts a branch head for. */
+export const cachedHistory = async (key: string) =>
+  (await cached<StoredHistory>(`history:${key}`, HISTORY_FRESH_MS))?.history;
+export const cacheHistory = (key: string, history: History) =>
+  cache<StoredHistory>(`history:${key}`, { history, fetchedAt: Date.now() });

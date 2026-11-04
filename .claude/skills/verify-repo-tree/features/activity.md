@@ -1,6 +1,6 @@
 # Activity
 
-Settings' `Color leaves by` has a third choice, `Activity`, that colors leaves by how long ago their files last changed, from the repo's commit history: green this month, orange this year, brown 1 to 3 years ago. Leaves whose files are mostly untouched for 3 years are dead wood: they drop, leaving bare branches, and a branch whose every file is dead wood turns silver-grey. The legend lists the four bands with their share of files, and the folder bars take each folder's band.
+Settings' `Color leaves by` has a third choice, `Activity`, that colors leaves by how long ago their files last changed, from the repo's commit history: in the color scheme's own leaves (`Palette.ages`), liveliest for this month down to its oldest for 1 to 3 years ago (autumn: red-orange, gold, brown). Leaves whose files are mostly untouched for 3 years are dead wood: they drop, leaving bare branches, and a branch whose every file is dead wood turns silver-grey. The legend lists the four bands with their share of files, and the folder bars take each folder's band.
 
 ## Sub-features
 
@@ -24,12 +24,14 @@ Preconditions:
 - Bundled samples carry `<id>.history.json.gz`, so they need no history server.
 
 - **Language first.** Open linux by language. Step `language`. The usual autumn crown.
-- **Switch.** Settings, `Activity`. Step `activity`. The legend title reads `Leaf colors by activity` and the screenshot shows an orange-and-brown crown with bare branches where linux is quiet.
-- **Dead wood.** Click `Dead wood` in the legend. Step `dead-wood`. The URL carries `hl=Dead%20wood` and the dropped leaves show again, steel blue-grey against the faded crown.
+- **Switch.** Settings, `Activity`. Step `activity`. The legend title reads `Leaf colors by activity` and the screenshot shows a gold-and-brown crown (autumn) with bare branches where linux is quiet.
+- **Dead wood.** Click `Dead wood` in the legend. Step `dead-wood`. The URL carries `hl=Dead%20wood` and the dropped leaves show again, blue-grey against the faded crown.
 - **Vite.** Open vite by activity. Step `vite`. `playground/` is mostly dead wood and its bar is grey.
 - **No history.** Enter `acme/widgets` from the stand-in. Step `no-history`. The note reads `History is unavailable for this repo.` and the leaves keep their language colors.
 
 ## Gotchas
+
+- The band colors follow the palette: switch it in Settings and the leaves, legend swatches and folder bars all change.
 
 - `As of` is `History.computedAt`, not today, so a sample's bands are stable until its history is recomputed.
 - A link's `hl=` for a band is kept while the history loads; the view applies it once the facts arrive.

@@ -157,6 +157,25 @@ test('search finds a folder, frames it and pins it', async ({ page }) => {
   await expect(detail(page)).toBeHidden();
 });
 
+test("labels the big top-level folders, then a pinned folder's own subfolders", async ({
+  page,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const pills = page.locator('#labels .pill');
+  await expect(pills.locator('span')).toHaveText(['playground', 'packages', 'docs']);
+  await expect(page.locator('#labels .pill.major')).toHaveCount(2);
+
+  await page.locator('#labels .pill', { hasText: 'packages' }).click();
+  await expectPinned(page, 'vite/packages');
+  const subs = page.locator('#labels .pill.sub span');
+  await expect(subs.first()).toHaveText('vite');
+  await expect(page.locator('#labels .pill.aside', { hasText: 'playground' })).toHaveCount(1);
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#labels .pill.sub')).toHaveCount(0);
+});
+
 test('a palette picked in settings survives a reload', async ({ page }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');

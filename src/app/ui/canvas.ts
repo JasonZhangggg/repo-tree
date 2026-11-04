@@ -3,11 +3,10 @@ import { nameOf } from '../app';
 import { debug } from '../debug';
 import { byId, h } from '../dom';
 import { bytes, count, plural } from '../format';
-import { relaxLabels } from '../labels';
+import { pickLabels, relaxLabels, type LabelPick } from '../labels';
 import type { AppState, Repo, Selection } from '../state';
 import type { Picked } from '../../render/tree-view';
 
-const LABELS = 6;
 const TAP_SLOP = 6;
 
 /** The root folder's own files a rock lies for, as indices into RepoIndex.files. */
@@ -131,30 +130,56 @@ export function mountCanvas(app: App): {
   });
 
   /**
-   * A stem is its own element, moved and stretched by transform alone: resizing a stem drawn
-   * inside its pill repainted the pill every spin frame, about a sixth of each frame's cost.
+   * A stem is its own element, moved, turned and stretched by transform alone: resizing a stem
+   * drawn inside its pill repainted the pill every spin frame, about a sixth of each frame's cost.
    */
   type Pill = {
     el: HTMLButtonElement;
     stem: HTMLElement;
     folder: number;
     files: number;
+    tier: LabelPick['tier'];
     count: HTMLElement;
     width: number;
     height: number;
   };
   let pills: Pill[] = [];
+  let labeledFor: { repo: Repo; folder: number | null } | null = null;
+
+  /** The pinned folder's own subfolders, when it is not the root. */
+  const childrenOf = (repo: Repo, folder: number | null) => {
+    if (folder === null || folder === 0) return [];
+    const { parent, files } = repo.index.folders;
+    const children: { folder: number; files: number }[] = [];
+    for (let f = folder + 1; f < parent.length; f++) {
+      if (parent[f] === folder) children.push({ folder: f, files: files[f]! });
+    }
+    return children;
+  };
 
   const buildLabels = (state: AppState) => {
     const repo = state.repo!;
-    const top = [...repo.tree.labels].sort((a, b) => b.files - a.files).slice(0, LABELS);
-    pills = top.map(({ folder, files }) => {
+    const pinned = state.selection?.folder ?? null;
+    if (labeledFor?.repo === repo && labeledFor.folder === pinned) return;
+    labeledFor = { repo, folder: pinned };
+    const picks = pickLabels(
+      repo.tree.labels,
+      childrenOf(repo, pinned),
+      pinned === null ? 0 : repo.index.folders.files[pinned]!,
+    );
+    const pinnedPath = pinned === null ? null : repo.tree.folders.path[pinned]!;
+    const aside = (folder: number) => {
+      if (!pinnedPath) return false;
+      const path = repo.tree.folders.path[folder]!;
+      return pinnedPath !== path && !pinnedPath.startsWith(`${path}/`);
+    };
+    pills = picks.map(({ folder, files, tier }) => {
       const tally = h('b', {}, count(files));
       const el = h(
         'button',
         {
           type: 'button',
-          class: 'pill',
+          class: `pill ${tier}${tier !== 'sub' && aside(folder) ? ' aside' : ''}`,
           tabindex: '-1',
           onclick: () => app.select({ folder }, true),
           onpointerenter: () => setHovered({ folder }),
@@ -168,6 +193,7 @@ export function mountCanvas(app: App): {
         stem: h('i', { class: 'stem' }),
         folder,
         files,
+        tier,
         count: tally,
         width: 0,
         height: 0,
@@ -178,13 +204,17 @@ export function mountCanvas(app: App): {
       pill.width = pill.el.offsetWidth;
       pill.height = pill.el.offsetHeight;
     }
+    view.setLabelFolders(pills.map((p) => p.folder));
+    mark(marked);
   };
 
+  let marked: number | null = null;
   const mark = (folder: number | null) => {
+    marked = folder;
     for (const pill of pills) pill.el.classList.toggle('on', pill.folder === folder);
   };
 
-  view.onFrame(({ labels }) => {
+  view.onFrame(({ labels, center }) => {
     const repo = store.get().repo;
     if (!repo) return;
     debug.labels = labels.map(({ folder, x, y }) => ({
@@ -197,18 +227,26 @@ export function mountCanvas(app: App): {
     const shown = pills.filter((p) => at.get(p.folder)?.visible);
     layer.style.opacity = shown.length ? '1' : '0';
     for (const pill of pills) pill.el.hidden = pill.stem.hidden = !shown.includes(pill);
-    for (const pill of shown) if (pill.width < 0) pill.width = pill.el.offsetWidth;
-    const anchors = shown.map((p) => ({
-      x: at.get(p.folder)!.x,
-      y: at.get(p.folder)!.y,
-      width: p.width,
-    }));
-    const placed = relaxLabels(anchors);
+    for (const pill of shown) {
+      if (pill.width < 0) pill.width = pill.el.offsetWidth;
+      const back = !at.get(pill.folder)!.front;
+      if (pill.el.classList.contains('back') !== back) {
+        pill.el.classList.toggle('back', back);
+        pill.stem.classList.toggle('back', back);
+      }
+    }
+    const anchors = shown.map((p) => {
+      const { x, y, front } = at.get(p.folder)!;
+      return { x, y, front, width: p.width, height: p.height };
+    });
+    const placed = relaxLabels(anchors, center);
     shown.forEach((pill, i) => {
       const { x, y } = placed[i]!;
-      const stem = Math.max(0, anchors[i]!.y - y - 14);
-      pill.el.style.transform = `translate(${x - pill.width / 2}px, ${y - 14}px)`;
-      pill.stem.style.transform = `translate(${x}px, ${y - 14 + pill.height}px) scaleY(${stem})`;
+      const a = anchors[i]!;
+      const length = Math.max(0, Math.hypot(x - a.x, y - a.y) - pill.height / 2);
+      const angle = Math.atan2(y - a.y, x - a.x);
+      pill.el.style.transform = `translate(${x - pill.width / 2}px, ${y - pill.height / 2}px)`;
+      pill.stem.style.transform = `translate(${a.x}px, ${a.y}px) rotate(${angle}rad) scaleX(${length})`;
     });
   });
 
@@ -218,6 +256,8 @@ export function mountCanvas(app: App): {
       tip.hidden = true;
       buildLabels(state);
       layer.style.opacity = '0';
+    } else if (state.repo && state.selection?.folder !== prev.selection?.folder) {
+      buildLabels(state);
     }
     if (state.settings.labels !== prev.settings.labels) layer.hidden = !state.settings.labels;
   });

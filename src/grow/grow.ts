@@ -51,8 +51,13 @@ export type TreeModel = {
    * are RepoIndex.files ids (folders in preorder, each folder's own files in order).
    */
   sprigs: { vertex: Uint32Array; file: Uint32Array; files: Uint32Array };
-  /** One per top-level folder, anchored on the twig tip nearest the middle of its limb. */
+  /** One per top-level folder, at its anchor. */
   labels: { folder: number; files: number; anchor: Vec3 }[];
+  /**
+   * A label anchor per folder as xyz, on the outer face of its part of the crown: the twig tip
+   * that reaches farthest out, and a little up, toward the side the folder's twigs lean to.
+   */
+  anchors: Float32Array;
   /**
    * The root folder's own files lie on the ground as rocks, largest first, when the root also
    * has subfolders. `files` index the root folder's own files; the last rock may hold the rest.
@@ -180,6 +185,14 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
     mulberry32(params.seed ^ 0x5bd1e995),
   );
 
+  const anchors = new Float32Array(folderPaths.length * 3);
+  for (let folder = 0; folder < folderPaths.length; folder++) {
+    anchors.set(
+      labelAnchor(order, skeleton, range[2 * folder]!, range[2 * folder + 1]!),
+      folder * 3,
+    );
+  }
+
   const nodeFolder = new Uint32Array(nodeCount);
   const nodeFiles = new Uint32Array(nodeCount);
   for (const n of order) {
@@ -201,12 +214,9 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
     folders: { path: folderPaths, range },
     labels: root.dirs.map((dir) => {
       const folder = folderOf.get(dir)!;
-      return {
-        folder,
-        files: dir.fileCount,
-        anchor: labelAnchor(order, skeleton, range[2 * folder]!, range[2 * folder + 1]!),
-      };
+      return { folder, files: dir.fileCount, anchor: vec(anchors, folder) };
     }),
+    anchors,
     rocks,
     bounds: boundsOf([bark.position, leaves.mesh.position]),
   };
@@ -357,6 +367,8 @@ function growSkeleton(
     roll: number,
     depth: number,
     path: number,
+    az0: number,
+    az1: number,
   ): void => {
     const side = rotate(perp(dir), dir, random() * 6.28);
     const end = addScaled(start, dir, len);
@@ -383,9 +395,25 @@ function growSkeleton(
     if (!a) return;
     if (!b) {
       const jitter: Vec3 = [(random() - 0.5) * 0.25, 0, (random() - 0.5) * 0.25];
-      const d = normalize(lerp(add(dir, jitter), UP, SHAPE.tropism));
-      return grow(a, end, d, lenOf(a.w), rChild(a), roll + GOLDEN_ANGLE, depth + 1, path + len);
+      const d = wedge(normalize(lerp(add(dir, jitter), UP, SHAPE.tropism)), az0, az1);
+      const { w } = a;
+      return grow(
+        a,
+        end,
+        d,
+        lenOf(w),
+        rChild(a),
+        roll + GOLDEN_ANGLE,
+        depth + 1,
+        path + len,
+        az0,
+        az1,
+      );
     }
+    // Each fork splits its wedge of the compass between its two kids, by the square root of their
+    // files so small folders still get room, and steers each kid's limb into its own share.
+    const span = az1 - az0;
+    const cutAt = az0 + (span * a.w ** WEDGE.exp) / (a.w ** WEDGE.exp + b.w ** WEDGE.exp);
     const theta = SHAPE.spread * (0.85 + 0.3 * random());
     const angA = (theta * b.w) / (a.w + b.w);
     const angB = Math.max(0.42, (theta * a.w) / (a.w + b.w));
@@ -393,26 +421,60 @@ function growSkeleton(
     grow(
       a,
       end,
-      tropism(rotate(dir, axis, angA), a.w),
+      wedge(tropism(rotate(dir, axis, angA), a.w), az0, cutAt),
       lenOf(a.w),
       rChild(a),
       roll + GOLDEN_ANGLE,
       depth + 1,
       path + len,
+      az0,
+      cutAt,
     );
     grow(
       b,
       end,
-      tropism(rotate(dir, axis, -angB), b.w),
+      wedge(tropism(rotate(dir, axis, -angB), b.w), cutAt, az1),
       lenOf(b.w),
       rChild(b),
       roll + GOLDEN_ANGLE,
       depth + 1,
       path + len,
+      cutAt,
+      az1,
     );
   };
-  grow(top, [0, -0.06, 0], normalize([0.05, 1, 0.02]), SHAPE.trunkLen, trunkR, 0, 0, 0);
+  grow(
+    top,
+    [0, -0.06, 0],
+    normalize([0.05, 1, 0.02]),
+    SHAPE.trunkLen,
+    trunkR,
+    0,
+    0,
+    0,
+    0,
+    Math.PI * 2,
+  );
   return s;
+}
+
+/**
+ * Wedges keep each folder's limbs inside its own slice of the compass, so a folder reads as one
+ * section of the crown. `exp` shares a fork's slice by files to this power; `pull` is how far a
+ * limb's heading turns toward the middle of its slice, and `keep` how much of the slice it may use.
+ */
+const WEDGE = { exp: 0.5, pull: 0, keep: 0.8 };
+
+/** Turns a heading about the vertical so its compass bearing falls inside [az0, az1]. */
+function wedge(d: Vec3, az0: number, az1: number): Vec3 {
+  const horizontal = Math.hypot(d[0], d[2]);
+  if (horizontal < 1e-6) return d;
+  const mid = (az0 + az1) / 2;
+  const half = ((az1 - az0) / 2) * WEDGE.keep;
+  let off = Math.atan2(d[2], d[0]) - mid;
+  off -= Math.round(off / (Math.PI * 2)) * Math.PI * 2;
+  const az = mid + Math.max(-half, Math.min(half, off * (1 - WEDGE.pull)));
+  return [Math.cos(az) * horizontal, d[1], Math.sin(az) * horizontal];
 }
 
 function tipHeight(s: Skeleton): number {
@@ -728,17 +790,22 @@ function labelAnchor(order: Node[], s: Skeleton, lo: number, hi: number): Vec3 {
   const tips: Vec3[] = [];
   for (let id = lo; id <= hi; id++) if (order[id]!.files) tips.push(vec(s.end, id));
   const centroid = scale(tips.reduce(add, [0, 0, 0]), 1 / tips.length);
+  const out = normalize([centroid[0], 0, centroid[2]]);
   let best = tips[0]!;
-  let bestDistance = Infinity;
+  let bestScore = -Infinity;
   for (const tip of tips) {
-    const d = dot(sub(tip, centroid), sub(tip, centroid));
-    if (d < bestDistance) {
-      bestDistance = d;
+    const score = dot(tip, out) + ANCHOR_UP * tip[1] - ANCHOR_SPREAD * length(sub(tip, centroid));
+    if (score > bestScore) {
+      bestScore = score;
       best = tip;
     }
   }
   return best;
 }
+
+/** How much a label anchor favors height, and stays near its folder's middle, over reaching out. */
+const ANCHOR_UP = 0.35;
+const ANCHOR_SPREAD = 0.3;
 
 function boundsOf(buffers: Float32Array[]): TreeModel['bounds'] {
   const min: Vec3 = [Infinity, Infinity, Infinity];
@@ -765,7 +832,7 @@ function mulberry32(seed: number): () => number {
 }
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
-const vec = (buffer: Float64Array, i: number): Vec3 => [
+const vec = (buffer: Float64Array | Float32Array, i: number): Vec3 => [
   buffer[i * 3]!,
   buffer[i * 3 + 1]!,
   buffer[i * 3 + 2]!,

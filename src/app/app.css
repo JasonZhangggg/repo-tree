@@ -1258,6 +1258,32 @@ h1 a[aria-disabled] {
   will-change: transform;
   pointer-events: none;
 }
+.pill {
+  z-index: 2;
+}
+.pill.major {
+  font-size: 14px;
+  padding: 7px 13px;
+}
+.pill.sub {
+  font-size: 12px;
+  font-weight: 550;
+  padding: 4px 9px;
+  background: rgba(255, 255, 255, 0.8);
+}
+.pill.back {
+  z-index: 1;
+  opacity: 0.7;
+}
+.stem.back {
+  opacity: 0.4;
+}
+.pill.aside {
+  opacity: 0.5;
+}
+.pill.aside.back {
+  opacity: 0.35;
+}
 .pill.on {
   background: var(--ink);
   color: #fff;

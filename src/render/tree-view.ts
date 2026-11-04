@@ -64,8 +64,20 @@ import { createWeather, SUN_BEARING, weatherLight, weatherSky } from './weather'
 
 /** What a pixel shows: a folder's branch, or a rock lying for some of the root folder's files. */
 export type Picked = { folder: number; rock?: number };
-export type LabelPosition = { folder: number; x: number; y: number; visible: boolean };
-export type FrameInfo = { growth: number; labels: LabelPosition[] };
+/** `front`: the anchor is nearer the camera than the trunk, not on the far side of the crown. */
+export type LabelPosition = {
+  folder: number;
+  x: number;
+  y: number;
+  visible: boolean;
+  front: boolean;
+};
+/** `center` is the crown's middle on screen, which labels lean away from. */
+export type FrameInfo = {
+  growth: number;
+  labels: LabelPosition[];
+  center: { x: number; y: number };
+};
 /** CSS pixels along each edge of the container that panels cover. */
 export type Insets = { top: number; right: number; bottom: number; left: number };
 /** The sky to show, and whether it must hold still (reduced motion): no drift, fall or flashes. */
@@ -119,8 +131,10 @@ export interface TreeView {
   setQuality(quality: Quality): void;
   setSpin(on: boolean): void;
   setReducedMotion(on: boolean): void;
+  /** The folders whose anchors onFrame reports, or null for the top-level folders. */
+  setLabelFolders(folders: readonly number[] | null): void;
   /**
-   * Called after every rendered frame with each top-level label's screen position; a label is
+   * Called after every rendered frame with each labeled folder's screen position; a label is
    * visible once grown, in front of the camera and inside the free region.
    */
   onFrame(listener: (info: FrameInfo) => void): () => void;
@@ -147,6 +161,11 @@ const QUALITY: Record<Quality, { pixelRatio: number; shadowMap: number; antialia
 const GROW_MS = 2600;
 const BAKED = 1;
 const LABELS_FROM = 0.55;
+/**
+ * A label counts as behind the crown once its anchor's bearing turns more than about 105 degrees
+ * from the camera's, unless the anchor sits within `near` of the trunk.
+ */
+const BACK = { facing: 0.25, near: 0.15 };
 const SPIN_SPEED = 0.55;
 /** Spring rates: the camera settles in about a second, the free region in about a third. */
 const GLIDE_RATE = 6.5;
@@ -466,26 +485,44 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   const anchor = new Vector3();
+  const axis = new Vector3();
+  let labelFolders: readonly number[] | null = null;
   const emitLabels = () => {
     if (!shown || listeners.size === 0) return;
     const { width, height, x: left, y: top, w, h } = freeRegion();
     const growth = treeUniforms.uGrow.value;
     const { range } = shown.model.folders;
+    const { anchors, bounds } = shown.model;
     const born = (folder: number) =>
       !births || births[range[2 * folder]!]! + treeUniforms.uSpan.value <= treeUniforms.uTime.value;
-    const labels = shown.model.labels.map(({ folder, anchor: [ax, ay, az] }) => {
-      anchor.set(ax, ay, az).project(camera);
-      const x = ((anchor.x + 1) / 2) * width;
-      const y = ((1 - anchor.y) / 2) * height;
+    const screen = (v: Vector3) => {
+      v.project(camera);
+      return { x: ((v.x + 1) / 2) * width, y: ((1 - v.y) / 2) * height, z: v.z };
+    };
+    const folders = labelFolders ?? shown.model.labels.map((l) => l.folder);
+    const labels = folders.map((folder) => {
+      const [ax, ay, az] = [
+        anchors[folder * 3]!,
+        anchors[folder * 3 + 1]!,
+        anchors[folder * 3 + 2]!,
+      ];
+      const reach = Math.hypot(ax, az);
+      const facing = (ax * camera.position.x + az * camera.position.z) / (reach || 1);
+      const front =
+        reach < BACK.near ||
+        facing > -BACK.facing * Math.hypot(camera.position.x, camera.position.z);
+      const { x, y, z } = screen(anchor.set(ax, ay, az));
       const free = x >= left && x <= left + w && y >= top && y <= top + h;
       return {
         folder,
         x,
         y,
-        visible: growth > LABELS_FROM && anchor.z < 1 && free && born(folder),
+        front,
+        visible: growth > LABELS_FROM && z < 1 && free && born(folder),
       };
     });
-    for (const listener of listeners) listener({ growth, labels });
+    const center = screen(axis.set(0, (bounds.min[1] + bounds.max[1]) * 0.55, 0));
+    for (const listener of listeners) listener({ growth, labels, center });
   };
 
   /** The sky, the light and the weather's own objects for the palette, weather and quality. */
@@ -647,6 +684,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   return {
     setTree(model) {
       releaseTree();
+      labelFolders = null;
       const bark = new Mesh(geometry(model.bark), barkMaterial);
       const leafGeometry = geometry(model.leaves).setAttribute(
         'aShade',
@@ -812,6 +850,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         renderer.shadowMap.needsUpdate = true;
         requestRender();
       }
+    },
+
+    setLabelFolders(folders) {
+      labelFolders = folders;
+      requestRender();
     },
 
     onFrame(listener) {

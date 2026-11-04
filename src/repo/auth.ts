@@ -1,25 +1,39 @@
 /**
- * Sign in with GitHub through the history server. The token stays in this browser's
- * localStorage, is sent only as the Authorization header of history requests, and never goes
- * into a share link. Signing out forgets it.
+ * Sign in with GitHub through the history server. The token lives in this tab only (memory and
+ * sessionStorage, so a reload keeps it and closing the tab forgets it). It goes to GitHub, for
+ * the requests that compute a history, and to the history server with an upload, and nowhere
+ * else: never into a share link or localStorage. Signing out forgets it.
  */
 
 import { HISTORY_URL } from './history';
 
 const KEY = 'repo-tree:github-signin';
+/** For a tab whose sessionStorage is blocked. */
+let held: string | null = null;
+
+const session = (): Storage | undefined => {
+  try {
+    return sessionStorage;
+  } catch {
+    return undefined;
+  }
+};
 
 /** The signed-in visitor's GitHub token, or null. */
-export function signedInToken(storage: Pick<Storage, 'getItem'> = localStorage): string | null {
+export function signedInToken(
+  storage: Pick<Storage, 'getItem'> | undefined = session(),
+): string | null {
   try {
-    return storage.getItem(KEY);
+    return storage?.getItem(KEY) ?? held;
   } catch {
-    return null;
+    return held;
   }
 }
 
-export function signOut(storage: Pick<Storage, 'removeItem'> = localStorage): void {
+export function signOut(storage: Pick<Storage, 'removeItem'> | undefined = session()): void {
+  held = null;
   try {
-    storage.removeItem(KEY);
+    storage?.removeItem(KEY);
   } catch {
     // Blocked storage held no token either.
   }
@@ -33,7 +47,7 @@ export function signOut(storage: Pick<Storage, 'removeItem'> = localStorage): vo
 export function signIn(
   base: string | undefined = HISTORY_URL,
   win: Window = window,
-  storage: Pick<Storage, 'setItem'> = localStorage,
+  storage: Pick<Storage, 'setItem'> | undefined = session(),
 ): Promise<string | null> {
   if (!base) return Promise.resolve(null);
   const server = new URL(base, win.location.href);
@@ -54,8 +68,9 @@ export function signIn(
       if (data.type !== 'repo-tree-auth') return;
       const token = 'token' in data && typeof data.token === 'string' ? data.token : null;
       if (token) {
+        held = token;
         try {
-          storage.setItem(KEY, token);
+          storage?.setItem(KEY, token);
         } catch {
           // Signed in for this page only.
         }

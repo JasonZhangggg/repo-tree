@@ -1,0 +1,81 @@
+{
+  "v": 1,
+  "repo": "acme/app",
+  "branch": "main",
+  "head": "76cd16aa7dc91b0d1ad961287b332d05a80c84c3",
+  "computedAt": 0,
+  "gaps": [],
+  "recent": { "since": 1790812800000, "commits": 0 },
+  "snapshots": [
+    { "sha": "b5cdad1600d3f1683cac0d61a11ff71277d4935f", "at": 1787356800000 },
+    { "sha": "ddf6550ce10c45d95930a7e311cfb351da98a22d", "at": 1788220800000 },
+    { "sha": "16354a679e73d03d4a5de7b92e5bee7ee4958079", "at": 1789084800000 },
+    { "sha": "c583c5e6d145a8d5b8b83b076386d55cf3219743", "at": 1789948800000 },
+    { "sha": "76cd16aa7dc91b0d1ad961287b332d05a80c84c3", "at": 1790812800000 }
+  ],
+  "files": {
+    "path": [
+      "b/deep/er/w.txt",
+      "b/z.txt",
+      "c/x.txt",
+      "c/y.txt",
+      "keep.txt",
+      "lib/one/1.ts",
+      "lib/two/2.ts",
+      "m/n.txt"
+    ],
+    "changed": [
+      1790812800000, 1789948800000, 1788220800000, 1788220800000, 1789084800000, 1787356800000,
+      1789948800000, 1789084800000
+    ],
+    "born": [
+      1787356800000, 1787356800000, 1788220800000, 1788220800000, 1789084800000, 1787356800000,
+      1787356800000, 1789084800000
+    ],
+    "churn": [1, 1, 0, 0, 0, 0, 1, 0],
+    "commits": [0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  "folders": {
+    "path": ["", "b", "b/deep", "b/deep/er", "c", "lib", "lib/one", "lib/two", "m"],
+    "changed": [
+      1790812800000, 1790812800000, 1790812800000, 1790812800000, 1788220800000, 1789948800000,
+      1787356800000, 1789948800000, 1789084800000
+    ],
+    "born": [
+      1787356800000, 1787356800000, 1787356800000, 1787356800000, 1788220800000, 1787356800000,
+      1787356800000, 1787356800000, 1789084800000
+    ],
+    "churn": [4, 2, 1, 1, 0, 1, 0, 1, 0],
+    "commits": [0, 0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  "gone": [
+    { "path": "d/e/f.txt", "born": 1789948800000, "gone": 1790812800000 },
+    { "path": "a/x.txt", "born": 1787356800000, "gone": 1788220800000 },
+    { "path": "a/y.txt", "born": 1787356800000, "gone": 1788220800000 }
+  ],
+  "owners": [
+    {
+      "folder": "",
+      "authors": [
+        { "name": "bob", "commits": 0, "weight": 1 },
+        { "name": "cy", "commits": 0, "weight": 1 }
+      ],
+      "codeowners": []
+    },
+    {
+      "folder": "b",
+      "authors": [
+        { "name": "ada", "commits": 0, "weight": 1 },
+        { "name": "bob", "commits": 0, "weight": 1 }
+      ],
+      "codeowners": []
+    },
+    { "folder": "c", "authors": [{ "name": "bob", "commits": 0, "weight": 1 }], "codeowners": [] },
+    {
+      "folder": "lib",
+      "authors": [{ "name": "bob", "commits": 0, "weight": 1 }],
+      "codeowners": []
+    },
+    { "folder": "m", "authors": [{ "name": "cy", "commits": 0, "weight": 1 }], "codeowners": [] }
+  ]
+}

@@ -12,7 +12,7 @@ export type Commit = { at: number; author?: string; files: Change };
 export function makeRepo(commits: Commit[]): { dir: string; shas: string[]; remove: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'history-test-'));
   const git = (args: string[], env: Record<string, string> = {}) =>
-    execFileSync('git', ['-C', dir, ...args], {
+    execFileSync('git', ['-c', 'commit.gpgsign=false', '-C', dir, ...args], {
       encoding: 'utf8',
       env: { ...process.env, ...env },
     }).trim();

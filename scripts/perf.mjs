@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Usage: node scripts/perf.mjs [sample] [quality] [weather]   (defaults: linux low, the sample's own)
+//        PERF_PORT=<port> picks the preview port (default 4174).
 // Builds, serves the production preview, and loads the sample in Chromium on the software
 // renderer. Prints the longest main-thread task during load, the average fps over 5 s of
 // spin, and the time from navigation to the first tree frame and to the fully grown tree. Then it
@@ -10,7 +11,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { chromium } from 'playwright';
 
 const [sample = 'linux', quality = 'low', weather] = process.argv.slice(2);
-const PORT = 4174;
+/** PERF_PORT keeps parallel worktrees off each other's preview. */
+const PORT = Number(process.env.PERF_PORT ?? 4174);
 const SPIN_MS = 5000;
 /** Inside the 2.6 s grow animation, which redraws the shadow every frame as playback does. */
 const GROW_SAMPLE_MS = 2400;

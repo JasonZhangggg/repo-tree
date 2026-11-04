@@ -1,19 +1,21 @@
-# The repo-tree history Worker. Setup steps are in README.md.
+# The repo-tree history Worker. Setup steps are in README.md. Fits Cloudflare's free plan.
 name = "repo-tree-history"
 main = "src/worker.ts"
 compatibility_date = "2025-10-01"
 
-# GitHub token: `npx wrangler secret put GITHUB_TOKEN`. Never put it in this file.
+# Sign-in secrets: `npx wrangler secret put GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+# Never put them in this file. The Worker holds no GitHub token of its own.
 
 [vars]
 ALLOWED_ORIGINS = "https://jasonzhangggg.github.io"
-# Free plan: keep STEP_REQUESTS under 50 subrequests. Paid plan: raise it (up to about 900).
-STEP_REQUESTS = "40"
-STEP_ENTRIES = "250000"
-RECENT_COMMITS = "100"
-SPLIT_REQUESTS = "150"
-RESERVE = "200"
-NEW_REPOS_PER_HOUR = "10"
+# Localhost origins are refused here; local runs set ALLOW_LOCALHOST = "1" (scripts/local-worker.mjs,
+# or `wrangler dev --var ALLOW_LOCALHOST:1`).
+# Uploads (each one KV write) per GitHub login a day and in all a day, and the bytes all stored
+# histories may take. The Ledger Durable Object counts them; they keep the account's 1,000 KV
+# writes a day and 1 GB of KV safe.
+UPLOADS_PER_LOGIN = "20"
+UPLOADS_PER_DAY = "200"
+STORED_BYTES = "524288000"
 
 # The HISTORY namespace in the owner's Cloudflare account (not a secret).
 [[kv_namespaces]]
@@ -21,12 +23,24 @@ binding = "HISTORY"
 id = "ec28567b37484b10bce0f34c81e13889"
 preview_id = "ec28567b37484b10bce0f34c81e13889"
 
-# 60 history requests a minute per IP.
+# 60 requests a minute per IP.
 [[ratelimits]]
 name = "LIMITER"
 namespace_id = "1001"
 simple = { limit = 60, period = 60 }
 
-# Prewarm: one job step for one PREWARM repo (src/worker.ts) every ten minutes.
-[triggers]
-crons = ["*/10 * * * *"]
+# 2 uploads a minute per IP.
+[[ratelimits]]
+name = "UPLOAD_LIMITER"
+namespace_id = "1002"
+simple = { limit = 2, period = 60 }
+
+# One global ledger of uploads and stored bytes (src/core/ledger.ts). SQLite-backed Durable
+# Objects are on the free plan.
+[[durable_objects.bindings]]
+name = "LEDGER"
+class_name = "Ledger"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Ledger"]

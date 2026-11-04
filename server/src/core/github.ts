@@ -3,11 +3,12 @@
 export type UpstreamKind = 'not-found' | 'empty' | 'unauthorized' | 'rate-limited' | 'upstream';
 
 export class UpstreamError extends Error {
-  constructor(
-    readonly kind: UpstreamKind,
-    readonly resetAt = 0,
-  ) {
+  readonly kind: UpstreamKind;
+  readonly resetAt: number;
+  constructor(kind: UpstreamKind, resetAt = 0) {
     super(`github: ${kind}`);
+    this.kind = kind;
+    this.resetAt = resetAt;
   }
 }
 
@@ -18,58 +19,178 @@ export class OutOfRequests extends Error {
   }
 }
 
+export type RetryPolicy = {
+  /** Retries after the first try; 0 turns retrying off. */
+  attempts: number;
+  /** The longest single wait; a longer one (a spent hourly budget) fails as rate-limited. */
+  maxWaitMs: number;
+  /** Injected for tests. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  now?: () => number;
+};
+
+/** For a host that can wait: a browser tab. A Worker step keeps the default, no retries. */
+export const PATIENT: RetryPolicy = { attempts: 4, maxWaitMs: 90_000 };
+
 export type GitHubOptions = {
   fetch: typeof fetch;
   /** e.g. https://api.github.com */
   api: string;
   token?: string;
-  /** Requests this invocation may make. */
+  /** Requests this invocation may make (Infinity for no cap). */
   limit: number;
+  /** Aborts requests in flight; they then reject with the signal's reason. */
+  signal?: AbortSignal;
+  /**
+   * Network errors, 5xx (but not from /graphql, see `graphql`) and rate limits (403 or 429 with
+   * Retry-After, a secondary limit, or a spent budget that resets within maxWaitMs) are retried
+   * with backoff. Default: no retries.
+   */
+  retry?: RetryPolicy;
 };
+
+/** GitHub keeps separate budgets for REST ('core') and GraphQL, with their own resets. */
+export type Bucket = { remaining: number | null; resetAt: number };
+
+/** A GraphQL reply with errors and no data, or one GitHub cut short. */
+export class GraphQLError extends Error {
+  readonly types: string[];
+  constructor(messages: string[], types: string[]) {
+    super(`github graphql: ${messages.join('; ')}`);
+    this.types = types;
+  }
+}
 
 export type GitHub = {
   readonly used: number;
   readonly left: number;
-  /** x-ratelimit-remaining from the latest response, or null before any. */
-  readonly remaining: number | null;
-  readonly resetAt: number;
+  /** x-ratelimit-remaining and -reset from the latest response of each API. */
+  readonly limits: { readonly core: Bucket; readonly graphql: Bucket };
+  /** Requests retried so far. */
+  readonly retried: number;
   json(path: string): Promise<{ body: unknown; link: string | null }>;
   /** The body as text, for a custom Accept such as `application/vnd.github.sha`. */
   text(path: string, accept: string): Promise<string>;
+  /**
+   * POST /graphql. Resolves with `data`, which may be partial (objects GitHub failed are null);
+   * rejects with GraphQLError when GitHub returned none. A 5xx (GitHub's query timeout shows as
+   * 502 or 504) fails at once, not retried: the caller splits the query instead. A rate limit
+   * (RATE_LIMITED, or a secondary limit, as 200 with errors or as 403) waits like REST's does.
+   */
+  graphql(query: string): Promise<Record<string, unknown>>;
 };
+
+const sleeper = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
+  });
 
 export function gitHub(options: GitHubOptions): GitHub {
   let used = 0;
-  let remaining: number | null = null;
-  let resetAt = 0;
+  let retried = 0;
+  const limits = {
+    core: { remaining: null, resetAt: 0 } as Bucket,
+    graphql: { remaining: null, resetAt: 0 } as Bucket,
+  };
+  const policy = options.retry ?? { attempts: 0, maxWaitMs: 0 };
+  const sleep = policy.sleep ?? sleeper;
+  const now = policy.now ?? Date.now;
 
-  async function request(path: string, accept: string): Promise<Response> {
+  /** Notes the budget a response reports, in its API's bucket. */
+  function note(res: Response, api: 'core' | 'graphql'): Bucket {
+    const named = res.headers.get('x-ratelimit-resource');
+    const bucket = limits[named ? (named === 'graphql' ? 'graphql' : 'core') : api];
+    const left = res.headers.get('x-ratelimit-remaining');
+    if (left !== null) bucket.remaining = Number(left);
+    const reset = res.headers.get('x-ratelimit-reset');
+    if (reset !== null) bucket.resetAt = Number(reset) * 1000;
+    return bucket;
+  }
+
+  /** How long a rate limit asks to wait: Retry-After, a spent budget's reset, or a minute. */
+  function limitWait(res: Response, bucket: Bucket, text: string): number | null {
+    const after = Number(res.headers.get('retry-after'));
+    if (after > 0) return after * 1000;
+    if (/secondary rate limit|abuse/i.test(text)) return 60_000;
+    if (bucket.remaining === 0 || /rate limit/i.test(text)) {
+      return Math.max(1000, bucket.resetAt - now() + 1000);
+    }
+    return null;
+  }
+
+  async function once(
+    url: string,
+    init: RequestInit,
+    api: 'core' | 'graphql',
+  ): Promise<{ res?: Response; wait?: number; error?: UpstreamError }> {
+    const { signal } = options;
+    let res: Response;
+    try {
+      res = await options.fetch(url, signal ? { ...init, signal } : init);
+    } catch {
+      if (signal?.aborted) throw signal.reason;
+      return { wait: -1, error: new UpstreamError('upstream') };
+    }
+    const bucket = note(res, api);
+    if (res.ok) return { res };
+    if (res.status === 401) throw new UpstreamError('unauthorized');
+    if (res.status === 404) throw new UpstreamError('not-found');
+    if (res.status === 409) throw new UpstreamError('empty');
+    if (res.status >= 500) {
+      // GraphQL's 502 and 504 are mostly its ten-second limit: a retry of the same query fails
+      // the same way, so the caller splits it instead.
+      if (api === 'graphql') throw new UpstreamError('upstream');
+      return { wait: -1, error: new UpstreamError('upstream') };
+    }
+    if (res.status === 403 || res.status === 429) {
+      const wait = limitWait(res, bucket, await res.text().catch(() => ''));
+      if (wait !== null) return { wait, error: limited(wait) };
+    }
+    throw new UpstreamError('upstream');
+  }
+
+  const limited = (wait: number) => new UpstreamError('rate-limited', now() + wait);
+
+  /** Waits `ms` before another attempt, or throws `error` when out of attempts or patience. */
+  async function backOff(attempt: number, ms: number, error: Error) {
+    if (attempt >= policy.attempts || ms > policy.maxWaitMs) throw error;
+    retried++;
+    await sleep(ms, options.signal);
+  }
+
+  async function request(
+    path: string,
+    accept: string,
+    init: RequestInit = {},
+    api: 'core' | 'graphql' = 'core',
+  ): Promise<Response> {
+    const { signal } = options;
+    signal?.throwIfAborted();
     if (used >= options.limit) throw new OutOfRequests();
     used++;
     const headers: Record<string, string> = {
       Accept: accept,
       'X-GitHub-Api-Version': '2022-11-28',
+      // GitHub refuses requests without one; browsers send their own and ignore this.
       'User-Agent': 'repo-tree-history',
     };
     if (options.token) headers.Authorization = `Bearer ${options.token}`;
-    let res: Response;
-    try {
-      res = await options.fetch(`${options.api}${path}`, { headers });
-    } catch {
-      throw new UpstreamError('upstream');
+    for (let attempt = 0; ; attempt++) {
+      const { res, wait, error } = await once(`${options.api}${path}`, { ...init, headers }, api);
+      if (res) return res;
+      // wait -1: a transient failure, backed off 1 s, 2 s, 4 s ... with jitter.
+      const ms = wait === -1 ? 1000 * 2 ** attempt * (0.75 + Math.random() / 2) : wait!;
+      await backOff(attempt, ms, error!);
     }
-    const left = res.headers.get('x-ratelimit-remaining');
-    if (left !== null) remaining = Number(left);
-    const reset = res.headers.get('x-ratelimit-reset');
-    if (reset !== null) resetAt = Number(reset) * 1000;
-    if (res.ok) return res;
-    if (res.status === 401) throw new UpstreamError('unauthorized');
-    if (res.status === 404) throw new UpstreamError('not-found');
-    if (res.status === 409) throw new UpstreamError('empty');
-    if ((res.status === 403 || res.status === 429) && remaining === 0) {
-      throw new UpstreamError('rate-limited', resetAt);
-    }
-    throw new UpstreamError('upstream');
   }
 
   return {
@@ -79,24 +200,67 @@ export function gitHub(options: GitHubOptions): GitHub {
     get left() {
       return options.limit - used;
     },
-    get remaining() {
-      return remaining;
+    get limits() {
+      return limits;
     },
-    get resetAt() {
-      return resetAt;
+    get retried() {
+      return retried;
     },
     async json(path) {
       const res = await request(path, 'application/vnd.github+json');
       try {
         return { body: await res.json(), link: res.headers.get('link') };
       } catch {
+        if (options.signal?.aborted) throw options.signal.reason;
         throw new UpstreamError('upstream');
       }
     },
     async text(path, accept) {
       return (await request(path, accept)).text();
     },
+    async graphql(query) {
+      for (let attempt = 0; ; attempt++) {
+        const res = await request(
+          '/graphql',
+          'application/json',
+          { method: 'POST', body: JSON.stringify({ query }) },
+          'graphql',
+        );
+        let body: unknown;
+        try {
+          body = await res.json();
+        } catch {
+          if (options.signal?.aborted) throw options.signal.reason;
+          throw new GraphQLError(['unreadable reply'], []);
+        }
+        const errors = (isRecord(body) && Array.isArray(body.errors) ? body.errors : []).filter(
+          isRecord,
+        );
+        const data = isRecord(body) && isRecord(body.data) ? body.data : null;
+        const messages = errors.map((e) => String(e.message ?? 'error'));
+        const types = errors.map((e) => String(e.type ?? ''));
+        // A spent budget answers 200 with RATE_LIMITED; a secondary limit, 200 with its message.
+        const limit = errors.some(
+          (e, i) => types[i] === 'RATE_LIMITED' || /rate limit/i.test(messages[i]!),
+        );
+        if (limit) {
+          const bucket = note(res, 'graphql');
+          if (types.includes('RATE_LIMITED')) bucket.remaining = 0;
+          const wait = limitWait(res, bucket, messages.join(' '))!;
+          await backOff(attempt, wait, limited(wait));
+          continue;
+        }
+        if (!data) throw new GraphQLError(messages, types);
+        return data;
+      }
+    },
   };
+}
+
+/** The page number of rel="next" in a Link header, or null. */
+export function nextPage(link: string | null): number | null {
+  const match = link && /[?&]page=(\d+)[^>]*>;\s*rel="next"/.exec(link);
+  return match ? Number(match[1]) : null;
 }
 
 /** The page number of rel="last" in a Link header, or null. */
@@ -111,6 +275,10 @@ export type CommitSummary = {
   tree: string;
   author: string;
   merge: boolean;
+  /** The committer's email: one person or bot commits a repo's mainline, often. */
+  committer: string;
+  /** Parent shas, the first parent first. */
+  parents: string[];
 };
 
 /** Reads one entry of a /commits list. Null when malformed. */
@@ -124,8 +292,19 @@ export function toCommit(value: unknown): CommitSummary | null {
   const login = isRecord(author) && typeof author.login === 'string' ? author.login : undefined;
   const raw = isRecord(commit.author) ? commit.author.name : undefined;
   const name = login ?? (typeof raw === 'string' ? raw : 'unknown');
-  const merge = Array.isArray(parents) && parents.length > 1;
-  return { sha: value.sha, at, tree, author: name, merge };
+  const shas = Array.isArray(parents)
+    ? parents.flatMap((p) => (isRecord(p) && typeof p.sha === 'string' ? [p.sha] : []))
+    : [];
+  const email = typeof committer?.email === 'string' ? committer.email : '';
+  return {
+    sha: value.sha,
+    at,
+    tree,
+    author: name,
+    merge: shas.length > 1,
+    committer: email,
+    parents: shas,
+  };
 }
 
 export function toCommits(body: unknown): CommitSummary[] {

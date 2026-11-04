@@ -12,6 +12,16 @@ export const debug: {
   tree?: TreeModel;
   /** The open timeline's scrubber position (0 to 1), the date it shows and its file count. */
   timeline: { s: number; date: number; files: number } | null;
-} = { repo: '', ready: false, hovered: null, labels: [], timings: {}, timeline: null };
+  /** The history compute dialog's step while it is open. */
+  compute: 'offer' | 'computing' | 'sharing' | 'failed' | null;
+} = {
+  repo: '',
+  ready: false,
+  hovered: null,
+  labels: [],
+  timings: {},
+  timeline: null,
+  compute: null,
+};
 
 Object.assign(window, { __repoTree: debug });

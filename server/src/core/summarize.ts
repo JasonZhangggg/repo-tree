@@ -3,16 +3,43 @@ import {
   GONE_CAP,
   HISTORY_VERSION,
   type History,
+  type Gap,
   type PathTable,
 } from '../shape';
 import { ownersOf } from './codeowners';
-import type { Job } from './job';
+import type { OwnerRule } from './codeowners';
+import type { AccRow, Counts, Listed, Sample, TouchRow } from './commits';
 
 /** Bots (dependabot[bot], renovate[bot]) touch everything and own nothing. */
 const BOT = /\[bot\]$/;
 
-/** Turns a finished job into the history the app reads. Pure. */
-export function summarize(job: Job, now: number): History {
+/** What summarize reads: the engine's folded snapshots and recent commits. */
+export type Folded = {
+  repo: string;
+  branch: string;
+  head: Sample;
+  gaps: Gap[];
+  /** Newest first; samples[0] is the head. */
+  samples: Sample[];
+  /** Snapshots folded, by j, newest first. */
+  applied: number[];
+  acc: Record<string, AccRow>;
+  /** Per top-level folder, authors of commits in intervals where it changed. */
+  weights: Record<string, Counts>;
+  recent: Listed[];
+  /** The recent list holds every commit back to the root. */
+  recentIsAll: boolean;
+  recentNext: number;
+  touched: Record<string, TouchRow>;
+  /** Per top-level folder, authors of recent commits that touched it. */
+  commitsBy: Record<string, Counts>;
+  codeowners: OwnerRule[];
+  /** The head's own listing is incomplete, so absence from it proves nothing. */
+  headTruncated: boolean;
+};
+
+/** Turns folded snapshots into the history the app reads. Pure. */
+export function summarize(job: Folded, now: number): History {
   const at = (j: number) => job.samples[j]!.at;
   const recentDone = job.recent.slice(0, job.recentNext);
   const reachesRoot =

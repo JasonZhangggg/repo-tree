@@ -1,3 +1,4 @@
+import { MAX_INFLATED_BYTES } from '../../server/src/shape';
 import { parseRepoRef, type RepoRef } from './ref';
 
 export type FileEntry = { path: string; size: number };
@@ -103,12 +104,38 @@ function toSnapshot(ref: RepoRef, branch: string, body: unknown): Snapshot | Loa
   return { ref, branch, sha: body.sha, truncated: body.truncated, files, fetchedAt: Date.now() };
 }
 
-/** A body as text, gunzipped when it starts with the gzip magic bytes. */
-export async function decode(buffer: ArrayBuffer): Promise<string> {
+/** A body unpacked past this many bytes is refused (a gzip bomb): eight times Linux's history. */
+export const MAX_DECODED_BYTES = MAX_INFLATED_BYTES;
+
+/**
+ * A body as text, gunzipped when it starts with the gzip magic bytes. Rejects once the text
+ * passes `limit` bytes, unpacking no further.
+ */
+export async function decode(buffer: ArrayBuffer, limit = MAX_DECODED_BYTES): Promise<string> {
   const [b0, b1] = new Uint8Array(buffer, 0, Math.min(2, buffer.byteLength));
-  if (b0 !== 0x1f || b1 !== 0x8b) return new TextDecoder().decode(buffer);
-  const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
-  return new Response(stream).text();
+  if (b0 !== 0x1f || b1 !== 0x8b) {
+    if (buffer.byteLength > limit) throw new RangeError('body too large');
+    return new TextDecoder().decode(buffer);
+  }
+  const reader = new Blob([buffer])
+    .stream()
+    .pipeThrough(new DecompressionStream('gzip'))
+    .getReader();
+  const text = new TextDecoder();
+  const parts: string[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      throw new RangeError('body too large');
+    }
+    parts.push(text.decode(value, { stream: true }));
+  }
+  parts.push(text.decode());
+  return parts.join('');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

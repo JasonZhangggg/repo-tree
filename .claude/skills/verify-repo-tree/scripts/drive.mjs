@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Usage: node .claude/skills/verify-repo-tree/scripts/drive.mjs <command> [--port 4175]
-//          [--out dir] [--viewport desktop|phone]
+//          [--out dir] [--viewport desktop|phone|phone-390]
 // Commands: launch, doctor, cleanup, or a journey: load-repo, explore, search, settings,
-// share-and-export, phone-layout. Journeys save numbered screenshots and report.json in --out
+// share-and-export, phone-layout, tree-sizes. Journeys save numbered screenshots and report.json in --out
 // (default .verify/<journey>-<viewport>-<time>/) and exit 1 when a step fails.
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -85,8 +85,12 @@ async function open() {
     executablePath: process.env.PW_CHROMIUM_PATH,
     args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
   });
-  const device =
-    viewport === 'phone' ? devices['Pixel 7'] : { viewport: { width: 1280, height: 800 } };
+  const device = {
+    desktop: { viewport: { width: 1280, height: 800 } },
+    phone: devices['Pixel 7'],
+    'phone-390': { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } },
+  }[viewport];
+  if (!device) throw new Error(`unknown --viewport ${viewport}; use desktop, phone or phone-390`);
   const context = await browser.newContext({
     ...device,
     reducedMotion: 'reduce',
@@ -155,6 +159,22 @@ const limb = (page) =>
         document.elementFromPoint(x, y)?.tagName === 'CANVAS' && view.pickAt(x, y) !== null,
     );
   });
+/** The nearest point to a label's anchor where its folder's branch is on screen; a twig tip is a pixel or two wide. */
+const branchNear = (page, at, folder) =>
+  page.evaluate(
+    ({ at: { x, y }, folder }) => {
+      const { view, tree } = window.__repoTree;
+      for (let r = 0; r < 16; r++)
+        for (let dx = -r; dx <= r; dx++)
+          for (const dy of [-r, r]) {
+            const picked = view.pickAt(x + dx, y + dy);
+            if (picked && tree.folders.path[picked.folder].startsWith(folder))
+              return { x: x + dx, y: y + dy };
+          }
+      return { x, y };
+    },
+    { at, folder },
+  );
 /** Waits until the view renders on demand again, so the camera has come to rest. */
 async function settle(page) {
   let renders = -1;
@@ -418,13 +438,13 @@ const JOURNEYS = {
   'phone-layout': async ({ page, step }) => {
     const sheet = page.locator('#sheet-toggle');
     await step('open', async () => {
-      if (viewport !== 'phone') throw new Error('run with --viewport phone');
+      if (!viewport.startsWith('phone')) throw new Error('run with --viewport phone');
       await page.goto(base);
       await ready(page, 'vitejs/vite');
       await expect(sheet).toHaveAttribute('aria-expanded', 'false');
     });
     await step('tap-to-pin', async () => {
-      const { x, y } = await label(page, 'playground');
+      const { x, y } = await branchNear(page, await label(page, 'playground'), 'playground');
       await page.touchscreen.tap(x, y);
       await expect(sheet).toContainText('playground');
       await expect(detail(page)).toBeHidden();
@@ -446,6 +466,16 @@ const JOURNEYS = {
       await page.getByRole('button', { name: 'Settings' }).tap();
       await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
     });
+  },
+
+  'tree-sizes': async ({ page, step }) => {
+    for (const repo of ['mathiasbynens/dotfiles', 'vitejs/vite', 'torvalds/linux']) {
+      await step(repo.split('/')[1], async () => {
+        await page.goto(`${base}?visit=${repo.split('/')[1]}#/${repo}?palette=autumn`);
+        await ready(page, repo);
+        await settle(page);
+      });
+    }
   },
 };
 

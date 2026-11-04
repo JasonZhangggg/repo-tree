@@ -14,6 +14,7 @@ A user grows a tree from a bundled sample or from any GitHub repository named as
 - `load-rate-limited` names the reset time and offers a token.
 - `load-not-found` names the repo and offers a token for private repos.
 - `load-reload` skips the one-hour cache with the reload button beside the branch.
+- `load-size` grows a bigger tree for more files on an island of one size, framed at one scale for every repo.
 
 ## How to get to it (user POV)
 
@@ -40,6 +41,7 @@ Preconditions:
 - **Rate limit.** Enter `acme/limited` with a 403 and `x-ratelimit-remaining: 0`. Step `rate-limited`. The alert says the rate limit is used up and names the reset time.
 - **Not found.** Enter `acme/missing` with a 404. Step `not-found`. The alert reads `Can’t find acme/missing`. Choosing `Add a token` opens Settings with focus in `GitHub token`.
 - **Proof.** `report.json` passes, and `04-github-url.png`, `05-truncated.png` and `08-not-found.png` show the loaded repo, the notice and the error card.
+- **Tree sizes.** Run `drive tree-sizes --port <port>` (and `--viewport phone-390`). Steps `dotfiles`, `vite` and `linux` open each sample by link in Autumn. The island has the same size and place in all three, and the tree grows from a sapling to a full crown with nothing clipped.
 - `load-suggest` and `load-reload` have no step yet. Prove them by hand with the same page and say so.
 
 ## Gotchas

@@ -18,6 +18,7 @@ import { autoQuality, parseSettings, STEP_DOWN, type Settings } from './app/sett
 import { createStore, qualityOf, weatherOf, type AppState } from './app/state';
 import { mountCanvas } from './app/ui/canvas';
 import { mountHeader } from './app/ui/header';
+import { mountHint } from './app/ui/hint';
 import { mountSearch } from './app/ui/search-dialog';
 import { mountSettings } from './app/ui/settings-dialog';
 import { childrenOf, mountSide } from './app/ui/side';
@@ -253,6 +254,7 @@ const toggleSpin = () =>
   store.dispatch({ type: 'settings', patch: { spin: !store.get().settings.spin } });
 spinButton.addEventListener('click', toggleSpin);
 byId('grow').addEventListener('click', () => view.grow());
+mountHint();
 
 let measured = false;
 view.onFrame(({ growth }) => {

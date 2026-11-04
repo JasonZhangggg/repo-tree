@@ -22,6 +22,7 @@ import { mountHint } from './app/ui/hint';
 import { mountSearch } from './app/ui/search-dialog';
 import { mountSettings } from './app/ui/settings-dialog';
 import { childrenOf, mountSide } from './app/ui/side';
+import { mountHistoryCompute } from './app/ui/history-compute';
 import { mountTimeline } from './app/ui/timeline';
 
 const SETTINGS_KEY = 'repo-tree:settings';
@@ -393,7 +394,7 @@ addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement;
   const typing = target.matches('input, textarea, select, [contenteditable]');
   if (event.key === 'Escape') {
-    if (search.close() || settings.close() || typing) return;
+    if (search.close() || settings.close() || compute.close() || typing) return;
     const { selection, highlight, load } = store.get();
     if (selection) app.select(null);
     else if (highlight !== null) app.highlight(null);
@@ -424,10 +425,12 @@ const canvas = mountCanvas(app);
 mountHeader(app);
 mountSide(app);
 const search = mountSearch(app);
+const compute = mountHistoryCompute(app);
 const timeline = mountTimeline(
   app,
   () => reducedMotion(store.get().settings),
   (counts) => canvas.setCounts(counts),
+  compute,
 );
 const settings = mountSettings(app);
 

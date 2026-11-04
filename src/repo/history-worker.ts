@@ -5,7 +5,7 @@
  */
 import { computeHistory, createCheckpoint, type Checkpoint } from '../../server/src/core/engine';
 import { UpstreamError } from '../../server/src/core/github';
-import type { ComputeError, ComputeMessage, ComputeRequest } from './compute-history';
+import type { ComputeError, ComputeMessage, ComputeRequest, Snapshot } from './compute-history';
 
 const post = (message: ComputeMessage) => self.postMessage(message);
 
@@ -15,6 +15,7 @@ self.onmessage = async ({ data }: MessageEvent<ComputeRequest>) => {
   let last = -1;
   const key = `${data.repo}@${data.branch}`;
   if (kept?.key !== key) kept = { key, checkpoint: createCheckpoint() };
+  let snapshots: Snapshot[] = [];
   try {
     const history = await computeHistory({
       fetch: (input, init) => fetch(input, init),
@@ -23,6 +24,7 @@ self.onmessage = async ({ data }: MessageEvent<ComputeRequest>) => {
       repo: data.repo,
       branch: data.branch,
       checkpoint: kept.checkpoint,
+      onSamples: (s) => (snapshots = s),
       onProgress: (progress) => {
         // A message per percent is plenty for a progress bar.
         const step = Math.floor(progress * 100);
@@ -32,7 +34,7 @@ self.onmessage = async ({ data }: MessageEvent<ComputeRequest>) => {
       },
     });
     kept = null;
-    post({ history });
+    post({ history, snapshots });
   } catch (error) {
     post({ error: toError(error) });
   }

@@ -1,12 +1,28 @@
 /**
- * Cloudflare Worker adapter: routing, CORS, sign-in, the per-IP limits and a KV-backed Store.
- * The request flow and the OAuth exchange live in core/ and know nothing of Cloudflare.
+ * The history Worker, small enough for Cloudflare's free plan (10 ms of CPU and 50 subrequests a
+ * request, 1,000 KV writes a day). It computes nothing: visitors' browsers compute a repo's
+ * history with their own GitHub token (src/core/engine.ts) and upload it here, and everyone
+ * after them reads it from KV.
+ *
+ *   GET  /v1/auth/login?origin=<app>   sign in with GitHub (popup), no KV
+ *   GET  /v1/auth/callback             OAuth callback: posts the token to the opener
+ *   GET  /v1/history/<owner>/<repo>?branch=<b>
+ *        200 the gzipped History, its StoredManifest in X-History-Manifest; 404 {status:'missing'}
+ *        One KV read; the body streams through untouched.
+ *   PUT  /v1/history/<owner>/<repo>?branch=<b>   (signed in; body gzipped History JSON,
+ *        X-History-Manifest an UploadManifest) checked by core/upload.ts against GitHub with the
+ *        uploader's token, then stored: one KV read, seven GitHub requests, one KV write.
  */
 
 import { parseRepoRef } from '../../src/repo/ref';
 import { callbackPage, finishLogin, startLogin, type OAuthConfig } from './core/oauth';
-import { serveHistory, type Deps, type Store } from './core/service';
-import type { HistoryReply } from './shape';
+import { historyKey, parseManifest, verifyUpload } from './core/upload';
+import {
+  MAX_UPLOAD_BYTES,
+  type HistoryError,
+  type HistoryReply,
+  type StoredManifest,
+} from './shape';
 
 export type Env = {
   HISTORY: KVNamespace;
@@ -15,33 +31,18 @@ export type Env = {
   GITHUB_CLIENT_SECRET?: string;
   /** The callback URL registered on the OAuth App; defaults to this Worker's /v1/auth/callback. */
   OAUTH_CALLBACK_URL?: string;
-  /** Optional secret, used only by the prewarm cron. Visitors' work runs on their own tokens. */
-  GITHUB_TOKEN?: string;
   /** Comma-separated origins allowed besides localhost. */
   ALLOWED_ORIGINS?: string;
   /** Overrides https://api.github.com and https://github.com, for local runs against a fake. */
   GITHUB_API?: string;
   GITHUB_WEB?: string;
-  /** Optional numeric overrides of the job limits (see core/job.ts). */
-  STEP_REQUESTS?: string;
-  STEP_ENTRIES?: string;
-  RECENT_COMMITS?: string;
-  SPLIT_REQUESTS?: string;
-  /** GitHub requests a token keeps in hand: no new job starts below this. */
-  RESERVE?: string;
-  /** New (uncached) repos one IP may start computing per hour. Cached repos are unlimited. */
-  NEW_REPOS_PER_HOUR?: string;
+  /** Uploads one IP may send an hour, and the uploads (KV writes) taken a day. Per data center. */
+  UPLOADS_PER_IP_HOUR?: string;
+  UPLOADS_PER_DAY?: string;
+  /** Requests a minute per IP, and uploads a minute per IP (Workers rate limiting). */
   LIMITER?: RateLimit;
+  UPLOAD_LIMITER?: RateLimit;
 };
-
-/** Popular repos the cron keeps warm in KV with GITHUB_TOKEN, so their first visitor gets history at once. */
-export const PREWARM = [
-  'facebook/react',
-  'microsoft/vscode',
-  'vitejs/vite',
-  'torvalds/linux',
-  'mathiasbynens/dotfiles',
-] as const;
 
 const HISTORY_ROUTE = /^\/v1\/history\/([^/]+)\/([^/]+)\/?$/;
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
@@ -50,21 +51,24 @@ const BRANCH = /^(?!\/|.*(?:\.\.|\/\/|@\{|\.lock$|\/$))[!-~]{1,255}$/;
 const BRANCH_CHARS = /^[^~^:?*[\\]*$/;
 /** GitHub token shapes (gho_, ghp_, github_pat_ and older hex tokens). Anything else is refused unseen. */
 const TOKEN = /^[A-Za-z0-9_]{20,255}$/;
-const STATUS = { ready: 200, pending: 202, 'needs-auth': 401 } as const;
-const ERROR_STATUS = {
+const MANIFEST_HEADER = 'X-History-Manifest';
+const HISTORY_TTL_S = 90 * 24 * 60 * 60;
+const ERROR_STATUS: Record<HistoryError, number> = {
   invalid: 400,
   unauthorized: 401,
   forbidden: 403,
   private: 403,
   'not-found': 404,
-  empty: 404,
+  exists: 409,
+  stale: 409,
+  'too-large': 413,
+  mismatch: 422,
   'rate-limited': 429,
   upstream: 502,
-  busy: 503,
-} as const;
+};
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/v1/auth/login') return login(url, env);
     if (url.pathname === '/v1/auth/callback') return callback(url, env);
@@ -72,9 +76,14 @@ export default {
     const origin = request.headers.get('Origin');
     const allowed = origin !== null && isAllowed(origin, env);
     const cors: Record<string, string> = allowed
-      ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' }
+      ? {
+          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Expose-Headers': MANIFEST_HEADER,
+          Vary: 'Origin',
+        }
       : { Vary: 'Origin' };
-    const send = (reply: HistoryReply) => respond(reply, cors);
+    const send = (reply: HistoryReply, extra: Record<string, string> = {}) =>
+      respond(reply, { ...cors, ...extra });
 
     if (origin !== null && !allowed) return send({ status: 'error', error: 'forbidden' });
     if (request.method === 'OPTIONS') {
@@ -82,67 +91,118 @@ export default {
         status: 204,
         headers: {
           ...cors,
-          'Access-Control-Allow-Methods': 'GET',
-          'Access-Control-Allow-Headers': 'Authorization',
+          'Access-Control-Allow-Methods': 'GET, PUT',
+          'Access-Control-Allow-Headers': `Authorization, Content-Type, ${MANIFEST_HEADER}`,
           'Access-Control-Max-Age': '86400',
         },
       });
     }
     if (url.pathname === '/health') return new Response('ok', { headers: cors });
-    const match = request.method === 'GET' ? HISTORY_ROUTE.exec(url.pathname) : null;
-    if (!match) return new Response('not found', { status: 404, headers: cors });
+    const match = HISTORY_ROUTE.exec(url.pathname);
+    if (!match || (request.method !== 'GET' && request.method !== 'PUT')) {
+      return new Response('not found', { status: 404, headers: cors });
+    }
 
     const ref = parseRepoRef(`${decodeURIComponent(match[1]!)}/${decodeURIComponent(match[2]!)}`);
-    const branch = url.searchParams.get('branch') ?? undefined;
-    if (
-      'kind' in ref ||
-      (branch !== undefined && !(BRANCH.test(branch) && BRANCH_CHARS.test(branch)))
-    ) {
+    const branch = url.searchParams.get('branch');
+    if ('kind' in ref || branch === null || !BRANCH.test(branch) || !BRANCH_CHARS.test(branch)) {
       return send({ status: 'error', error: 'invalid' });
     }
-    const auth = request.headers.get('Authorization');
-    const token = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : undefined;
-    if (auth !== null && (token === undefined || !TOKEN.test(token))) {
-      return send({ status: 'error', error: 'unauthorized' });
-    }
+    const repo = `${ref.owner}/${ref.repo}`;
     const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
     if (env.LIMITER && !(await env.LIMITER.limit({ key: ip })).success) {
       return send({ status: 'error', error: 'rate-limited', retryAfter: 60 });
     }
-
-    const { reply, after } = await serveHistory(
-      { owner: ref.owner, repo: ref.repo, branch },
-      { ...deps(env, token), mayStart: (repo) => takeQuota(env, ip, repo) },
-    );
-    if (after) ctx.waitUntil(after);
-    return send(reply);
-  },
-
-  /** Cron: one step for one PREWARM repo per tick, round robin, so each tick stays inside one request's limits. */
-  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
-    if (!env.GITHUB_TOKEN) return;
-    const tick = Math.floor(controller.scheduledTime / (10 * 60 * 1000));
-    const [owner = '', repo = ''] = PREWARM[tick % PREWARM.length]!.split('/');
-    const { after } = await serveHistory({ owner, repo }, deps(env, env.GITHUB_TOKEN));
-    await after;
+    const key = historyKey(repo, branch);
+    if (request.method === 'GET') {
+      const { value, metadata } = await env.HISTORY.getWithMetadata<StoredManifest>(key, {
+        type: 'stream',
+      });
+      if (!value || !metadata) {
+        await value?.cancel();
+        return send({ status: 'missing' });
+      }
+      return new Response(value, {
+        headers: {
+          ...cors,
+          'Content-Type': 'application/gzip',
+          [MANIFEST_HEADER]: JSON.stringify(metadata),
+          'Cache-Control': 'public, max-age=300',
+        },
+      });
+    }
+    return send(await upload(request, env, { repo, branch, key, ip, url }));
   },
 } satisfies ExportedHandler<Env>;
 
-function deps(env: Env, token: string | undefined): Deps {
-  return {
-    store: kvStore(env.HISTORY),
-    fetch: (input, init) => fetch(input, init),
+/** PUT: the cheap checks, then GitHub's, then one KV write. */
+async function upload(
+  request: Request,
+  env: Env,
+  {
+    repo,
+    branch,
+    key,
+    ip,
+    url,
+  }: { repo: string; branch: string; key: string; ip: string; url: URL },
+): Promise<HistoryReply> {
+  const error = (e: HistoryError, retryAfter?: number): HistoryReply =>
+    retryAfter ? { status: 'error', error: e, retryAfter } : { status: 'error', error: e };
+  const auth = request.headers.get('Authorization');
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  if (!TOKEN.test(token)) return error('unauthorized');
+  const length = Number(request.headers.get('Content-Length') ?? NaN);
+  if (!Number.isInteger(length) || length <= 0) return error('invalid');
+  if (length > MAX_UPLOAD_BYTES) return error('too-large');
+  const manifest = parseManifest(request.headers.get(MANIFEST_HEADER), repo, branch);
+  if (!manifest || manifest.bytes !== length) return error('invalid');
+
+  if (env.UPLOAD_LIMITER && !(await env.UPLOAD_LIMITER.limit({ key: ip })).success) {
+    return error('rate-limited', 60);
+  }
+  if (!(await countUp(`ip/${ip}`, 3600, Number(env.UPLOADS_PER_IP_HOUR ?? 6)))) {
+    return error('rate-limited', 3600);
+  }
+  // Same head stored already: nothing to write. (The body is never read.)
+  const held = await env.HISTORY.getWithMetadata<StoredManifest>(key, { type: 'stream' });
+  await held.value?.cancel();
+  if (held.metadata?.head === manifest.head) return error('exists');
+
+  const verdict = await verifyUpload(manifest, {
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
     api: env.GITHUB_API ?? 'https://api.github.com',
     token,
     now: Date.now,
-    limits: {
-      ...num('stepRequests', env.STEP_REQUESTS),
-      ...num('stepEntries', env.STEP_ENTRIES),
-      ...num('recentCommits', env.RECENT_COMMITS),
-      ...num('splitRequests', env.SPLIT_REQUESTS),
-    },
-    reserve: Number(env.RESERVE ?? 200),
-  };
+  });
+  if (!verdict.ok) return error(verdict.error, verdict.retryAfter);
+
+  const body = await request.arrayBuffer();
+  const bytes = new Uint8Array(body, 0, Math.min(2, body.byteLength));
+  if (body.byteLength !== length || bytes[0] !== 0x1f || bytes[1] !== 0x8b) return error('invalid');
+  if (!(await countUp(`day/${url.host}`, 86_400, Number(env.UPLOADS_PER_DAY ?? 300)))) {
+    return error('rate-limited', 3600);
+  }
+  await env.HISTORY.put(key, body, { metadata: verdict.manifest, expirationTtl: HISTORY_TTL_S });
+  return { status: 'stored', manifest: verdict.manifest };
+}
+
+/**
+ * Counts one more in a window in this data center's cache (no KV write), and says whether the
+ * count is still within `limit`. Not exact: an abuse guard. Without a cache (tests), allows.
+ */
+async function countUp(name: string, windowS: number, limit: number): Promise<boolean> {
+  if (typeof caches === 'undefined') return true;
+  const window = Math.floor(Date.now() / (windowS * 1000));
+  const req = new Request(`https://counter.invalid/${encodeURIComponent(name)}/${window}`);
+  const cache = caches.default;
+  const seen = Number((await (await cache.match(req))?.text()) ?? 0);
+  if (seen >= limit) return false;
+  await cache.put(
+    req,
+    new Response(String(seen + 1), { headers: { 'Cache-Control': `max-age=${windowS}` } }),
+  );
+  return true;
 }
 
 function oauth(url: URL, env: Env): OAuthConfig | null {
@@ -152,12 +212,11 @@ function oauth(url: URL, env: Env): OAuthConfig | null {
     clientSecret: env.GITHUB_CLIENT_SECRET,
     callbackUrl: env.OAUTH_CALLBACK_URL ?? `${url.origin}/v1/auth/callback`,
     web: env.GITHUB_WEB ?? 'https://github.com',
-    store: kvStore(env.HISTORY),
-    fetch: (input, init) => fetch(input, init),
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
   };
 }
 
-/** /v1/auth/login?origin=<the app's origin>: off to GitHub with a fresh state. */
+/** /v1/auth/login?origin=<the app's origin>: off to GitHub with a signed state. */
 async function login(url: URL, env: Env): Promise<Response> {
   const config = oauth(url, env);
   const origin = url.searchParams.get('origin') ?? '';
@@ -184,48 +243,21 @@ async function callback(url: URL, env: Env): Promise<Response> {
   });
 }
 
-/**
- * Lets an IP start computing at most NEW_REPOS_PER_HOUR distinct repos in the current hour.
- * KV is eventually consistent, so this is an abuse guard, not an exact count.
- */
-async function takeQuota(env: Env, ip: string, repo: string): Promise<boolean> {
-  const cap = Number(env.NEW_REPOS_PER_HOUR ?? 10);
-  const key = `quota:${ip}:${Math.floor(Date.now() / 3_600_000)}`;
-  const started = (await env.HISTORY.get<string[]>(key, 'json')) ?? [];
-  if (started.includes(repo)) return true;
-  if (started.length >= cap) return false;
-  await env.HISTORY.put(key, JSON.stringify([...started, repo]), { expirationTtl: 3600 });
-  return true;
-}
-
 function isAllowed(origin: string, env: Env): boolean {
   if (LOCAL.test(origin)) return true;
   const list = (env.ALLOWED_ORIGINS ?? 'https://jasonzhangggg.github.io').split(',');
   return list.some((o) => o.trim() === origin);
 }
 
-function respond(reply: HistoryReply, cors: Record<string, string>): Response {
-  const status = reply.status === 'error' ? ERROR_STATUS[reply.error] : STATUS[reply.status];
-  const headers: Record<string, string> = { ...cors, 'Content-Type': 'application/json' };
-  headers['Cache-Control'] =
-    reply.status === 'ready' && !reply.stale ? 'public, max-age=300' : 'no-store';
-  const retry = 'retryAfter' in reply ? reply.retryAfter : undefined;
-  if (retry) headers['Retry-After'] = String(retry);
-  return new Response(JSON.stringify(reply), { status, headers });
-}
-
-function num<K extends string>(key: K, value: string | undefined): Partial<Record<K, number>> {
-  const n = Number(value);
-  return value !== undefined && Number.isFinite(n) && n >= 0
-    ? ({ [key]: n } as Record<K, number>)
-    : {};
-}
-
-function kvStore(kv: KVNamespace): Store & { delete(key: string): Promise<void> } {
-  return {
-    get: (key) => kv.get(key, 'json'),
-    put: (key, value, ttl) =>
-      kv.put(key, JSON.stringify(value), { expirationTtl: Math.max(60, ttl) }),
-    delete: (key) => kv.delete(key),
+function respond(reply: HistoryReply, headers: Record<string, string>): Response {
+  const status =
+    reply.status === 'error' ? ERROR_STATUS[reply.error] : reply.status === 'stored' ? 201 : 404;
+  const out: Record<string, string> = {
+    ...headers,
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store',
   };
+  const retry = 'retryAfter' in reply ? reply.retryAfter : undefined;
+  if (retry) out['Retry-After'] = String(retry);
+  return new Response(JSON.stringify(reply), { status, headers: out });
 }

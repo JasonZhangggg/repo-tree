@@ -33,7 +33,7 @@ const FIELDS = ['%H', '%T', '%P', '%an', '%ae', '%cn', '%ce', '%cI', '%aI', '%B'
  * @typedef {{ dir: string, branch?: string, head?: string, private?: boolean }} FakeRepo
  * @typedef {{ rttMs: number, bytesPerMs: number }} Network
  * @typedef {{ maxEntries?: number, maxTreeBytes?: number, remaining?: number, tokens?: string[],
- *   graphqlMaxEntries?: number,
+ *   graphqlMaxEntries?: number, login?: string,
  *   inject?: (url: URL, init: RequestInit) => Promise<{ status: number, body: unknown, kind: string, type?: string, extra: Record<string, string> } | undefined> | undefined,
  *   log?: (line: string) => void, network?: Network, gzipLevel?: number }} FakeOptions
  * @typedef {{ requests: number, bytes: number, raw: number }} Tally
@@ -177,6 +177,11 @@ export function gitHubFetch(repos, options = {}) {
     if (state.remaining <= 0) return reply({ message: 'API rate limit exceeded' }, 403, 'error');
     state.remaining--;
     if (url.pathname === '/graphql') return graphql(headers, body);
+    if (url.pathname === '/user') {
+      // The signed-in user: whoever holds the token (the history Worker checks it on upload).
+      if (!auth) return reply({ message: 'Requires authentication' }, 401, 'user');
+      return reply({ login: options.login ?? 'visitor', id: 1, type: 'User' }, 200, 'user');
+    }
     const m = /^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/.exec(url.pathname);
     const name = m ? `${m[1]}/${m[2]}` : '';
     const repo = Object.entries(repos).find(([k]) => k.toLowerCase() === name.toLowerCase());
@@ -276,6 +281,30 @@ export function gitHubFetch(repos, options = {}) {
           200,
           'commit',
           extra,
+        );
+      }
+      const gitCommit = /^\/git\/commits\/([0-9a-f]{40})$/.exec(rest);
+      if (gitCommit) {
+        const found = await objs.read(gitCommit[1] ?? '');
+        if (!found || found.type !== 'commit') return reply({ message: 'Not Found' }, 404, 'error');
+        const line = (
+          await git('log', '-z', '-1', gitCommit[1] ?? '', `--format=${FIELDS}`)
+        ).replace(/\0$/, '');
+        const { sha, commit, parents } = toCommit(line, fullName);
+        return reply(
+          {
+            sha,
+            node_id: nodeId('C', sha),
+            url: `${base}/git/commits/${sha}`,
+            author: commit.author,
+            committer: commit.committer,
+            tree: commit.tree,
+            message: commit.message,
+            parents,
+            verification: commit.verification,
+          },
+          200,
+          'git-commit',
         );
       }
       const tree = /^\/git\/trees\/([0-9a-f]{40})$/.exec(rest);

@@ -1,45 +1,38 @@
 import { cacheHistory, cachedHistory } from '../load/cache';
-import type { History, HistoryReply, PathTable } from '../../server/src/shape';
-import { HISTORY_VERSION } from '../../server/src/shape';
+import type {
+  History,
+  HistoryError,
+  PathTable,
+  StoredManifest,
+  UploadManifest,
+} from '../../server/src/shape';
+import { HISTORY_VERSION, snapshotDigest } from '../../server/src/shape';
 import { decode } from './github';
-import type { RepoRef } from './ref';
+import { parseRepoRef, type RepoRef } from './ref';
 
 export type { History, PathTable } from '../../server/src/shape';
 
 /** The history server's base URL, or undefined when this build has none (history features off). */
 export const HISTORY_URL: string | undefined = import.meta.env.VITE_HISTORY_URL || undefined;
 
-/** Polling gives up after this long; the server keeps working and the next visit picks it up. */
-export const MAX_WAIT_MS = 10 * 60 * 1000;
-const FIRST_DELAY_MS = 2000;
-const MAX_DELAY_MS = 30_000;
-
 export type HistoryOptions = {
   /** Defaults to HISTORY_URL. */
   base?: string;
-  /** The signed-in visitor's GitHub token (repo/auth.ts). Without it only cached history comes back. */
-  token?: string | null;
   signal?: AbortSignal;
-  /** 0 to 1 while the server computes. */
-  onProgress?: (progress: number) => void;
-  /** Injected for tests. */
-  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
-  now?: () => number;
 };
 
 /**
- * What came back: a history, or a request to sign in because the repo is not cached and growing
- * it takes the visitor's token (`rejected`: the token sent was refused, so sign out first).
- * Null when history is off, the server refused or failed, or it took longer than MAX_WAIT_MS:
+ * What the history server has for a branch: a history (checked against the manifest the server
+ * verified with GitHub), or `missing`: nobody computed it yet, so a signed-in visitor may.
+ * Null when history is off, the server failed, or what it sent does not hold together:
  * history is a nicety, so callers show none rather than an error.
  */
-export type HistoryResult =
-  { status: 'ready'; history: History } | { status: 'needs-auth'; rejected: boolean } | null;
+export type HistoryResult = { status: 'ready'; history: History } | { status: 'missing' } | null;
 
-/**
- * The commit history of a repo's branch from the history server, polling with backoff while it
- * computes. Rejects only on abort.
- */
+const historyUrl = (base: string, ref: RepoRef, branch: string) =>
+  `${base.replace(/\/$/, '')}/v1/history/${ref.owner}/${ref.repo}?branch=${encodeURIComponent(branch)}`;
+
+/** The stored history of a repo's branch. Rejects only on abort. */
 export async function fetchHistory(
   ref: RepoRef,
   branch: string,
@@ -47,31 +40,58 @@ export async function fetchHistory(
 ): Promise<HistoryResult> {
   const base = options.base ?? HISTORY_URL;
   if (!base) return null;
-  const { signal, sleep = wait, now = Date.now, token } = options;
-  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-  const url = `${base.replace(/\/$/, '')}/v1/history/${ref.owner}/${ref.repo}?branch=${encodeURIComponent(branch)}`;
-  const deadline = now() + MAX_WAIT_MS;
-  let delay = FIRST_DELAY_MS;
+  const { signal } = options;
   try {
-    for (;;) {
-      signal?.throwIfAborted();
-      const res = await fetch(url, { signal, headers });
-      const reply = parseReply(await res.json().catch(() => null));
-      if (!reply) return null;
-      if (reply.status === 'ready') return { status: 'ready', history: reply.history };
-      if (reply.status === 'needs-auth') return { status: 'needs-auth', rejected: false };
-      if (reply.status === 'error' && reply.error === 'unauthorized') {
-        return { status: 'needs-auth', rejected: true };
-      }
-      if (reply.status === 'error' && reply.error !== 'rate-limited') return null;
-      if (reply.status === 'pending') options.onProgress?.(reply.progress);
-      const ms = Math.max(delay, (reply.retryAfter ?? 0) * 1000);
-      if (now() + ms > deadline) return null;
-      await sleep(ms, signal);
-      delay = Math.min(MAX_DELAY_MS, delay * 1.5);
+    const res = await fetch(historyUrl(base, ref, branch), { signal });
+    if (res.status === 404) {
+      const body: unknown = await res.json().catch(() => null);
+      return isRecord(body) && body.status === 'missing' ? { status: 'missing' } : null;
     }
+    if (!res.ok) return null;
+    const manifest = parseStoredManifest(res.headers.get('X-History-Manifest'));
+    const history = parseHistory(JSON.parse(await decode(await res.arrayBuffer())));
+    if (!manifest || !history || !(await agrees(history, manifest, ref, branch))) return null;
+    return { status: 'ready', history };
   } catch (error) {
     if (signal?.aborted) throw error;
+    return null;
+  }
+}
+
+/**
+ * Whether a stored body is the history the server checked: the same repo, branch and head, and
+ * the very snapshots whose trees it spot-checked with GitHub (by digest).
+ */
+export async function agrees(
+  history: History,
+  manifest: StoredManifest,
+  ref: RepoRef,
+  branch: string,
+): Promise<boolean> {
+  return (
+    history.repo.toLowerCase() === `${ref.owner}/${ref.repo}`.toLowerCase() &&
+    history.repo.toLowerCase() === manifest.repo.toLowerCase() &&
+    history.branch === branch &&
+    manifest.branch === branch &&
+    history.head === manifest.head &&
+    history.snapshots.length === manifest.snapshots &&
+    (await snapshotDigest(history.snapshots)) === manifest.digest
+  );
+}
+
+function parseStoredManifest(raw: string | null): StoredManifest | null {
+  if (!raw) return null;
+  try {
+    const m: unknown = JSON.parse(raw);
+    return isRecord(m) &&
+      typeof m.repo === 'string' &&
+      typeof m.branch === 'string' &&
+      typeof m.head === 'string' &&
+      typeof m.digest === 'string' &&
+      typeof m.snapshots === 'number'
+      ? (m as StoredManifest)
+      : null;
+  } catch {
     return null;
   }
 }
@@ -92,6 +112,59 @@ export async function loadHistory(
   return result;
 }
 
+/** Why an upload was not stored, or `stored`. */
+export type UploadResult = 'stored' | HistoryError | 'network';
+
+/**
+ * Shares a history this browser computed: the gzipped JSON, with the manifest the server checks
+ * against GitHub using the visitor's token (sent only here and to GitHub).
+ */
+export async function uploadHistory(
+  history: History,
+  snapshots: readonly { sha: string; at: number; tree: string }[],
+  token: string,
+  options: HistoryOptions = {},
+): Promise<UploadResult> {
+  const base = options.base ?? HISTORY_URL;
+  const ref = parseRepoRef(history.repo);
+  if (!base || 'kind' in ref) return 'invalid';
+  try {
+    const body = await gzip(JSON.stringify(history));
+    const manifest: UploadManifest = {
+      v: HISTORY_VERSION,
+      repo: history.repo,
+      branch: history.branch,
+      head: history.head,
+      computedAt: history.computedAt,
+      snapshots: snapshots.map(({ sha, at, tree }) => ({ sha, at, tree })),
+      bytes: body.byteLength,
+    };
+    const res = await fetch(historyUrl(base, ref, history.branch), {
+      method: 'PUT',
+      body,
+      signal: options.signal,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/gzip',
+        'X-History-Manifest': JSON.stringify(manifest),
+      },
+    });
+    const reply: unknown = await res.json().catch(() => null);
+    if (isRecord(reply) && reply.status === 'stored') return 'stored';
+    return isRecord(reply) && reply.status === 'error' && typeof reply.error === 'string'
+      ? (reply.error as HistoryError)
+      : 'network';
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    return 'network';
+  }
+}
+
+async function gzip(text: string): Promise<Uint8Array<ArrayBuffer>> {
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
 /** The history bundled beside a sample (`<base>samples/<id>.history.json.gz`). */
 export async function loadSampleHistory(
   id: string,
@@ -107,29 +180,6 @@ export async function loadSampleHistory(
 
 export const historyKey = (ref: { owner: string; repo: string }, branch: string) =>
   `${ref.owner}/${ref.repo}@${branch}`.toLowerCase();
-
-export function parseReply(body: unknown): HistoryReply | null {
-  if (!isRecord(body)) return null;
-  const retryAfter = typeof body.retryAfter === 'number' ? body.retryAfter : undefined;
-  switch (body.status) {
-    case 'ready': {
-      const history = parseHistory(body.history);
-      return history ? { status: 'ready', history, stale: body.stale === true } : null;
-    }
-    case 'pending':
-      return typeof body.progress === 'number'
-        ? { status: 'pending', progress: body.progress, retryAfter: retryAfter ?? 2 }
-        : null;
-    case 'needs-auth':
-      return { status: 'needs-auth' };
-    case 'error':
-      return typeof body.error === 'string'
-        ? ({ status: 'error', error: body.error, retryAfter } as HistoryReply)
-        : null;
-    default:
-      return null;
-  }
-}
 
 /** Checks a history from the network or a sample file: the version, and every column aligned. */
 export function parseHistory(body: unknown): History | null {
@@ -177,17 +227,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function wait(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(signal.reason);
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        reject(signal.reason);
-      },
-      { once: true },
-    );
-  });
-}
+/** Keeps a history this browser computed, as if it had come from the server. */
+export const cacheComputed = (ref: RepoRef, branch: string, history: History) =>
+  cacheHistory(historyKey(ref, branch), history);

@@ -2,13 +2,12 @@
 // Measures what computing a repo's history costs on GitHub: requests, bytes on the wire (gzipped,
 // as GitHub serves them) and wall time, against scripts/fake-github.mjs over local clones.
 //
-//   node scripts/measure.mjs [--engine worker|browser|both] [--reader graphql|rest]
+//   node scripts/measure.mjs [--reader graphql|rest]
 //     [--clones <dir>] [--rtt <ms>] [--mbps <megabits>] [--concurrency <n>] [--out <dir>]
 //     [--remote <fake server url>] [--per-snapshot] [--json] [repo ...]
 //
 // repo: linux, vite, dotfiles (default: all three), or owner/name=<git dir>. --clones holds
-// <name>.git for the short names. `worker` runs the server's step job (src/core/job.ts) as the
-// Worker would, step after step; `browser` runs the in-browser engine (src/core/engine.ts).
+// <name>.git for the short names. It runs the in-browser engine (src/core/engine.ts) in Node.
 // --rtt / --mbps model a network (default 60 ms, 40 Mbit/s on one shared link) so concurrency
 // shows in wall time; --rtt 0 turns the model off. --out writes each history as JSON for diffing.
 // Set FAKE_GIT_CACHE=<dir> to keep the fake's history walks on disk: a second run then times the
@@ -36,7 +35,6 @@ process.removeAllListeners('warning');
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    engine: { type: 'string', default: 'both' },
     clones: {
       type: 'string',
       default: '/tmp/claude-0/-home-claude/5ac5cb95-dc76-5c12-add7-5b8ab67deeec/scratchpad/pr14',
@@ -70,29 +68,19 @@ const targets = (positionals.length ? positionals : Object.keys(KNOWN)).map((spe
     dir: dir ?? join(values.clones, `${name}.git`),
   };
 });
-const engines = values.engine === 'both' ? ['worker', 'browser'] : [values.engine ?? 'browser'];
 const rtt = Number(values.rtt);
 const network =
   rtt > 0 ? { rttMs: rtt, bytesPerMs: (Number(values.mbps) * 1e6) / 8 / 1000 } : undefined;
 
-const { createJob, step, DEFAULT_LIMITS } = await import('../src/core/job.ts');
-const { summarize } = await import('../src/core/summarize.ts');
-const { gitHub } = await import('../src/core/github.ts');
-/** @type {any} */
-let engine = null;
-try {
-  engine = await import('../src/core/engine.ts');
-} catch (error) {
-  if (engines.includes('browser')) throw error;
-}
+const engine = await import('../src/core/engine.ts');
 
 const rows = [];
 for (const t of targets) {
   const branch = execFileSync('git', ['-C', t.dir, 'symbolic-ref', '--short', 'HEAD'], {
     encoding: 'utf8',
   }).trim();
-  const head = execFileSync('git', ['-C', t.dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  for (const which of engines) {
+  {
+    const which = 'browser';
     // --remote: a fake-github.mjs server in its own process, so this process holds only the
     // engine (for memory), reached over real HTTP with gzip.
     const remote = values.remote;
@@ -115,14 +103,7 @@ for (const t of targets) {
     let history;
     /** @type {any} */
     let stats = null;
-    if (which === 'worker') {
-      const job = createJob(t.full, branch, head);
-      while (job.phase !== 'done') {
-        const gh = gitHub({ fetch, api, token: 'x', limit: DEFAULT_LIMITS.stepRequests });
-        await step(job, gh, DEFAULT_LIMITS);
-      }
-      history = summarize(job, Date.now());
-    } else {
+    {
       history = await engine.computeHistory({
         fetch,
         api,

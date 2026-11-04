@@ -37,8 +37,8 @@ describe('computeHistoryInWorker', () => {
     ]);
     worker.reply({ progress: 0.5 });
     const history = { v: 1 } as History;
-    worker.reply({ history });
-    expect(await done).toEqual({ status: 'ready', history });
+    worker.reply({ history, snapshots: [] });
+    expect(await done).toEqual({ status: 'ready', history, snapshots: [] });
     expect(seen).toEqual([0.5]);
     expect(worker.terminated).toBe(true);
   });
@@ -59,7 +59,7 @@ describe('computeHistoryInWorker', () => {
     const unused = fakeWorker();
     const again = computeHistoryInWorker(ref, 'dev', { spawn: () => unused.worker });
     expect(first.sent).toHaveLength(2);
-    first.worker.reply({ history: { v: 1 } as History });
+    first.worker.reply({ history: { v: 1 } as History, snapshots: [] });
     await again;
     expect(first.worker.terminated).toBe(true);
 

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -13,8 +13,6 @@ import {
   type EngineStats,
 } from '../src/core/engine';
 import { gitHub, type CommitSummary } from '../src/core/github';
-import { DEFAULT_LIMITS, createJob, step } from '../src/core/job';
-import { summarize } from '../src/core/summarize';
 import { blobKey } from '../src/core/store';
 import { MODE, TreeStore, graphqlLoader, restReader, type TreeFetch } from '../src/core/trees';
 import type { History } from '../src/shape';
@@ -222,13 +220,14 @@ describe('graphql tree loader', () => {
   });
 });
 
-async function jobHistory(f: ReturnType<typeof fake>, recentCommits: number): Promise<History> {
-  const limits = { ...DEFAULT_LIMITS, recentCommits };
-  const job = createJob('acme/app', 'main', repo.shas[4]!);
-  while (job.phase !== 'done') {
-    await step(job, gitHub({ fetch: f as unknown as typeof fetch, api: API, limit: 40 }), limits);
-  }
-  return summarize(job, 0);
+/**
+ * What the server's step job (removed with the Worker's computing) made of this repo, kept as
+ * fixtures so the engine stays equal to it. Shas are stable: fixed contents, names and dates.
+ */
+function jobHistory(_f: unknown, recentCommits: number): History {
+  return JSON.parse(
+    readFileSync(new URL(`fixtures/history-recent-${recentCommits}.json`, import.meta.url), 'utf8'),
+  ) as History;
 }
 
 function engine(f: ReturnType<typeof fake>, extra: Partial<EngineOptions> = {}) {
@@ -243,9 +242,9 @@ function engine(f: ReturnType<typeof fake>, extra: Partial<EngineOptions> = {}) 
 }
 
 describe('browser engine', () => {
-  it('yields the same history as the server job', async () => {
+  it('yields the same history as the server job did', async () => {
     for (const recentCommits of [0, 2, 100]) {
-      const expected = await jobHistory(fake(), recentCommits);
+      const expected = jobHistory(fake(), recentCommits);
       expect(expected.snapshots).toHaveLength(5);
       expect(expected.gone.map((g) => g.path).sort()).toEqual(['a/x.txt', 'a/y.txt', 'd/e/f.txt']);
       expect(await engine(fake(), { recentCommits })).toEqual(expected);
@@ -253,7 +252,7 @@ describe('browser engine', () => {
   });
 
   it('yields the same history from truncated listings', async () => {
-    const expected = await jobHistory(fake(), 2);
+    const expected = jobHistory(fake(), 2);
     expect(await engine(fake({ maxEntries: 4 }), { recentCommits: 2 })).toEqual(expected);
   });
 
@@ -340,9 +339,9 @@ describe('browser engine', () => {
 const QUICK = { attempts: 4, maxWaitMs: 90_000, sleep: async () => undefined };
 
 describe('graphql reader', () => {
-  it('yields the same history as the server job', async () => {
+  it('yields the same history as the server job did', async () => {
     for (const recentCommits of [0, 2]) {
-      const expected = await jobHistory(fake(), recentCommits);
+      const expected = jobHistory(fake(), recentCommits);
       let stats: EngineStats | undefined;
       const h = await engine(fake(), {
         recentCommits,
@@ -356,7 +355,7 @@ describe('graphql reader', () => {
   });
 
   it('falls back to REST when GraphQL keeps failing', async () => {
-    const expected = await jobHistory(fake(), 2);
+    const expected = jobHistory(fake(), 2);
     const f = gitHubFetch(
       { 'acme/app': { dir: repo.dir } },
       {
@@ -404,7 +403,7 @@ describe('retries and resuming', () => {
   }
 
   it('retries server errors, secondary limits and Retry-After, then succeeds', async () => {
-    const expected = await jobHistory(fake(), 2);
+    const expected = jobHistory(fake(), 2);
     const waits: number[] = [];
     const retry = { ...QUICK, sleep: async (ms: number) => void waits.push(ms) };
     for (const [f, wait] of [
@@ -438,7 +437,7 @@ describe('retries and resuming', () => {
   });
 
   it('resumes from a checkpoint without reading anything twice', async () => {
-    const expected = await jobHistory(fake(), 2);
+    const expected = jobHistory(fake(), 2);
     const checkpoint = createCheckpoint();
     // The budget runs out after a few trees.
     let trees = 0;

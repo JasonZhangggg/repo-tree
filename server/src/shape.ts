@@ -75,22 +75,81 @@ export const AUTHORS_PER_FOLDER = 5;
 export type HistoryError =
   | 'invalid'
   | 'not-found'
-  | 'empty'
   /** The token was refused by GitHub (expired or revoked): sign in again. */
   | 'unauthorized'
-  /** Private repos are not computed by the server, so their history is never shared. */
+  /** Private repos are never stored, so their history is never shared. */
   | 'private'
+  /** This client sent too many uploads, or the server took its share of writes for the day. */
   | 'rate-limited'
-  /** This client started too many new repos this hour. */
-  | 'busy'
+  /** The upload is over MAX_UPLOAD_BYTES. */
+  | 'too-large'
+  /** The claimed head is not the branch's head on GitHub (the branch moved, or a lie). */
+  | 'stale'
+  /** A history of this head is stored already: nothing was written. */
+  | 'exists'
+  /** A spot-checked snapshot's tree or time is not GitHub's. */
+  | 'mismatch'
   | 'upstream'
   | 'forbidden';
 
+/**
+ * Replies of the history Worker (`server/src/worker.ts`), other than a stored history:
+ * GET /v1/history/<owner>/<repo>?branch=<b> answers 200 with the gzipped History JSON as its
+ * body and its StoredManifest, JSON, in the X-History-Manifest header; else one of these.
+ */
 export type HistoryReply =
-  /** `stale`: an older head's history, served while the new head's is computed. */
-  | { status: 'ready'; history: History; stale: boolean }
-  /** `progress` runs 0 to 1. Ask again after `retryAfter` seconds. */
-  | { status: 'pending'; progress: number; retryAfter: number }
-  /** Not cached, and computing it takes a signed-in visitor's GitHub token. */
-  | { status: 'needs-auth' }
+  /** Nothing stored for this branch yet: a signed-in visitor may compute and upload it. */
+  | { status: 'missing' }
+  /** PUT accepted: one KV write. */
+  | { status: 'stored'; manifest: StoredManifest }
   | { status: 'error'; error: HistoryError; retryAfter?: number };
+
+/**
+ * What a visitor's browser sends with a computed history (PUT /v1/history/<owner>/<repo>
+ * ?branch=<b>, body the gzipped History JSON, this JSON in the X-History-Manifest header).
+ * The Worker cannot afford to unpack the body (10 ms of CPU), so it checks this instead and
+ * readers check that the body agrees with what the Worker stored (`snapshotDigest`).
+ */
+export type UploadManifest = {
+  v: typeof HISTORY_VERSION;
+  /** owner/repo, branch and head exactly as in the History. */
+  repo: string;
+  branch: string;
+  head: string;
+  computedAt: number;
+  /** Every snapshot of the History, oldest first, with its root tree, for spot checks. */
+  snapshots: { sha: string; at: number; tree: string }[];
+  /** Bytes of the gzipped body. */
+  bytes: number;
+};
+
+/** What the Worker keeps beside an accepted body (KV metadata, under 1 KiB). */
+export type StoredManifest = {
+  v: typeof HISTORY_VERSION;
+  repo: string;
+  branch: string;
+  head: string;
+  computedAt: number;
+  /** Snapshots in the History, and the hex SHA-256 of their `<sha> <at>\n` lines, oldest first. */
+  snapshots: number;
+  digest: string;
+  bytes: number;
+  /** The GitHub login that uploaded it, and when (ms). */
+  by: string;
+  storedAt: number;
+};
+
+/**
+ * The largest body the Worker stores: ten times Linux's (0.86 MB gzipped, 8 MB of JSON), well
+ * under KV's 25 MiB, so a junk upload costs readers little.
+ */
+export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+
+/** The digest StoredManifest.digest holds, over a History's snapshots. */
+export async function snapshotDigest(
+  snapshots: readonly { sha: string; at: number }[],
+): Promise<string> {
+  const text = snapshots.map((s) => `${s.sha} ${s.at}\n`).join('');
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}

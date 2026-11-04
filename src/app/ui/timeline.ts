@@ -1,4 +1,5 @@
 import { historySource } from '../../timeline/source';
+import type { mountHistoryCompute } from './history-compute';
 import {
   buildTimeline,
   cursorOf,
@@ -41,6 +42,7 @@ export function mountTimeline(
   app: App,
   reducedMotion: () => boolean,
   showCounts: (counts: ReadonlyMap<number, number> | null) => void,
+  compute: ReturnType<typeof mountHistoryCompute>,
 ): { date(): number | null } {
   const { store, view } = app;
   const button = byId<HTMLButtonElement>('timeline');
@@ -166,8 +168,18 @@ export function mountTimeline(
     syncButton();
     let timeline = built.get(repo);
     if (!timeline) {
-      const history = await source(abort.signal).catch(() => null);
+      const loaded = await source.load(abort.signal).catch(() => null);
       if (phase.kind !== 'loading' || phase.abort !== abort) return;
+      let history = loaded?.status === 'ready' ? loaded.history : null;
+      if (loaded?.status === 'missing' && source.compute) {
+        // Nobody computed it yet: offer to, here. The button stops spinning meanwhile.
+        phase = { kind: 'closed' };
+        syncButton();
+        history = await compute.offer(repo, source);
+        if (store.get().repo !== repo || phase.kind !== 'closed') return;
+        if (!history) return store.dispatch({ type: 'timeline', at: null });
+        phase = { kind: 'loading', repo, abort };
+      }
       if (!history) {
         phase = { kind: 'closed' };
         syncButton();

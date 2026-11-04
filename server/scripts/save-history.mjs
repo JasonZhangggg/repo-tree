@@ -1,34 +1,44 @@
 #!/usr/bin/env node
-// Usage: node scripts/save-history.mjs <worker url> <owner/repo> <out.history.json.gz> [token]
-// Polls a running history Worker until the repo's history is ready and writes it gzipped, the
-// way public/samples/<id>.history.json.gz is made. The bundled samples come from `wrangler dev`
-// pointed at scripts/fake-github.mjs over full-history clones pinned to each sample's commit.
+// Usage: node scripts/save-history.mjs <api url> <owner/repo> <branch> <out.history.json.gz> [token]
+// Computes a repo's history with the in-browser engine (src/core/engine.ts) and writes it
+// gzipped, the way public/samples/<id>.history.json.gz is made: point <api url> at
+// scripts/fake-github.mjs serving full-history clones pinned to each sample's commit.
 import { writeFileSync } from 'node:fs';
+import { register } from 'node:module';
 import { gzipSync } from 'node:zlib';
 
-const [base = '', repo = '', out = '', token = process.env.HISTORY_TOKEN] = process.argv.slice(2);
-if (!base || !repo.includes('/') || !out) {
-  console.error('usage: save-history.mjs <worker url> <owner/repo> <out.history.json.gz> [token]');
+register(
+  'data:text/javascript,' +
+    encodeURIComponent(`
+export async function resolve(s, c, next) {
+  try { return await next(s, c); } catch (e) {
+    if (s.startsWith('.') && !/\\.[cm]?[jt]s$/.test(s)) return next(s + '.ts', c);
+    throw e;
+  }
+}`),
+);
+process.removeAllListeners('warning');
+
+const [api = '', repo = '', branch = '', out = '', token = process.env.HISTORY_TOKEN] =
+  process.argv.slice(2);
+if (!api || !repo.includes('/') || !branch || !out) {
+  console.error(
+    'usage: save-history.mjs <api url> <owner/repo> <branch> <out.history.json.gz> [token]',
+  );
   process.exit(1);
 }
 
-const headers = token ? { Authorization: `Bearer ${token}` } : {};
-for (;;) {
-  const res = await fetch(`${base.replace(/\/$/, '')}/v1/history/${repo}`, { headers });
-  const reply = await res.json();
-  if (reply.status === 'ready') {
-    const json = JSON.stringify(reply.history);
-    writeFileSync(out, gzipSync(json, { level: 9 }));
-    const h = reply.history;
-    console.log(
-      `${out}: ${h.snapshots.length} snapshots, ${h.files.path.length} files, gaps ${JSON.stringify(h.gaps)}, ${json.length} bytes`,
-    );
-    break;
-  }
-  if (reply.status !== 'pending' && !(reply.status === 'error' && reply.error === 'rate-limited')) {
-    console.error(JSON.stringify(reply));
-    process.exit(1);
-  }
-  process.stdout.write(`${reply.status} ${reply.progress ?? ''}\n`);
-  await new Promise((r) => setTimeout(r, (reply.retryAfter ?? 2) * 1000));
-}
+const { computeHistory } = await import('../src/core/engine.ts');
+const h = await computeHistory({
+  fetch: (input, init) => fetch(input, init),
+  api,
+  ...(token ? { token } : {}),
+  repo,
+  branch,
+  onProgress: (p) => process.stdout.write(`\r${Math.round(p * 100)}%`),
+});
+const json = JSON.stringify(h);
+writeFileSync(out, gzipSync(json, { level: 9 }));
+console.log(
+  `\n${out}: ${h.snapshots.length} snapshots, ${h.files.path.length} files, gaps ${JSON.stringify(h.gaps)}, ${json.length} bytes`,
+);

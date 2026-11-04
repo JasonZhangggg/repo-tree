@@ -1,7 +1,7 @@
 /**
  * The history computation in one pass, for a host that can hold a repo's trees in memory and
  * wait as long as it takes: the visitor's browser (a Web Worker), with the visitor's token.
- * It reads what src/core/job.ts reads and yields the same History (summarize.ts), but:
+ * It yields a History (summarize.ts) the way the server's step job once did, but:
  *
  * - snapshots are kept on the branch's first-parent chain, so a snapshot is never a topic
  *   branch commit whose older base would read as churn: found by walking first parents through
@@ -42,7 +42,7 @@ import {
   type Counts,
   type Sample,
   type TouchRow,
-} from './job';
+} from './commits';
 import { summarize, type Folded } from './summarize';
 import {
   DEFAULT_PLAN,
@@ -94,6 +94,11 @@ export type EngineOptions = {
   treeBudget?: number;
   /** Called once at the end with what the run cost, for measurement. */
   onStats?: (stats: EngineStats) => void;
+  /**
+   * Called once at the end with the History's snapshots, oldest first, each with its root tree
+   * (what an upload's manifest lists for the history Worker to spot-check).
+   */
+  onSamples?: (snapshots: { sha: string; at: number; tree: string }[]) => void;
 };
 
 export type EngineStats = {
@@ -466,7 +471,9 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     perSnapshot,
   });
   options.onProgress?.(1);
-  return summarize(folded, (options.now ?? Date.now)());
+  const history = summarize(folded, (options.now ?? Date.now)());
+  options.onSamples?.(sampled.map(({ sha, at, tree }) => ({ sha, at, tree })).reverse());
+  return history;
 }
 
 /**

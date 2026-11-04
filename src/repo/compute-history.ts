@@ -10,10 +10,14 @@ export type ComputeRequest = { api: string; repo: string; branch: string; token?
 export type ComputeError =
   | { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' }
   | { kind: 'rate-limited'; resetAt: number };
-export type ComputeMessage = { progress: number } | { history: History } | { error: ComputeError };
+/** A snapshot of the History with its root tree, for the upload's manifest. */
+export type Snapshot = { sha: string; at: number; tree: string };
+export type ComputeMessage =
+  { progress: number } | { history: History; snapshots: Snapshot[] } | { error: ComputeError };
 
 export type ComputeResult =
-  { status: 'ready'; history: History } | { status: 'error'; error: ComputeError };
+  | { status: 'ready'; history: History; snapshots: Snapshot[] }
+  | { status: 'error'; error: ComputeError };
 
 type WorkerLike = Pick<Worker, 'postMessage' | 'terminate'> & {
   onmessage: ((event: MessageEvent<ComputeMessage>) => void) | null;
@@ -70,7 +74,7 @@ export function computeHistoryInWorker(
       settle('error' in data);
       resolve(
         'history' in data
-          ? { status: 'ready', history: data.history }
+          ? { status: 'ready', history: data.history, snapshots: data.snapshots }
           : { status: 'error', error: data.error },
       );
     };

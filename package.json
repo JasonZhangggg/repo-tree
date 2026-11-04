@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "e2e": "playwright test",
-    "check": "npm run typecheck && npm run lint && npm test"
+    "check": "npm run typecheck && npm run lint && npm test && npm run check:server",
+    "check:server": "npm --prefix server run check"
   },
   "dependencies": {
     "@fontsource-variable/hanken-grotesk": "5.3.0",

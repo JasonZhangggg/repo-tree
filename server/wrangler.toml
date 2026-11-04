@@ -1,0 +1,32 @@
+# The repo-tree history Worker. Setup steps are in README.md.
+name = "repo-tree-history"
+main = "src/worker.ts"
+compatibility_date = "2025-10-01"
+
+# GitHub token: `npx wrangler secret put GITHUB_TOKEN`. Never put it in this file.
+
+[vars]
+ALLOWED_ORIGINS = "https://jasonzhangggg.github.io"
+# Free plan: keep STEP_REQUESTS under 50 subrequests. Paid plan: raise it (up to about 900).
+STEP_REQUESTS = "40"
+STEP_ENTRIES = "250000"
+RECENT_COMMITS = "100"
+SPLIT_REQUESTS = "150"
+RESERVE = "200"
+NEW_REPOS_PER_HOUR = "10"
+
+# Replace both ids with the output of `npx wrangler kv namespace create HISTORY`.
+[[kv_namespaces]]
+binding = "HISTORY"
+id = "00000000000000000000000000000000"
+preview_id = "00000000000000000000000000000000"
+
+# 60 history requests a minute per IP.
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }
+
+# Prewarm: one job step for one PREWARM repo (src/worker.ts) every ten minutes.
+[triggers]
+crons = ["*/10 * * * *"]

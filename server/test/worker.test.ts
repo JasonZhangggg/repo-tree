@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { gitHubFetch } from '../scripts/fake-github.mjs';
 import worker, { type Env } from '../src/worker';
 import { DAY, makeRepo } from './repo';
@@ -110,6 +110,12 @@ describe('worker', () => {
   });
 
   it('caps new repos per IP per hour', async () => {
+    // The quota is bucketed by clock hour; pin the clock mid-hour so the run can't straddle a boundary.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-01-01T12:30:00Z'));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const e = env({ NEW_REPOS_PER_HOUR: '2' });
     const ask = (r: string) =>
       worker.fetch(

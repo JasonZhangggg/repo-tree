@@ -4,9 +4,23 @@ import { TOP_LANGS } from '../../load/repo-index';
 import { githubUrl, nameOf, type App } from '../app';
 import { byId, fill, h, icon, ICONS } from '../dom';
 import { bytes, count, percent, plural } from '../format';
-import type { AppState, Repo } from '../state';
+import { factsOf, type AppState, type Repo } from '../state';
 
 const FOLDER_ROWS = 10;
+const MONTH = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+/** Why activity colors are not on yet, or null once they are (or not asked for). */
+function activityWait(state: AppState): string | null {
+  if (state.settings.colorBy !== 'activity' || factsOf(state)) return null;
+  const status = state.history?.repo === state.repo ? state.history?.status : 'loading';
+  if (status === 'missing') return 'No history for this repo yet. Open the timeline to compute it.';
+  if (status === 'unavailable') return 'History is unavailable for this repo.';
+  return 'Loading history…';
+}
 const SUB_ROWS = 5;
 
 /** Children of a folder, most files first. */
@@ -223,10 +237,14 @@ export function mountSide(app: App): void {
     const { files, langs } = repo.index.folders;
     const tops = childrenOf(repo, 0);
     const most = files[tops[0] ?? 0] || 1;
+    const facts = state.settings.colorBy === 'activity' ? factsOf(state) : null;
+    const bands = view.legend();
     const colorOf = (f: number) =>
-      state.settings.colorBy === 'folder'
-        ? (byFolder.get(repo.tree.folders.path[f]!) ?? rest)
-        : (colors.get(repo.index.langs[langs[f * TOP_LANGS * 2]!]!) ?? rest);
+      facts
+        ? bands[facts.folderBand[f]!]!.color
+        : state.settings.colorBy === 'folder'
+          ? (byFolder.get(repo.tree.folders.path[f]!) ?? rest)
+          : (colors.get(repo.index.langs[langs[f * TOP_LANGS * 2]!]!) ?? rest);
     folders.replaceChildren(
       ...tops.slice(0, FOLDER_ROWS).map((f) =>
         h(
@@ -278,7 +296,11 @@ export function mountSide(app: App): void {
     const entries = view.legend();
     const total = entries.reduce((sum, e) => sum + e.files, 0);
     legendTitle.textContent =
-      state.settings.colorBy === 'folder' ? 'Leaf colors by folder' : 'Leaf colors by language';
+      state.settings.colorBy === 'folder'
+        ? 'Leaf colors by folder'
+        : factsOf(state)
+          ? 'Leaf colors by activity'
+          : 'Leaf colors by language';
     legend.replaceChildren(
       ...entries.map(({ color, label, files }) =>
         h(
@@ -312,9 +334,13 @@ export function mountSide(app: App): void {
       button.setAttribute('aria-pressed', String(button.dataset.label === state.highlight));
     }
     const entry = view.legend().find((e) => e.label === state.highlight);
+    const facts = state.settings.colorBy === 'activity' ? factsOf(state) : null;
     legendNote.textContent = entry
       ? `${shownLabel(state, entry.label)} · ${plural(entry.files, 'file')}`
-      : 'Pick a color to highlight its leaves.';
+      : (activityWait(state) ??
+        (facts
+          ? `Last change, as of ${MONTH.format(facts.asOf)}. Dead wood is 3+ years untouched; pick a color to highlight its leaves.`
+          : 'Pick a color to highlight its leaves.'));
   };
 
   const renderDetail = (state: AppState) => {
@@ -505,7 +531,8 @@ export function mountSide(app: App): void {
     const colorsChanged =
       repoChanged ||
       state.settings.palette !== prev?.settings.palette ||
-      state.settings.colorBy !== prev?.settings.colorBy;
+      state.settings.colorBy !== prev?.settings.colorBy ||
+      state.history !== prev?.history;
     if (colorsChanged || state.selection !== prev?.selection) renderFolders(state);
     const focusChanged = state.selection !== prev?.selection || state.highlight !== prev?.highlight;
     if (colorsChanged) renderLegend(state);

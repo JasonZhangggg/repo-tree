@@ -621,6 +621,54 @@ const JOURNEYS = {
     });
   },
 
+  activity: async ({ page, step }) => {
+    const sheet = page.locator('#sheet-toggle');
+    /** On a phone the legend waits in the sheet: opens it for `check`, then closes it again. */
+    const inLegend = async (check) => {
+      const phone = await sheet.isVisible();
+      if (phone) await sheet.click();
+      await check();
+      if (phone) await sheet.click();
+    };
+    const entry = (name) => page.locator('#legend').getByRole('button', { name });
+    await step('language', async () => {
+      await page.goto(`${base}#/torvalds/linux?colorBy=language`);
+      await ready(page, 'torvalds/linux');
+      await settle(page);
+    });
+    await step('activity', async () => {
+      await page.getByRole('button', { name: 'Settings' }).click();
+      await page.getByRole('radio', { name: 'Activity' }).click();
+      await page.getByRole('button', { name: 'Close settings' }).click();
+      await inLegend(async () => {
+        await expect(page.locator('#legend-title')).toHaveText('Leaf colors by activity');
+        await expect(page.locator('#legend-note')).toHaveText(/^Last change, as of /);
+      });
+      await settle(page);
+    });
+    await step('dead-wood', async () => {
+      await inLegend(() => entry(/^Dead wood/).click());
+      await expect(page).toHaveURL(/hl=Dead%20wood/);
+      await settle(page);
+    });
+    await step('vite', async () => {
+      await page.goto(`${base}#/vitejs/vite?colorBy=activity`);
+      await ready(page, 'vitejs/vite');
+      await inLegend(() =>
+        expect(page.locator('#legend-title')).toHaveText('Leaf colors by activity'),
+      );
+      await settle(page);
+    });
+    await step('no-history', async () => {
+      await serveRepo(page, 'acme/widgets');
+      await enter(page, 'acme/widgets');
+      await ready(page, 'acme/widgets');
+      await inLegend(() =>
+        expect(page.locator('#legend-note')).toHaveText('History is unavailable for this repo.'),
+      );
+    });
+  },
+
   'history-compute': async ({ page, context, step }) => {
     const up = await fetch(`${worker}/health`).then(
       (r) => r.ok,

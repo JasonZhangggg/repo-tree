@@ -20,6 +20,8 @@ export const treeUniforms = {
   uFade: { value: [0.93, 0.92, 0.9] as [number, number, number] },
   uSlots: { value: [] as number[] },
   uCategory: { value: -1 },
+  /** Bark of a dead-wood branch (`aDead` 1), in linear RGB. */
+  uDeadBark: { value: [0.6, 0.6, 0.6] as [number, number, number] },
 };
 
 const GROW_VERTEX = /* glsl */ `
@@ -125,14 +127,24 @@ function hook<M extends Material>(material: M, key: string, edit: Hook): M {
 
 export const growing = <M extends Material>(m: M) => hook(m, 'grow', () => {});
 
+/** Bark weathers to `uDeadBark` where `aDead` is 1: a branch whose every leaf is dead wood. */
 export const barkShader = <M extends Material>(m: M) =>
   hook(m, 'bark', (shader) => {
+    shader.vertexShader =
+      'attribute float aDead;\nvarying float vDead;\n' +
+      shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvDead = aDead;',
+      );
     shader.fragmentShader =
       FADE_UNIFORMS +
-      shader.fragmentShader.replace(
-        '#include <dithering_fragment>',
-        fade(`uCategory >= 0.0 || ${OUTSIDE}`),
-      );
+      'uniform vec3 uDeadBark;\nvarying float vDead;\n' +
+      shader.fragmentShader
+        .replace(
+          '#include <color_fragment>',
+          '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uDeadBark, vDead);',
+        )
+        .replace('#include <dithering_fragment>', fade(`uCategory >= 0.0 || ${OUTSIDE}`));
   });
 
 export const leafShader = <M extends Material>(m: M, slots: number) =>

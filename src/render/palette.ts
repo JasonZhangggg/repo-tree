@@ -1,7 +1,17 @@
 import { litColor } from './color';
 
 export type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
-export type ColorBy = 'language' | 'folder';
+/** `activity` needs the repo's history: leaves take how long ago their files changed. */
+export type ColorBy = 'language' | 'folder' | 'activity';
+
+/**
+ * Leaf colors for `activity`, one per timeline/facts.ts AGES band and the same in every palette:
+ * spring green for this month, autumn orange for this year, brown for older. Dead wood drops its
+ * leaves, so its cool grey shows only in the legend and while that entry is highlighted.
+ */
+export const AGE_COLORS: readonly string[] = ['#6fb43f', '#ec8a2c', '#94603a', '#98a0a8'];
+/** Bark of a branch whose every leaf is dead wood: weathered silver-grey. */
+export const DEAD_BARK = '#a59f97';
 
 export type Palette = {
   id: PaletteId;

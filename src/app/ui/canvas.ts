@@ -10,6 +10,9 @@ import type { Picked } from '../../render/tree-view';
 const TAP_SLOP = 6;
 /** Panels over the canvas that labels keep off. */
 const PANELS = '.bar, .title, .side, .controls';
+/** How much a label straight behind the trunk shrinks, and how much its stem thins. */
+const DEPTH_SHRINK = 0.15;
+const STEM_THIN = 0.4;
 
 /** The root folder's own files a rock lies for, as indices into RepoIndex.files. */
 const rockFiles = (repo: Repo, rock: number) =>
@@ -243,9 +246,11 @@ export function mountCanvas(app: App): {
         pill.dot.classList.toggle('back', back);
       }
     }
-    const anchors = shown.map((p) => {
+    // Labels toward the far side of the crown shrink a little, so the crown reads as round.
+    const sizes = shown.map((p) => 1 - DEPTH_SHRINK * at.get(p.folder)!.depth);
+    const anchors = shown.map((p, i) => {
       const { x, y, front } = at.get(p.folder)!;
-      return { x, y, front, width: p.width, height: p.height };
+      return { x, y, front, width: p.width * sizes[i]!, height: p.height * sizes[i]! };
     });
     const origin = layer.getBoundingClientRect();
     const panels = [...document.querySelectorAll<HTMLElement>(PANELS)]
@@ -258,11 +263,13 @@ export function mountCanvas(app: App): {
     shown.forEach((pill, i) => {
       const { x, y } = placed[i]!;
       const a = anchors[i]!;
-      const length = Math.max(0, Math.hypot(x - a.x, y - a.y) - pill.height / 2);
+      const size = sizes[i]!;
+      const length = Math.max(0, Math.hypot(x - a.x, y - a.y) - a.height / 2);
       const angle = Math.atan2(y - a.y, x - a.x);
-      pill.el.style.transform = `translate(${x - pill.width / 2}px, ${y - pill.height / 2}px)`;
-      pill.stem.style.transform = `translate(${a.x}px, ${a.y}px) rotate(${angle}rad) scaleX(${length})`;
-      pill.dot.style.transform = `translate(${a.x}px, ${a.y}px)`;
+      const thin = 1 - STEM_THIN * at.get(pill.folder)!.depth;
+      pill.el.style.transform = `translate(${x - pill.width / 2}px, ${y - pill.height / 2}px) scale(${size})`;
+      pill.stem.style.transform = `translate(${a.x}px, ${a.y}px) rotate(${angle}rad) scale(${length}, ${thin})`;
+      pill.dot.style.transform = `translate(${a.x}px, ${a.y}px) scale(${size})`;
     });
   });
 

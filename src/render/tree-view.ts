@@ -64,13 +64,17 @@ import { createWeather, SUN_BEARING, weatherLight, weatherSky } from './weather'
 
 /** What a pixel shows: a folder's branch, or a rock lying for some of the root folder's files. */
 export type Picked = { folder: number; rock?: number };
-/** `front`: the anchor is nearer the camera than the trunk, not on the far side of the crown. */
+/**
+ * `front`: the anchor is nearer the camera than the trunk, not on the far side of the crown.
+ * `depth` eases from 0, facing the camera, to 1, straight behind the trunk, as the tree turns.
+ */
 export type LabelPosition = {
   folder: number;
   x: number;
   y: number;
   visible: boolean;
   front: boolean;
+  depth: number;
 };
 /** `crown` is the crown's outline on screen, as an ellipse, which labels sit outside of. */
 export type FrameInfo = {
@@ -167,6 +171,8 @@ const LABELS_FROM = 0.55;
  * from the camera's, unless the anchor sits within `near` of the trunk.
  */
 const BACK = { facing: 0.25, near: 0.15 };
+/** Over which share of facing the camera, toward to away, a label's depth eases from 0 to 1. */
+const DEPTH = { near: 0.2, far: -0.7 };
 /** How much of the tree's reach, and from what share of its height up, the crown's outline covers. */
 const CROWN = { reach: 0.8, from: 0.4 };
 const SPIN_SPEED = 0.55;
@@ -532,9 +538,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       ];
       const reach = Math.hypot(ax, az);
       const facing = (ax * camera.position.x + az * camera.position.z) / (reach || 1);
-      const front =
-        reach < BACK.near ||
-        facing > -BACK.facing * Math.hypot(camera.position.x, camera.position.z);
+      const toward = facing / (Math.hypot(camera.position.x, camera.position.z) || 1);
+      const front = reach < BACK.near || toward > -BACK.facing;
+      const t = Math.min(1, Math.max(0, (DEPTH.near - toward) / (DEPTH.near - DEPTH.far)));
+      const depth = reach < BACK.near ? 0 : t * t * (3 - 2 * t);
       const { x, y, z } = screen(anchor.set(ax, ay, az));
       const free = x >= left && x <= left + w && y >= top && y <= top + h;
       return {
@@ -542,6 +549,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         x,
         y,
         front,
+        depth,
         visible: growth > LABELS_FROM && z < 1 && free && born(folder),
       };
     });

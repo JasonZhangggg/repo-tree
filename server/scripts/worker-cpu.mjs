@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Measures the CPU time the history Worker spends per request, in Node (workerd runs the same V8),
-// for a stored history of a given size: GET, an accepted PUT (GitHub answered from memory, so
-// only the Worker's own work counts), and, for comparison, what reading the body would cost.
+// for a stored history of a given size: GET, an accepted PUT (GitHub and the Ledger answered from
+// memory, so only the Worker's own work counts), one ledger call on node:sqlite (the Durable
+// Object's own CPU, billed to it, not the Worker), and, for comparison, what reading the body
+// would cost.
 //
 //   node scripts/worker-cpu.mjs <history.json>
 import { readFileSync } from 'node:fs';
@@ -26,6 +28,7 @@ const json = readFileSync(file, 'utf8');
 const history = JSON.parse(json);
 const gz = gzipSync(json, { level: 9 });
 const { default: worker } = await import('../src/worker.ts');
+const { ledgerNamespace } = await import('./ledger-sqlite.mjs');
 
 const tree = 'b'.repeat(40);
 const snapshots = history.snapshots.map((/** @type {{sha: string, at: number}} */ s) => ({
@@ -43,9 +46,13 @@ const github = async (/** @type {string} */ input) => {
   const commit = /\/git\/commits\/([0-9a-f]{40})$/.exec(url.pathname);
   if (commit) {
     const s = snapshots.find((/** @type {{sha: string}} */ x) => x.sha === commit[1]);
-    return json({ tree: { sha: tree }, committer: { date: new Date(s.at).toISOString() } });
+    return json({
+      tree: { sha: tree },
+      committer: { date: new Date(s.at).toISOString() },
+      parents: s === snapshots[0] ? [] : [{ sha: 'c'.repeat(40) }],
+    });
   }
-  return json({ private: false, full_name: history.repo });
+  return json({ private: false, full_name: history.repo, default_branch: history.branch });
 };
 globalThis.fetch = /** @type {typeof fetch} */ (/** @type {unknown} */ (github));
 
@@ -60,7 +67,29 @@ const kv = {
   put: async (/** @type {string} */ key, /** @type {ArrayBuffer} */ value, /** @type {any} */ o) =>
     void store.set(key, { value, metadata: o.metadata }),
 };
-const env = { HISTORY: kv };
+/** The Ledger, always saying yes: its own CPU is measured apart. */
+const yes = {
+  idFromName: () => 'global',
+  get: () => ({ fetch: async () => Response.json({ ok: true }) }),
+};
+const env = { HISTORY: kv, LEDGER: yes };
+const ledger = ledgerNamespace();
+let reservations = 0;
+const reserveOnce = async () => {
+  const stub = ledger.get();
+  const res = await stub.fetch('https://ledger/', {
+    method: 'POST',
+    body: JSON.stringify({
+      op: 'reserve',
+      key: `h1:k${reservations++ % 150}`,
+      head: String(reservations),
+      bytes: 1000,
+      login: 'visitor',
+      now: Date.now(),
+    }),
+  });
+  await res.json();
+};
 const path = `https://history.test/v1/history/${owner}/${name}?branch=${history.branch}`;
 
 /** CPU ms (user + system) of `fn`, median of `n` runs after a warm-up. */
@@ -117,6 +146,7 @@ console.log(
     manifestKB: +(manifest.length / 1024).toFixed(1),
     putCpuMs: await cpu(putOnce),
     getCpuMs: await cpu(getOnce),
+    ledgerReserveCpuMs: await cpu(reserveOnce),
     gunzipCpuMs: await cpu(async () => gunzipSync(gz), 10),
     gunzipAndParseCpuMs: await cpu(async () => JSON.parse(gunzipSync(gz).toString()), 10),
   }),

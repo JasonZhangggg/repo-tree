@@ -1,3 +1,4 @@
+import { signedInToken } from '../../repo/auth';
 import { historySource } from '../../timeline/source';
 import type { mountHistoryCompute } from './history-compute';
 import {
@@ -171,6 +172,21 @@ export function mountTimeline(
       const loaded = await source.load(abort.signal).catch(() => null);
       if (phase.kind !== 'loading' || phase.abort !== abort) return;
       let history = loaded?.status === 'ready' ? loaded.history : null;
+      const token = signedInToken();
+      if (history && token && source.outdated && source.compute) {
+        // Signed in and the shared history is behind the branch: offer to bring it up to date.
+        const old = history;
+        const behind = await source.outdated(old, token, abort.signal).catch(() => false);
+        if (phase.kind !== 'loading' || phase.abort !== abort) return;
+        if (behind) {
+          phase = { kind: 'closed' };
+          syncButton();
+          const fresh = await compute.offer(repo, source, { refresh: old });
+          if (store.get().repo !== repo || phase.kind !== 'closed') return;
+          history = fresh ?? old;
+          phase = { kind: 'loading', repo, abort };
+        }
+      }
       if (loaded?.status === 'missing' && source.compute) {
         // Nobody computed it yet: offer to, here. The button stops spinning meanwhile.
         phase = { kind: 'closed' };

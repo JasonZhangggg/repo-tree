@@ -50,10 +50,11 @@ describe('historySource', () => {
       terminate: () => {},
       postMessage: (data: ComputeRequest) => {
         sent.push(data);
+        const { run } = data;
         queueMicrotask(() => {
-          worker.onmessage?.({ data: { progress: 0.5 } } as MessageEvent<ComputeMessage>);
+          worker.onmessage?.({ data: { run, progress: 0.5 } } as MessageEvent<ComputeMessage>);
           worker.onmessage?.({
-            data: { history, snapshots: [] },
+            data: { run, history, snapshots: [] },
           } as unknown as MessageEvent<ComputeMessage>);
         });
       },
@@ -76,9 +77,45 @@ describe('historySource', () => {
     });
     expect(outcome).toEqual({ status: 'ready', history, shared: 'stored' });
     expect(sent).toEqual([
-      { api: 'https://github.test', repo: 'acme/widgets', branch: 'main', token: 'gho_visitor' },
+      {
+        run: expect.any(Number),
+        api: 'https://github.test',
+        repo: 'acme/widgets',
+        branch: 'main',
+        token: 'gho_visitor',
+      },
     ]);
     expect(progress).toEqual([0.5]);
     expect(puts).toEqual([`PUT ${SERVER}/v1/history/acme/widgets?branch=main`]);
+  });
+
+  test('a branch named in the link is read, but not offered to compute', () => {
+    const dev = { ...ref, ref: 'dev' };
+    const source = historySource({ info: { ref: dev, branch: 'dev' } }, { server: SERVER })!;
+    expect(source.load).toBeTypeOf('function');
+    expect(source.compute).toBeNull();
+    expect(source.outdated).toBeNull();
+  });
+
+  test('a stored history over a day old is outdated when GitHub names another head', async () => {
+    const asked: [string, RequestInit][] = [];
+    let head = 'b'.repeat(40);
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      asked.push([url, init]);
+      return new Response(head);
+    });
+    const source = historySource(
+      { info: { ref, branch: 'main' } },
+      { server: SERVER, api: 'https://github.test' },
+    )!;
+    const old = { head: 'a'.repeat(40), computedAt: Date.now() - 2 * 24 * 3600_000 } as History;
+    expect(await source.outdated!(old, 'gho_visitor', signal)).toBe(true);
+    expect(asked[0]![0]).toBe('https://github.test/repos/acme/widgets/commits/main');
+    expect(asked[0]![1].headers).toMatchObject({ Authorization: 'Bearer gho_visitor' });
+    head = old.head;
+    expect(await source.outdated!(old, 'gho_visitor', signal)).toBe(false);
+    const fresh = { ...old, computedAt: Date.now() - 3600_000 };
+    expect(await source.outdated!(fresh, 'gho_visitor', signal)).toBe(false);
+    expect(asked).toHaveLength(2);
   });
 });

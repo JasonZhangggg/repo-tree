@@ -1,17 +1,31 @@
 /**
  * Computes a repo's history in a module worker with the visitor's own GitHub token
  * (repo/compute-history.ts starts it). The engine is the server's host-agnostic core. After a
- * failed run the worker keeps what it read, and a request for the same repo and branch resumes.
+ * failed or cancelled run the worker keeps what it read, and a run for the same repo and branch
+ * resumes from there (re-reading only the branch's head, which may have moved meanwhile).
  */
 import { computeHistory, createCheckpoint, type Checkpoint } from '../../server/src/core/engine';
 import { UpstreamError } from '../../server/src/core/github';
-import type { ComputeError, ComputeMessage, ComputeRequest, Snapshot } from './compute-history';
+import type { ComputeCommand, ComputeError, ComputeMessage, Snapshot } from './compute-history';
 
 const post = (message: ComputeMessage) => self.postMessage(message);
 
 let kept: { key: string; checkpoint: Checkpoint } | null = null;
+/** The run in progress; a new one waits for it to unwind, as both would write the checkpoint. */
+let current: { run: number; abort: AbortController; done: Promise<void> } | null = null;
 
-self.onmessage = async ({ data }: MessageEvent<ComputeRequest>) => {
+self.onmessage = async ({ data }: MessageEvent<ComputeCommand>) => {
+  if ('cancel' in data) {
+    if (current?.run === data.cancel) current.abort.abort();
+    return;
+  }
+  const { run } = data;
+  const previous = current;
+  previous?.abort.abort();
+  const abort = new AbortController();
+  let finish = (): void => undefined;
+  current = { run, abort, done: new Promise<void>((resolve) => (finish = resolve)) };
+  await previous?.done;
   let last = -1;
   const key = `${data.repo}@${data.branch}`;
   if (kept?.key !== key) kept = { key, checkpoint: createCheckpoint() };
@@ -24,19 +38,22 @@ self.onmessage = async ({ data }: MessageEvent<ComputeRequest>) => {
       repo: data.repo,
       branch: data.branch,
       checkpoint: kept.checkpoint,
+      signal: abort.signal,
       onSamples: (s) => (snapshots = s),
       onProgress: (progress) => {
         // A message per percent is plenty for a progress bar.
         const step = Math.floor(progress * 100);
         if (step === last) return;
         last = step;
-        post({ progress });
+        post({ run, progress });
       },
     });
     kept = null;
-    post({ history, snapshots });
+    post({ run, history, snapshots });
   } catch (error) {
-    post({ error: toError(error) });
+    if (!abort.signal.aborted) post({ run, error: toError(error) });
+  } finally {
+    finish();
   }
 };
 

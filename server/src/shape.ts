@@ -79,15 +79,22 @@ export type HistoryError =
   | 'unauthorized'
   /** Private repos are never stored, so their history is never shared. */
   | 'private'
-  /** This client sent too many uploads, or the server took its share of writes for the day. */
+  /** This client or login sent too many uploads, or the server took its writes for the day. */
   | 'rate-limited'
-  /** The upload is over MAX_UPLOAD_BYTES. */
+  /** The upload is over MAX_UPLOAD_BYTES, or unpacks to over MAX_INFLATED_BYTES. */
   | 'too-large'
+  /** Only the repo's default branch is stored (one history per repo). */
+  | 'not-default-branch'
+  /** The stored histories together reached the server's storage budget. */
+  | 'full'
   /** The claimed head is not the branch's head on GitHub (the branch moved, or a lie). */
   | 'stale'
   /** A history of this head is stored already: nothing was written. */
   | 'exists'
-  /** A spot-checked snapshot's tree or time is not GitHub's. */
+  /**
+   * A spot-checked snapshot's tree or time is not GitHub's, the oldest is not a root commit, or
+   * the snapshots do not follow the engine's schedule.
+   */
   | 'mismatch'
   | 'upstream'
   | 'forbidden';
@@ -102,6 +109,8 @@ export type HistoryReply =
   | { status: 'missing' }
   /** PUT accepted: one KV write. */
   | { status: 'stored'; manifest: StoredManifest }
+  /** POST .../bad accepted: the stored body may be replaced by the next good upload. */
+  | { status: 'noted' }
   | { status: 'error'; error: HistoryError; retryAfter?: number };
 
 /**
@@ -140,10 +149,17 @@ export type StoredManifest = {
 };
 
 /**
- * The largest body the Worker stores: ten times Linux's (0.86 MB gzipped, 8 MB of JSON), well
- * under KV's 25 MiB, so a junk upload costs readers little.
+ * The largest body the Worker stores: over twice Linux's (0.86 MB gzipped, 8 MB of JSON), far
+ * under KV's 25 MiB, so a junk upload costs readers and the storage budget little.
  */
-export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+
+/**
+ * The most a body may unpack to: eight times Linux's 8 MB of JSON. The Worker reads the size
+ * gzip records in its last four bytes (it cannot afford to unpack), and readers stop unpacking
+ * past it, so a gzip bomb costs nobody more than this.
+ */
+export const MAX_INFLATED_BYTES = 64 * 1024 * 1024;
 
 /** The digest StoredManifest.digest holds, over a History's snapshots. */
 export async function snapshotDigest(

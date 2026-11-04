@@ -81,6 +81,37 @@ test('a signed-out visitor then gets the shared history with no prompt', async (
   await expect(dialog(page)).toBeHidden();
 });
 
+test('a signed-in visitor is offered to bring an out-of-date history up to date', async ({
+  page,
+}) => {
+  const manifest = async () =>
+    JSON.parse(
+      (await fetch(`${WORKER}/v1/history/acme/widgets?branch=main`)).headers.get(
+        'x-history-manifest',
+      )!,
+    ) as { head: string; computedAt: number };
+  const before = await manifest();
+  // GitHub gets a new commit, and two days pass: the shared history is behind.
+  await fetch(`${FAKE}/__head`, {
+    method: 'POST',
+    body: JSON.stringify({ repo: 'acme/widgets', sha: null }),
+  });
+  await page.addInitScript((token) => {
+    sessionStorage.setItem('repo-tree:github-signin', token);
+    const now = Date.now;
+    Date.now = () => now() + 2 * 24 * 60 * 60 * 1000;
+  }, 'gho_fakefakefakefakefake');
+  await open(page);
+  await page.locator('#timeline').click();
+  await expect(dialog(page)).toContainText('The timeline of acme/widgets is out of date');
+  await expect(dialog(page)).toContainText('the branch has moved since');
+  await page.getByRole('button', { name: 'Refresh history' }).click();
+  await expect(page.getByRole('group', { name: 'Timeline' })).toBeVisible({ timeout: 60_000 });
+  const after = await manifest();
+  expect(after.head).not.toBe(before.head);
+  expect(after.computedAt).toBeGreaterThan(before.computedAt);
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 

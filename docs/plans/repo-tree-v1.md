@@ -60,20 +60,35 @@ type History = { v: 1; repo: string; branch: string; head: string; computedAt: n
   owners: { folder: string /* top-level, '' for root files */; authors: { name: string; commits: number /* recent, exact */; weight: number /* commits in intervals where it changed */ }[] /* up to 5, no bots */; codeowners: string[] }[] };
 // The Worker computes nothing: a visitor's browser computes (core/engine.ts) and uploads; the Worker checks and stores.
 type HistoryError = 'invalid' | 'not-found' | 'unauthorized' | 'private' | 'rate-limited' | 'too-large' | 'stale' /* head is not the branch head */
-  | 'exists' /* this head is stored already */ | 'mismatch' /* a spot-checked snapshot's tree or time is wrong */ | 'upstream' | 'forbidden' /* origin */;
-type HistoryReply = { status: 'missing' } | { status: 'stored'; manifest: StoredManifest } | { status: 'error'; error: HistoryError; retryAfter?: number };
+  | 'exists' /* this head is stored, good and under a day old */ | 'mismatch' /* a spot-checked snapshot is wrong, or the oldest is not the root */
+  | 'upstream' | 'forbidden' /* origin */ | 'not-default-branch' | 'full' /* the stored-bytes budget */;
+type HistoryReply = { status: 'missing' } | { status: 'stored'; manifest: StoredManifest } | { status: 'noted' /* a bad-body report, 202 */ } | { status: 'error'; error: HistoryError; retryAfter?: number };
 type UploadManifest = { v: 1; repo: string; branch: string; head: string; computedAt: number;
   snapshots: { sha: string; at: number; tree: string /* root tree sha */ }[] /* the History's, oldest first */; bytes: number /* gzipped body */ };
 type StoredManifest = { v: 1; repo: string; branch: string; head: string; computedAt: number; snapshots: number;
   digest: string /* snapshotDigest */; bytes: number; by: string /* uploader's GitHub login */; storedAt: number };
-const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // gzipped; Linux's history is 0.85 MB
+const MAX_INFLATED_BYTES = 64 * 1024 * 1024; // the gzip ISIZE the Worker accepts, and where readers stop inflating
 function snapshotDigest(snapshots: { sha: string; at: number }[]): Promise<string>; // SHA-256 hex of `${sha} ${at}\n` joined; binds a body to its manifest
 // GET <VITE_HISTORY_URL>/v1/history/{owner}/{repo}?branch=  200: the gzipped History JSON, its StoredManifest in X-History-Manifest; 404 missing.
 // PUT the same URL, Authorization: Bearer <visitor token>, body the gzipped History JSON, X-History-Manifest an UploadManifest. 201 stored.
+// POST <...>/{owner}/{repo}/bad?branch=&head=  202 noted: a reader could not use the stored body; the next upload for that head may replace it.
+// Uploads are taken for the repo's default branch only. Localhost origins only when the ALLOW_LOCALHOST var is set (local runs, e2e).
 // KV (the store): key `h1:${repo.toLowerCase()}@${branch}` (core/upload.ts historyKey), value the body untouched, metadata the StoredManifest,
-// 90-day TTL, one write per accepted upload, none per job step or sign-in. The Worker never decompresses or parses a body (10 ms CPU).
+// 90-day TTL, one write per accepted upload, none per job step or sign-in. The Worker never decompresses or parses a body (10 ms CPU);
+// it reads the gzip trailer's ISIZE and refuses past MAX_INFLATED_BYTES.
+// core/upload.ts: parseManifest also wants unique shas, the head last, time order, and followsSchedule(snapshots): at most one snapshot per
+//   schedule(head.at, root.at, 80) target, at or before it (as the engine picks). There is no floor: a sparse branch has few snapshots.
 // core/upload.ts: verifyUpload(m: UploadManifest, { fetch, api, token, now, pick? }): Promise<{ ok: true; manifest: StoredManifest } | { ok: false; error: HistoryError; retryAfter?: number }>
-//   GET /user, /repos/{repo} (public), /repos/{repo}/commits/{branch} (sha === head), /git/commits/{sha} for the head and SPOT_CHECKS = 3 random snapshots (tree and time): 7 requests.
+//   GET /user, /repos/{repo} (public, default_branch === branch), /repos/{repo}/commits/{branch} (sha === head), /git/commits/{sha} for the head,
+//   the oldest snapshot (no parents: the root) and SPOT_CHECKS = 3 random others (tree and time): 8 requests.
+// core/ledger.ts, run by the `Ledger` Durable Object (one global, SQLite-backed, binding LEDGER): the source of truth for what is stored and the caps.
+type LedgerRequest = { op: 'check'; key: string; head: string; now: number } /* before GitHub requests */
+  | { op: 'reserve'; key: string; head: string; bytes: number; login: string; now: number } /* before the KV put: counts one write */
+  | { op: 'release'; key; head; now } /* the put failed */ | { op: 'bad'; key; head; now } /* a reader's report */;
+type LedgerReply = { ok: true } | { ok: false; error: 'exists' | 'rate-limited' | 'full'; retryAfter?: number /* to UTC midnight */ };
+type LedgerLimits = { perLogin: 20; perDay: 200; maxBytes: 500 MB; replaceAfterMs: 1 day; ttlMs: 90 days }; // vars UPLOADS_PER_LOGIN, UPLOADS_PER_DAY, STORED_BYTES
+// A stored head is refused as 'exists' unless it was reported bad or is a day old; a new head replaces it. Bytes count a replaced entry once.
 // Readers (repo/history.ts agrees) drop a body unless its repo, branch, head, snapshot count and snapshotDigest match the StoredManifest.
 
 // server/src/core/engine.ts  (pure but for the injected fetch; runs in the visitor's browser in repo/history-worker.ts, and in Node for tests and scripts)
@@ -82,19 +97,27 @@ type EngineOptions = { fetch: typeof fetch; api: string; token?: string; repo: s
   checkpoint?: Checkpoint /* pass the same one again to resume after a failure */; treeBudget?: number; now?: () => number;
   onStats?: (stats: EngineStats) => void; onSamples?: (snapshots: { sha: string; at: number; tree: string }[]) => void /* the UploadManifest's snapshots */ };
 function computeHistory(options: EngineOptions): Promise<History>; // rejects with { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt }
+// core/github.ts: limits { core, graphql: { remaining, resetAt } }, kept apart by x-ratelimit-resource. A spent budget (REST 403/429, GraphQL
+// RATE_LIMITED, a secondary limit's 403 or 200 message) waits for retry-after or the reset when it is near, else rejects rate-limited.
+// A GraphQL 5xx (a timeout) is not retried: the loader splits the batch. Partial GraphQL data comes back; its null objects are asked once more.
+// A resumed run re-reads the newest commits page (the branch may have moved); trees held by sha are kept.
 type Checkpoint = { pages: Map<string, { commits: CommitSummary[]; link: string | null }>; store: TreeStore; changes: Map<string, { files: FileChange[]; capped: boolean }>; codeowners: Map<string, string> };
 // core/store.ts TreeStore: every distinct tree object read, once, in typed arrays (a tree id per oid; entries of name id, mode, ref sorted by name;
 // a folder's ref is its tree id, a file's the first 52 bits of its blob oid). id(oid), add(t, entries), loaded(t), length/name/mode/ref/find(t, ...), count(t).
 
 // repo/history.ts  (boundary: network; history features are off when VITE_HISTORY_URL is unset)
-type HistoryResult = { status: 'ready'; history: History } | { status: 'missing' /* nobody computed it yet */ } | null /* off, failed, or the body disagrees with its manifest */;
+type HistoryResult = { status: 'ready'; history: History } | { status: 'missing' /* nobody computed it yet, or the stored body is unusable */ } | null /* off or failed */;
 function fetchHistory(ref: RepoRef, branch: string, options?: { base?: string; signal?: AbortSignal }): Promise<HistoryResult>; // one GET, no polling; rejects only on abort
+// A body that does not inflate within MAX_INFLATED_BYTES (repo/github.ts decode(buffer, limit) throws RangeError), parse, or agree with its
+// manifest is 'missing', so the compute offer shows, and is reported with POST .../bad (best effort).
 function loadHistory(ref, branch, options & { fresh?: boolean }): Promise<HistoryResult>; // behind load/cache.ts, six hours under history:owner/repo@branch
 type UploadResult = 'stored' | HistoryError | 'network';
 function uploadHistory(history: History, snapshots: Snapshot[], token: string, options?: { base?: string; signal?: AbortSignal }): Promise<UploadResult>; // gzips with CompressionStream, PUTs with its UploadManifest
 function cacheComputed(ref, branch, history: History): Promise<void>; // a computed history, cached as if fetched
 
-// repo/compute-history.ts  (boundary: the engine in a module Worker; abort terminates it; a failed run's worker is kept to resume)
+// repo/compute-history.ts  (boundary: the engine in a module Worker; a failed or cancelled run's worker is kept, with its checkpoint, to resume)
+type ComputeRequest = { run: number; repo: string; branch: string; token?: string; api: string }; type ComputeCommand = ComputeRequest | { cancel: number /* run */ };
+type ComputeMessage = { run: number } & ({ progress: number } | { history: History; snapshots: Snapshot[] } | { error: ComputeError }); // another run's are ignored
 type Snapshot = { sha: string; at: number; tree: string };
 type ComputeError = { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt: number };
 type ComputeResult = { status: 'ready'; history: History; snapshots: Snapshot[] } | { status: 'error'; error: ComputeError };
@@ -230,10 +253,11 @@ function formatLink(link: ViewLink): string;
 type HistoryLoad = { status: 'ready'; history: History } | { status: 'missing' } | null;
 type ComputeOutcome = { status: 'ready'; history: History; shared: UploadResult } | { status: 'error'; error: ComputeError };
 type HistorySource = { load(signal: AbortSignal): Promise<HistoryLoad>;
-  compute: ((o: { token: string; signal: AbortSignal; onProgress?: (p: number) => void }) => Promise<ComputeOutcome>) | null /* samples, or no server */ };
+  compute: ((o: { token: string; signal: AbortSignal; onProgress?: (p: number) => void }) => Promise<ComputeOutcome>) | null /* samples, no server, or a ref other than the default branch */;
+  outdated: ((history: History, token: string, signal: AbortSignal) => Promise<boolean>) | null /* computedAt over STALE_AFTER_MS (1 day) ago and GitHub's branch head differs */ };
 function historySource(repo: { sample?: string; info: { ref: RepoRef; branch: string } }, options?: { base?: string; server?: string; api?: string /* VITE_GITHUB_API */; spawn? }): HistorySource | null; // sample file, else the history server when VITE_HISTORY_URL is set, else null (timeline unavailable). compute: engine in a Worker, then upload, then cache
 // timeline/estimate.ts: estimateCompute(headEntries) → { downloadMB, memoryMB, big /* ≥ 25 MB */ }; constrainedDevice() = deviceMemory ≤ 4 or a coarse pointer.
-// timeline/compute-view.ts (pure): Step = offer | computing{progress} | sharing | failed{error}; describeStep(step, ctx) → title, progress, lines, buttons. app/ui/history-compute.ts renders it.
+// timeline/compute-view.ts (pure): Step = offer{refresh?: {since}} | computing{progress} | sharing | failed{error}; describeStep(step, ctx) → title, progress, lines, buttons. app/ui/history-compute.ts renders it.
 
 // timeline/timeline.ts  (pure; consumes only History, TreeModel and RepoIndex)
 type Ease = { at: Float64Array /* snapshot times */; p: Float64Array /* progress 0..1: LINEAR (0.3) by time, the rest by births and deletions */ };

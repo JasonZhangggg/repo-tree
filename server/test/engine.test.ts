@@ -378,6 +378,79 @@ describe('graphql reader', () => {
   });
 });
 
+describe('graphql limits and timeouts', () => {
+  const run = (options: Parameters<typeof gitHubFetch>[1], waits: number[] = []) => {
+    const f = gitHubFetch({ 'acme/app': { dir: repo.dir } }, options);
+    let stats: EngineStats | undefined;
+    const done = engine(f, {
+      recentCommits: 2,
+      token: 't',
+      retry: { ...QUICK, sleep: async (ms: number) => void waits.push(ms) },
+      onStats: (s) => (stats = s),
+    });
+    return { f, done, stats: () => stats! };
+  };
+
+  it('fails a spent GraphQL budget as rate-limited at its reset, without resending', async () => {
+    const { f, done } = run({ graphqlRemaining: 0, resetInS: 3600 });
+    const error = await done.catch((e: unknown) => e);
+    expect(error).toMatchObject({ kind: 'rate-limited' });
+    const resetAt = (error as { resetAt: number }).resetAt;
+    expect(Math.abs(resetAt - (f.state.resetAt * 1000 + 1000))).toBeLessThan(5000);
+    expect(f.state.kinds.graphql!.requests).toBe(1);
+  });
+
+  it('waits out a RATE_LIMITED reply that resets soon, then carries on', async () => {
+    const waits: number[] = [];
+    const { done, stats } = run(
+      { graphqlFaults: ['rate-limited'], resetInS: 5, graphqlRemaining: 1000 },
+      waits,
+    );
+    expect(await done).toEqual(jobHistory(fake(), 2));
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBeGreaterThan(3000);
+    expect(waits[0]).toBeLessThanOrEqual(6000);
+    expect(stats().graphql!.failed).toBe(0);
+  });
+
+  it('waits out secondary limits, as a 403 with Retry-After or as a 200 with the message', async () => {
+    const waits: number[] = [];
+    const { done, stats } = run({ graphqlFaults: ['secondary-403', 'secondary-200'] }, waits);
+    expect(await done).toEqual(jobHistory(fake(), 2));
+    expect(waits).toEqual([30_000, 60_000]);
+    expect(stats().graphql!.failed).toBe(0);
+  });
+
+  it('splits a query that timed out (200 error, 502 or 504) at once, without retrying it', async () => {
+    const waits: number[] = [];
+    const { f, done, stats } = run(
+      { graphqlFaults: ['timeout-502', 'timeout-504', 'timeout-200'] },
+      waits,
+    );
+    expect(await done).toEqual(jobHistory(fake(), 2));
+    expect(waits).toEqual([]);
+    expect(stats().graphql!.failed).toBe(3);
+    expect(stats().graphql!.gaveUp).toBe(false);
+    expect(f.state.kinds.trees?.requests ?? 0).toBe(0);
+  });
+
+  it('asks again for the trees a partial reply left null', async () => {
+    const { f, done, stats } = run({ graphqlFaults: ['partial'] });
+    expect(await done).toEqual(jobHistory(fake(), 2));
+    expect(stats().graphql!.failed).toBe(0);
+    expect(f.state.kinds.trees?.requests ?? 0).toBe(0);
+  });
+
+  it('keeps REST and GraphQL budgets apart', async () => {
+    const f = gitHubFetch({ 'acme/app': { dir: repo.dir } }, { graphqlRemaining: 10 });
+    const gh = gitHub({ fetch: f as unknown as typeof fetch, api: API, token: 't', limit: 9 });
+    await gh.json('/repos/acme/app');
+    await gh.graphql('query{repository(owner:"acme",name:"app"){id}}');
+    expect(gh.limits.core.remaining).toBe(4999);
+    expect(gh.limits.graphql.remaining).toBe(9);
+  });
+});
+
 describe('retries and resuming', () => {
   /** A fake whose first `n` requests of a kind fail with `status` (and a body, headers). */
   function flaky(
@@ -441,6 +514,7 @@ describe('retries and resuming', () => {
     const checkpoint = createCheckpoint();
     // The budget runs out after a few trees.
     let trees = 0;
+    const read: string[] = [];
     const failing = gitHubFetch(
       { 'acme/app': { dir: repo.dir } },
       {
@@ -448,6 +522,7 @@ describe('retries and resuming', () => {
           url.pathname.includes('/git/trees/') && ++trees > 2
             ? Promise.resolve({ status: 502, body: '', kind: 'injected', extra: {} })
             : undefined,
+        log: (l) => read.push(l),
       },
     );
     const plan = { requestBytes: 0, entryBytes: 1, prior: 0, priorWeight: 1, firstPrior: 0 };
@@ -460,11 +535,36 @@ describe('retries and resuming', () => {
     const log: string[] = [];
     const logged = gitHubFetch({ 'acme/app': { dir: repo.dir } }, { log: (l) => log.push(l) });
     expect(await engine(logged, { recentCommits: 2, checkpoint, plan })).toEqual(expected);
-    // Nothing read before is asked for again: no listing, no tree already held.
-    expect(log.filter((l) => /\/commits\?sha=[^&]*&per_page=100$/.test(l))).toHaveLength(0);
+    // Nothing read before is asked for again, but the head's page (the branch may have moved).
+    expect(log.filter((l) => /\/commits\?sha=main&per_page=100$/.test(l))).toHaveLength(1);
+    expect(log.filter((l) => /\/commits\?sha=[0-9a-f]{40}/.test(l))).toHaveLength(0);
     const fresh = await engine(again, { recentCommits: 2, plan });
     expect(fresh).toEqual(expected);
-    expect(log.length).toBeLessThan(again.state.requests);
+    const trees200 = read
+      .filter((l) => l.startsWith('200 ') && l.includes('/git/trees/'))
+      .map((l) => l.slice(4));
+    expect(trees200.length).toBeGreaterThan(0);
+    for (const path of trees200) expect(log.map((l) => l.replace(/^\d+ /, ''))).not.toContain(path);
+    expect(log.length).toBeLessThanOrEqual(again.state.requests);
+  });
+
+  it('resumes onto the new head when the branch moved during the wait', async () => {
+    const checkpoint = createCheckpoint();
+    const before = gitHubFetch(
+      { 'acme/app': { dir: repo.dir, head: repo.shas[3]! } },
+      {
+        inject: (url) =>
+          url.pathname.includes('/git/trees/')
+            ? Promise.resolve({ status: 502, body: '', kind: 'injected', extra: {} })
+            : undefined,
+      },
+    );
+    await expect(
+      engine(before, { recentCommits: 2, checkpoint, retry: { attempts: 0, maxWaitMs: 0 } }),
+    ).rejects.toMatchObject({ kind: 'upstream' });
+    const h = await engine(fake(), { recentCommits: 2, checkpoint });
+    expect(h.head).toBe(repo.shas[4]);
+    expect(h).toEqual(jobHistory(fake(), 2));
   });
 });
 
@@ -625,7 +725,8 @@ describe('tree budget', () => {
     expect(few.snapshots[few.snapshots.length - 1]!.sha).toBe(
       all.snapshots[all.snapshots.length - 1]!.sha,
     );
-  });
+    // Builds a 40-commit git repo and runs three engines: slow on a busy machine.
+  }, 20_000);
 });
 
 describe('thin', () => {

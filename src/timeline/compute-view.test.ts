@@ -35,6 +35,25 @@ describe('describeStep', () => {
     );
   });
 
+  test('offers to bring an out-of-date history up to date, or keep it', () => {
+    const since = Date.UTC(2026, 2, 3);
+    const v = describeStep({ kind: 'offer', refresh: { since } }, { ...ctx, signedIn: true });
+    expect(v.title).toBe('The timeline of acme/widgets is out of date');
+    expect(v.lines[0]!.text).toContain(
+      'It was worked out on Mar 3, 2026, and the branch has moved since.',
+    );
+    expect(v.lines[0]!.text).toContain('share it again for everyone');
+    expect(v.buttons).toEqual([
+      { label: 'Refresh history', act: 'start' },
+      { label: 'Use this one', act: 'close' },
+    ]);
+    const big = describeStep(
+      { kind: 'offer', refresh: { since } },
+      { ...ctx, estimate: linux, warn: true, signedIn: false },
+    );
+    expect(big.buttons[0]!.label).toBe('Sign in and refresh anyway');
+  });
+
   test('shows progress with megabytes and a cancel', () => {
     const v = describeStep({ kind: 'computing', progress: 0.42 }, { ...ctx, estimate: linux });
     expect(v.progress).toBe(0.42);

@@ -413,8 +413,11 @@ export type GraphQLOptions = {
 /**
  * Reads trees with GitHub's GraphQL API, many per query. GitHub does not publish what such a
  * query costs: one point each (no connections) by its documented formula; a reply must finish
- * within ten seconds; secondary limits apply. Batches therefore start at fifty trees, halve on
- * any failure and grow back slowly, and a tree that fails alone is left for REST.
+ * within ten seconds (past it GitHub answers 502 or 504, or 200 with an error); secondary limits
+ * apply. Batches therefore start at fifty trees, halve on any failure and grow back slowly, and
+ * a tree that fails alone is left for REST. A rate limit is not a failure of the batch: the client
+ * (github.ts) waits it out, or the run fails as rate-limited to resume later. A tree GitHub left
+ * null in a partial reply is asked for once more, then left for REST.
  */
 export function graphqlLoader(
   query: (q: string) => Promise<Record<string, unknown>>,
@@ -434,6 +437,8 @@ export function graphqlLoader(
   const queued = new Set<number>();
   /** Trees that failed alone: left for the REST reader. */
   const skipped = new Set<number>();
+  /** Trees a partial reply left null once: asked again, then skipped. */
+  const again = new Set<number>();
   let batch = options.batch;
   let streak = 0;
   let failedAlone = 0;
@@ -486,7 +491,10 @@ export function graphqlLoader(
         gaveUp = true;
         return;
       }
-      if (error instanceof UpstreamError && error.kind === 'unauthorized') {
+      if (
+        error instanceof UpstreamError &&
+        (error.kind === 'unauthorized' || error.kind === 'rate-limited')
+      ) {
         fatal = error;
         gaveUp = true;
         return;
@@ -522,7 +530,11 @@ export function graphqlLoader(
       const obj = repoData[`t${i}`];
       const raw = isRecord(obj) && Array.isArray(obj.entries) ? obj.entries : null;
       if (!raw) {
-        skipped.add(t);
+        if (obj == null && !again.has(t)) {
+          again.add(t);
+          queued.add(t);
+          queue.push(sha);
+        } else skipped.add(t);
         return;
       }
       const entries: Entry[] = [];

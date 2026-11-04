@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Runs the history Worker (src/worker.ts) in Node with KV in memory, for e2e runs and trying
-// the app locally without Cloudflare. GitHub defaults to a fake-github.mjs on FAKE_URL.
+// Runs the history Worker (src/worker.ts) in Node with KV and the Ledger Durable Object in
+// memory (node:sqlite), for e2e runs and trying the app locally without Cloudflare. GitHub
+// defaults to a fake-github.mjs on FAKE_URL. Localhost origins are allowed (ALLOW_LOCALHOST).
 //
 //   FAKE_URL=http://localhost:8791 node scripts/local-worker.mjs <port>
 import { createServer } from 'node:http';
@@ -21,6 +22,7 @@ process.removeAllListeners('warning');
 const port = Number(process.argv[2] ?? 8790);
 const fake = process.env.FAKE_URL ?? 'http://localhost:8791';
 const { default: worker } = await import('../src/worker.ts');
+const { ledgerNamespace } = await import('./ledger-sqlite.mjs');
 
 /** @type {Map<string, { value: ArrayBuffer, metadata: unknown }>} */
 const data = new Map();
@@ -37,8 +39,17 @@ const kv = {
     /** @type {{ metadata?: unknown }} */ options = {},
   ) => void data.set(key, { value, metadata: options.metadata }),
 };
+/** Ledger caps: the production defaults unless set (UPLOADS_PER_LOGIN, ...). */
+const vars = Object.fromEntries(
+  ['UPLOADS_PER_LOGIN', 'UPLOADS_PER_DAY', 'STORED_BYTES'].flatMap((k) =>
+    process.env[k] ? [[k, process.env[k]]] : [],
+  ),
+);
 const env = {
   HISTORY: kv,
+  LEDGER: ledgerNamespace(vars),
+  ALLOW_LOCALHOST: '1',
+  ...vars,
   GITHUB_API: process.env.GITHUB_API ?? fake,
   GITHUB_WEB: process.env.GITHUB_WEB ?? fake,
   GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID ?? 'local-client',
@@ -60,5 +71,9 @@ createServer(async (req, res) => {
     /** @type {any} */ (env),
   );
   res.writeHead(reply.status, Object.fromEntries(reply.headers));
-  res.end(Buffer.from(await reply.arrayBuffer()));
+  const out = Buffer.from(await reply.arrayBuffer());
+  // Logged like the fake's lines; refusals with their reason.
+  const why = reply.status >= 400 && out.length < 300 ? ` ${out.toString()}` : '';
+  console.error(`worker ${reply.status} ${req.method} ${req.url}${why}`);
+  res.end(out);
 }).listen(port, () => console.error(`history worker on :${port}, GitHub at ${env.GITHUB_API}`));

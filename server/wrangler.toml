@@ -8,9 +8,14 @@ compatibility_date = "2025-10-01"
 
 [vars]
 ALLOWED_ORIGINS = "https://jasonzhangggg.github.io"
-# Uploads (each one KV write) per IP an hour, and in all a day, counted per data center.
-UPLOADS_PER_IP_HOUR = "6"
-UPLOADS_PER_DAY = "300"
+# Localhost origins are refused here; local runs set ALLOW_LOCALHOST = "1" (scripts/local-worker.mjs,
+# or `wrangler dev --var ALLOW_LOCALHOST:1`).
+# Uploads (each one KV write) per GitHub login a day and in all a day, and the bytes all stored
+# histories may take. The Ledger Durable Object counts them; they keep the account's 1,000 KV
+# writes a day and 1 GB of KV safe.
+UPLOADS_PER_LOGIN = "20"
+UPLOADS_PER_DAY = "200"
+STORED_BYTES = "524288000"
 
 # The HISTORY namespace in the owner's Cloudflare account (not a secret).
 [[kv_namespaces]]
@@ -29,3 +34,13 @@ simple = { limit = 60, period = 60 }
 name = "UPLOAD_LIMITER"
 namespace_id = "1002"
 simple = { limit = 2, period = 60 }
+
+# One global ledger of uploads and stored bytes (src/core/ledger.ts). SQLite-backed Durable
+# Objects are on the free plan.
+[[durable_objects.bindings]]
+name = "LEDGER"
+class_name = "Ledger"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Ledger"]

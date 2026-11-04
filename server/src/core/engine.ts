@@ -192,9 +192,13 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     return page;
   };
 
-  // The newest page: the head, the recent commits and, for a short history, the root.
+  // The newest page: the head, the recent commits and, for a short history, the root. Always
+  // read afresh, even when resuming: the branch may have moved during a long wait. Everything
+  // else a checkpoint holds is keyed by commit or tree sha, so it stays valid.
   const gaps: Gap[] = [];
-  const first = await list(`sha=${encodeURIComponent(branch)}&per_page=${PER_PAGE}`, PROBES);
+  const newest = `sha=${encodeURIComponent(branch)}&per_page=${PER_PAGE}`;
+  cp.pages.delete(newest);
+  const first = await list(newest, PROBES);
   const headCommit = first.commits[0];
   if (!headCommit) throw new UpstreamError('empty');
   const head: Sample = { sha: headCommit.sha, at: headCommit.at, tree: headCommit.tree };

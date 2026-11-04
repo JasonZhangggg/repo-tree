@@ -41,13 +41,22 @@ export type HistorySource = {
         onProgress?: (p: number) => void;
       }) => Promise<ComputeOutcome>)
     | null;
+  /**
+   * Whether a loaded history is behind the branch: computed over STALE_AFTER_MS ago, and GitHub
+   * names another head now (one request, with the visitor's token). Null where `compute` is.
+   */
+  outdated: ((history: History, token: string, signal: AbortSignal) => Promise<boolean>) | null;
 };
+
+/** A stored history younger than this is not checked against the branch. */
+export const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Where a repo's history comes from: the file bundled beside a sample, or the history server
  * when this build names one, which a signed-in visitor fills by computing it in their browser.
- * Null means none can: the timeline shows as unavailable. The timeline reads only what this
- * returns.
+ * The server keeps one history per repo, its default branch: a repo opened on a branch named
+ * in the link (`ref.ref`) reads what is there but is not offered a compute. Null means none
+ * can: the timeline shows as unavailable. The timeline reads only what this returns.
  */
 export function historySource(
   repo: { sample?: string; info: { ref: RepoRef; branch: string } },
@@ -66,12 +75,29 @@ export function historySource(
         return history ? { status: 'ready', history } : null;
       },
       compute: null,
+      outdated: null,
     };
   }
   if (!server) return null;
   const { ref, branch } = repo.info;
+  const load = (signal: AbortSignal) => loadHistory(ref, branch, { base: server, signal });
+  if (ref.ref !== undefined) return { load, compute: null, outdated: null };
   return {
-    load: (signal) => loadHistory(ref, branch, { base: server, signal }),
+    load,
+    outdated: async (history, token, signal) => {
+      if (Date.now() - history.computedAt < STALE_AFTER_MS) return false;
+      const path = branch.split('/').map(encodeURIComponent).join('/');
+      try {
+        const res = await fetch(`${api}/repos/${ref.owner}/${ref.repo}/commits/${path}`, {
+          headers: { Accept: 'application/vnd.github.sha', Authorization: `Bearer ${token}` },
+          signal,
+        });
+        return res.ok && (await res.text()).trim() !== history.head;
+      } catch (error) {
+        if (signal.aborted) throw error;
+        return false;
+      }
+    },
     compute: async ({ token, signal, onProgress }) => {
       const result = await computeHistoryInWorker(ref, branch, {
         token,

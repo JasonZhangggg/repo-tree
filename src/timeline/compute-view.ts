@@ -6,12 +6,19 @@ import type { ComputeError } from '../repo/compute-history';
 import { megabytes, type Estimate } from './estimate';
 
 export type Step =
-  | { kind: 'offer'; note?: string }
+  /** `refresh`: a stored history exists but the branch has moved since `since`. */
+  | { kind: 'offer'; note?: string; refresh?: { since: number } }
   | { kind: 'computing'; progress: number }
   | { kind: 'sharing' }
   | { kind: 'failed'; error: ComputeError };
 
 const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
+const DATE = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
 
 export type StepView = {
   title: string;
@@ -31,9 +38,12 @@ export function describeStep(
   const download = megabytes(estimate.downloadMB);
   switch (step.kind) {
     case 'offer': {
+      const { refresh } = step;
       const lines: StepView['lines'] = [
         {
-          text: `Your browser can work out its history from GitHub with your own GitHub requests, ${download} to download. Once it is done, the timeline is shared, so everyone who opens ${name} gets it at once.`,
+          text: refresh
+            ? `It was worked out on ${DATE.format(refresh.since)}, and the branch has moved since. Your browser can bring it up to date from GitHub with your own GitHub requests, ${download} to download, and share it again for everyone who opens ${name}.`
+            : `Your browser can work out its history from GitHub with your own GitHub requests, ${download} to download. Once it is done, the timeline is shared, so everyone who opens ${name} gets it at once.`,
         },
       ];
       if (warn) {
@@ -52,19 +62,24 @@ export function describeStep(
           ? 'You are signed in with GitHub in this tab.'
           : 'Sign-in asks GitHub for no permissions, so only public data is read. Your token stays in this tab and goes only to GitHub and the history server.',
       });
+      const verb = refresh ? 'refresh' : 'compute';
       const go = warn
         ? signedIn
-          ? 'Compute anyway'
-          : 'Sign in and compute anyway'
+          ? `${refresh ? 'Refresh' : 'Compute'} anyway`
+          : `Sign in and ${verb} anyway`
         : signedIn
-          ? 'Compute history'
-          : 'Sign in with GitHub';
+          ? refresh
+            ? 'Refresh history'
+            : 'Compute history'
+          : refresh
+            ? 'Sign in and refresh'
+            : 'Sign in with GitHub';
       return {
-        title: `No timeline yet for ${name}`,
+        title: refresh ? `The timeline of ${name} is out of date` : `No timeline yet for ${name}`,
         lines,
         buttons: [
           { label: go, act: 'start' },
-          { label: 'Not now', act: 'close' },
+          { label: refresh ? 'Use this one' : 'Not now', act: 'close' },
         ],
       };
     }

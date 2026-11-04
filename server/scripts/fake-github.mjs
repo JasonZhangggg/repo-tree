@@ -3,7 +3,8 @@
 // repositories. Tests and scripts/measure.mjs import `gitHubFetch`; run it as a script to serve
 // it over HTTP:
 //   node scripts/fake-github.mjs <port> <owner/repo>=<git dir>[@<head sha>] ...
-// Every request is logged to stderr as `<status> <path>`.
+// Every request is logged to stderr as `<status> <path>`. POST /__head {repo, sha} moves a
+// branch head (null: back to the git repo's), as a push would.
 //
 // It mimics what costs requests and bytes on the real API, so measurements against it are honest:
 // - Bodies are shaped like GitHub's, bulky fields included: every tree entry carries its `url`
@@ -14,6 +15,11 @@
 //   listing entries in git's order (each folder before its contents, by path).
 // - Optionally (`network`), each answer is delayed by a round trip plus its transfer time on one
 //   shared link, so concurrency shows in wall time the way it would on a phone or a laptop.
+// - REST and GraphQL keep separate budgets (`remaining`, `graphqlRemaining`), each answer naming
+//   its own in x-ratelimit-resource. GraphQL fails the ways GitHub's does: a spent budget is 200
+//   with a RATE_LIMITED error; secondary limits come as 403 or as 200 with their message; a query
+//   past the time limit is 200 with an error, or a 502 or 504 (`graphqlTimeoutStatus`); a reply
+//   can be partial, some objects null beside errors. `graphqlFaults` plays them in order.
 // Known gaps: clones made with --filter=blob:none have no blobs, so blob `size` is a stand-in
 // derived from the sha (33 B to 22 KB, log-uniform), and /commits/{sha} files carry no `patch`
 // (real ones do, so real per-commit bodies are larger than these).
@@ -33,11 +39,14 @@ const FIELDS = ['%H', '%T', '%P', '%an', '%ae', '%cn', '%ce', '%cI', '%aI', '%B'
  * @typedef {{ dir: string, branch?: string, head?: string, private?: boolean }} FakeRepo
  * @typedef {{ rttMs: number, bytesPerMs: number }} Network
  * @typedef {{ maxEntries?: number, maxTreeBytes?: number, remaining?: number, tokens?: string[],
- *   graphqlMaxEntries?: number, login?: string,
+ *   graphqlMaxEntries?: number, login?: string, graphqlRemaining?: number,
+ *   graphqlTimeoutStatus?: 200 | 502 | 504, graphqlFaults?: GraphQLFault[], resetInS?: number,
  *   inject?: (url: URL, init: RequestInit) => Promise<{ status: number, body: unknown, kind: string, type?: string, extra: Record<string, string> } | undefined> | undefined,
  *   log?: (line: string) => void, network?: Network, gzipLevel?: number }} FakeOptions
  * @typedef {{ requests: number, bytes: number, raw: number }} Tally
  * @typedef {{ mode: string, type: 'blob' | 'tree' | 'commit', name: string, sha: string }} RawEntry
+ * @typedef {'rate-limited' | 'secondary-403' | 'secondary-200' | 'timeout-200' | 'timeout-502'
+ *   | 'timeout-504' | 'partial'} GraphQLFault
  */
 
 /**
@@ -55,6 +64,11 @@ export function gitHubFetch(repos, options = {}) {
   const gzipLevel = options.gzipLevel ?? 6;
   const state = {
     remaining: options.remaining ?? 5000,
+    graphqlRemaining: options.graphqlRemaining ?? 5000,
+    /** When the budgets reset, in seconds (GitHub: an hour from the first request). */
+    resetAt: Math.floor(Date.now() / 1000) + (options.resetInS ?? 3600),
+    /** GraphQL faults still to play, one per query. */
+    faults: [...(options.graphqlFaults ?? [])],
     requests: 0,
     /** Gzipped body bytes, as they would cross the wire. */
     bytes: 0,
@@ -108,7 +122,7 @@ export function gitHubFetch(repos, options = {}) {
         status,
         headers: {
           ...(type ? { 'content-type': type } : {}),
-          ...limits(state),
+          ...limits(state, kind === 'graphql' ? 'graphql' : 'core'),
           ...extra,
           'x-fake-gzip-bytes': String(gz.length),
         },
@@ -174,9 +188,9 @@ export function gitHubFetch(repos, options = {}) {
     if (options.tokens && !options.tokens.some((t) => auth === `Bearer ${t}`)) {
       return reply({ message: 'Bad credentials' }, 401, 'error');
     }
+    if (url.pathname === '/graphql') return graphql(headers, body);
     if (state.remaining <= 0) return reply({ message: 'API rate limit exceeded' }, 403, 'error');
     state.remaining--;
-    if (url.pathname === '/graphql') return graphql(headers, body);
     if (url.pathname === '/user') {
       // The signed-in user: whoever holds the token (the history Worker checks it on upload).
       if (!auth) return reply({ message: 'Requires authentication' }, 401, 'user');
@@ -212,7 +226,9 @@ export function gitHubFetch(repos, options = {}) {
         return { status: 200, body: sha, kind: 'ref', type: 'text/plain', extra: {} };
       }
       if (rest === '/commits') {
-        const start = q.get('sha') ?? config.head ?? branch;
+        const named = q.get('sha');
+        // A pinned head stands for the branch, whether named or implied.
+        const start = (named === branch || !named ? config.head : undefined) ?? named ?? branch;
         const per = Math.min(100, Number(q.get('per_page') ?? 30));
         const page = Number(q.get('page') ?? 1);
         const until = q.get('until');
@@ -358,6 +374,32 @@ export function gitHubFetch(repos, options = {}) {
     if (!headers.get('authorization')) {
       return reply({ message: 'This endpoint requires you to be authenticated.' }, 401, 'graphql');
     }
+    const fault = state.faults.shift();
+    if (state.graphqlRemaining <= 0 || fault === 'rate-limited') {
+      return reply(
+        {
+          data: null,
+          errors: [
+            { type: 'RATE_LIMITED', message: 'API rate limit already exceeded for user ID 1.' },
+          ],
+        },
+        200,
+        'graphql',
+        { 'x-ratelimit-remaining': '0' },
+      );
+    }
+    state.graphqlRemaining--;
+    const secondary =
+      'You have exceeded a secondary rate limit. Please wait a few minutes before you try again.';
+    if (fault === 'secondary-403') {
+      return reply({ message: secondary }, 403, 'graphql', { 'retry-after': '30' });
+    }
+    if (fault === 'secondary-200') {
+      return reply({ data: null, errors: [{ message: secondary }] }, 200, 'graphql');
+    }
+    if (fault === 'timeout-502' || fault === 'timeout-504') {
+      return timeout(Number(fault.slice(-3)));
+    }
     /** @type {string} */
     let query;
     try {
@@ -416,22 +458,53 @@ export function gitHubFetch(repos, options = {}) {
       };
     }
     state.graphqlEntries = (state.graphqlEntries ?? 0) + total;
-    if (total > (options.graphqlMaxEntries ?? 50_000)) {
+    if (total > (options.graphqlMaxEntries ?? 50_000) || fault === 'timeout-200') {
+      return timeout(fault === 'timeout-200' ? 200 : (options.graphqlTimeoutStatus ?? 200));
+    }
+    if (fault === 'partial') {
+      // The first half of the objects come back null, each with an error, beside the rest.
+      const aliases = Object.keys(out);
+      const lost = aliases.slice(0, Math.ceil(aliases.length / 2));
+      for (const alias of lost) out[alias] = null;
       return reply(
         {
-          data: null,
-          errors: [
-            {
-              message:
-                'Something went wrong while executing your query. This may be the result of a timeout, or it could be a GitHub bug. Please include `0000:FAKE` when reporting this issue.',
-            },
-          ],
+          data: { repository: out },
+          errors: lost.map((alias) => ({
+            path: ['repository', alias],
+            message: 'Something went wrong while executing your query.',
+          })),
         },
         200,
         'graphql',
       );
     }
     return reply({ data: { repository: out } }, 200, 'graphql');
+  }
+
+  /** A query past GitHub's ten seconds: 200 with an error and null data, or a gateway's 502/504. */
+  function timeout(/** @type {number} */ status) {
+    if (status !== 200) {
+      return {
+        status,
+        body: '<html><body><h1>502 Bad Gateway</h1></body></html>',
+        kind: 'graphql',
+        type: 'text/html',
+        extra: {},
+      };
+    }
+    return reply(
+      {
+        data: null,
+        errors: [
+          {
+            message:
+              'Something went wrong while executing your query. This may be the result of a timeout, or it could be a GitHub bug. Please include `0000:FAKE` when reporting this issue.',
+          },
+        ],
+      },
+      200,
+      'graphql',
+    );
   }
 
   return Object.assign(fetchFn, {
@@ -757,11 +830,16 @@ async function changedFiles(dir, sha, base) {
   return files;
 }
 
-/** @param {{ remaining: number }} state */
-function limits(state) {
+/**
+ * @param {{ remaining: number, graphqlRemaining: number, resetAt: number }} state
+ * @param {'core' | 'graphql'} resource
+ */
+function limits(state, resource) {
+  const left = resource === 'graphql' ? state.graphqlRemaining : state.remaining;
   return {
-    'x-ratelimit-remaining': String(Math.max(0, state.remaining)),
-    'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 3600),
+    'x-ratelimit-remaining': String(Math.max(0, left)),
+    'x-ratelimit-reset': String(state.resetAt),
+    'x-ratelimit-resource': resource,
   };
 }
 
@@ -817,6 +895,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       }
       return;
     }
+    if (req.url === '/__head' && req.method === 'POST') {
+      // Moves a repo's branch head, as a push would: {"repo": "owner/name", "sha": "<sha>" | null}
+      // (null: back to the git repo's own head). For e2e runs of an out-of-date history.
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const { repo, sha } = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+      const config = repos[repo];
+      if (!config) res.writeHead(404);
+      else {
+        if (sha) config.head = sha;
+        else delete config.head;
+        res.writeHead(204, { 'access-control-allow-origin': '*' });
+      }
+      res.end();
+      return;
+    }
     if (req.url === '/__stats') {
       // What scripts/measure.mjs --remote reads before and after a run.
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -839,7 +933,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     res.writeHead(reply.status, {
       ...headers,
       'access-control-allow-origin': '*',
-      'access-control-expose-headers': 'link, x-ratelimit-remaining, x-ratelimit-reset',
+      'access-control-expose-headers':
+        'link, x-ratelimit-remaining, x-ratelimit-reset, x-ratelimit-resource, retry-after',
       ...(gzip ? { 'content-encoding': 'gzip' } : {}),
     });
     res.end(gzip ? gzipSync(body) : body);

@@ -700,6 +700,36 @@ const JOURNEYS = {
         await other.close();
       }
     });
+    const storedHead = async () =>
+      JSON.parse(
+        (await fetch(`${worker}/v1/history/acme/widgets?branch=main`)).headers.get(
+          'x-history-manifest',
+        ),
+      ).head;
+    let before = '';
+    await step('refresh-offer', async () => {
+      // GitHub gets a new commit, and two days pass: the shared history is behind the branch.
+      before = await storedHead();
+      await fetch(`${fake}/__head`, {
+        method: 'POST',
+        body: JSON.stringify({ repo: 'acme/widgets', sha: null }),
+      });
+      await page.addInitScript(() => {
+        const now = Date.now;
+        Date.now = () => now() + 2 * 24 * 60 * 60 * 1000;
+      });
+      await page.goto(`${base}?visit=later#/acme/widgets`);
+      await ready(page, 'acme/widgets');
+      await page.locator('#timeline').click();
+      await expect(dialog).toContainText('The timeline of acme/widgets is out of date');
+      await expect(page.getByRole('button', { name: 'Use this one' })).toBeVisible();
+    });
+    await step('refreshed', async () => {
+      await page.getByRole('button', { name: /^Refresh/ }).click();
+      await expect(scrubber).toBeVisible({ timeout: 60_000 });
+      expect(await storedHead()).not.toBe(before);
+      await settle(page);
+    });
   },
 };
 

@@ -23,9 +23,10 @@ export type HistoryOptions = {
 
 /**
  * What the history server has for a branch: a history (checked against the manifest the server
- * verified with GitHub), or `missing`: nobody computed it yet, so a signed-in visitor may.
- * Null when history is off, the server failed, or what it sent does not hold together:
- * history is a nicety, so callers show none rather than an error.
+ * verified with GitHub), or `missing`: nobody computed it yet, or what is stored cannot be used
+ * (it does not unpack within MAX_DECODED_BYTES, parse, or agree with its manifest; the server is
+ * told, so a good upload may replace it), so a signed-in visitor may compute it. Null when history
+ * is off or the server failed: history is a nicety, so callers show none rather than an error.
  */
 export type HistoryResult = { status: 'ready'; history: History } | { status: 'missing' } | null;
 
@@ -49,13 +50,27 @@ export async function fetchHistory(
     }
     if (!res.ok) return null;
     const manifest = parseStoredManifest(res.headers.get('X-History-Manifest'));
-    const history = parseHistory(JSON.parse(await decode(await res.arrayBuffer())));
-    if (!manifest || !history || !(await agrees(history, manifest, ref, branch))) return null;
-    return { status: 'ready', history };
+    const history = await readBody(res).catch(() => null);
+    signal?.throwIfAborted();
+    if (manifest && history && (await agrees(history, manifest, ref, branch))) {
+      return { status: 'ready', history };
+    }
+    if (manifest) void reportBad(base, ref, branch, manifest.head);
+    return { status: 'missing' };
   } catch (error) {
     if (signal?.aborted) throw error;
     return null;
   }
+}
+
+async function readBody(res: Response): Promise<History | null> {
+  return parseHistory(JSON.parse(await decode(await res.arrayBuffer())));
+}
+
+/** Tells the server its stored body for `head` could not be used here. Best effort. */
+function reportBad(base: string, ref: RepoRef, branch: string, head: string): Promise<unknown> {
+  const url = `${base.replace(/\/$/, '')}/v1/history/${ref.owner}/${ref.repo}/bad?branch=${encodeURIComponent(branch)}&head=${encodeURIComponent(head)}`;
+  return fetch(url, { method: 'POST' }).catch(() => undefined);
 }
 
 /**

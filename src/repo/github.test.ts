@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { fetchSnapshot, loadSample } from './github';
+import { decode, fetchSnapshot, loadSample } from './github';
 import { parseRepoRef, type RepoRef } from './ref';
 
 type Call = { url: string; headers: Headers };
@@ -214,5 +214,23 @@ describe('loadSample', () => {
     });
     expect(snapshot).toHaveProperty('files.length', 36);
     expect(snapshot).toHaveProperty('files.0', { path: '.aliases', size: 6317 });
+  });
+});
+
+describe('decode', () => {
+  const text = 'x'.repeat(5000);
+  const gz = gzipSync(text);
+  const buffer = (b: Uint8Array) =>
+    b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+
+  test('unpacks gzip and passes plain text through', async () => {
+    expect(await decode(buffer(gz))).toBe(text);
+    expect(await decode(buffer(new TextEncoder().encode('{"a":1}')))).toBe('{"a":1}');
+  });
+
+  test('stops past the limit, unpacked or not', async () => {
+    await expect(decode(buffer(gz), 4999)).rejects.toThrow(RangeError);
+    await expect(decode(buffer(new TextEncoder().encode(text)), 10)).rejects.toThrow(RangeError);
+    expect(await decode(buffer(gz), 5000)).toBe(text);
   });
 });

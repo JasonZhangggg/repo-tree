@@ -20,8 +20,15 @@ export function mountHistoryCompute(
     sign = signIn,
   }: { constrained?: () => boolean; sign?: () => Promise<string | null> } = {},
 ): {
-  /** Shows the offer for a repo whose history is missing; resolves with it once computed. */
-  offer(repo: Repo, source: HistorySource): Promise<History | null>;
+  /**
+   * Shows the offer for a repo whose history is missing, or (with `refresh`) out of date;
+   * resolves with the new history once computed, or null when the visitor declined or cancelled.
+   */
+  offer(
+    repo: Repo,
+    source: HistorySource,
+    options?: { refresh?: History },
+  ): Promise<History | null>;
   close(): boolean;
 } {
   const dialog = byId('compute');
@@ -31,6 +38,7 @@ export function mountHistoryCompute(
     source: HistorySource;
     estimate: Estimate;
     warn: boolean;
+    refresh?: { since: number };
     abort: AbortController | null;
     done: (history: History | null) => void;
   } | null = null;
@@ -97,7 +105,14 @@ export function mountHistoryCompute(
     if (!token) {
       token = await sign();
       if (!current) return;
-      if (!token) return render({ kind: 'offer', note: 'Sign-in did not finish. Try again?' });
+      if (!token) {
+        const note = 'Sign-in did not finish. Try again?';
+        return render(
+          current.refresh
+            ? { kind: 'offer', note, refresh: current.refresh }
+            : { kind: 'offer', note },
+        );
+      }
     }
     const abort = new AbortController();
     current.abort = abort;
@@ -117,7 +132,11 @@ export function mountHistoryCompute(
         if (outcome.error.kind === 'unauthorized') signOut();
         return render({ kind: 'failed', error: outcome.error });
       }
-      if (outcome.shared !== 'stored' && outcome.shared !== 'exists') {
+      if (outcome.shared === 'unauthorized') {
+        // GitHub refused the token when the server checked it: sign in afresh next time.
+        signOut();
+        app.toast('Timeline ready here, but your sign-in expired, so it was not shared');
+      } else if (outcome.shared !== 'stored' && outcome.shared !== 'exists') {
         app.toast('Timeline ready here, but it could not be shared');
       }
       finish(outcome.history);
@@ -145,23 +164,25 @@ export function mountHistoryCompute(
   });
 
   return {
-    offer(repo, source) {
+    offer(repo, source, options = {}) {
       if (current) cancel();
       return new Promise((done) => {
         const estimate = estimateCompute(
           repo.index.files.paths.length + repo.index.folders.parent.length,
         );
+        const refresh = options.refresh ? { since: options.refresh.computedAt } : undefined;
         current = {
           repo,
           source,
           estimate,
           warn: estimate.big || constrained(),
+          ...(refresh ? { refresh } : {}),
           abort: null,
           done,
         };
         dialog.hidden = false;
         scrim.hidden = false;
-        render({ kind: 'offer' });
+        render(refresh ? { kind: 'offer', refresh } : { kind: 'offer' });
       });
     },
     close() {

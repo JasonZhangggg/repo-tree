@@ -1,8 +1,9 @@
 /**
  * The history Worker, small enough for Cloudflare's free plan (10 ms of CPU and 50 subrequests a
- * request, 1,000 KV writes a day). It computes nothing: visitors' browsers compute a repo's
- * history with their own GitHub token (src/core/engine.ts) and upload it here, and everyone
- * after them reads it from KV.
+ * request, 1,000 KV writes and 1 GB of KV a day). It computes nothing: visitors' browsers compute
+ * a repo's history with their own GitHub token (src/core/engine.ts) and upload it here, and
+ * everyone after them reads it from KV. Every write is counted first by one global Durable Object
+ * (core/ledger.ts), which caps uploads per login and per day and the bytes stored.
  *
  *   GET  /v1/auth/login?origin=<app>   sign in with GitHub (popup), no KV
  *   GET  /v1/auth/callback             OAuth callback: posts the token to the opener
@@ -11,40 +12,56 @@
  *        One KV read; the body streams through untouched.
  *   PUT  /v1/history/<owner>/<repo>?branch=<b>   (signed in; body gzipped History JSON,
  *        X-History-Manifest an UploadManifest) checked by core/upload.ts against GitHub with the
- *        uploader's token, then stored: one KV read, seven GitHub requests, one KV write.
+ *        uploader's token, then stored: two ledger calls, eight GitHub requests, one KV write.
+ *   POST /v1/history/<owner>/<repo>/bad?branch=<b>&head=<sha>   a reader could not use the stored
+ *        body: the next good upload may replace it. One ledger call.
  */
 
 import { parseRepoRef } from '../../src/repo/ref';
+import {
+  DEFAULT_LEDGER_LIMITS,
+  ledger,
+  parseLedgerRequest,
+  type LedgerLimits,
+  type LedgerReply,
+  type LedgerRequest,
+} from './core/ledger';
 import { callbackPage, finishLogin, startLogin, type OAuthConfig } from './core/oauth';
 import { historyKey, parseManifest, verifyUpload } from './core/upload';
 import {
+  MAX_INFLATED_BYTES,
   MAX_UPLOAD_BYTES,
   type HistoryError,
   type HistoryReply,
-  type StoredManifest,
 } from './shape';
 
 export type Env = {
   HISTORY: KVNamespace;
+  /** The Ledger Durable Object: one global instance. */
+  LEDGER: DurableObjectNamespace;
   /** OAuth App client id (public) and secret. Without both, sign-in is off. */
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
   /** The callback URL registered on the OAuth App; defaults to this Worker's /v1/auth/callback. */
   OAUTH_CALLBACK_URL?: string;
-  /** Comma-separated origins allowed besides localhost. */
+  /** Comma-separated origins allowed. */
   ALLOWED_ORIGINS?: string;
+  /** "1" also allows any localhost origin: local runs and e2e only, never in production. */
+  ALLOW_LOCALHOST?: string;
   /** Overrides https://api.github.com and https://github.com, for local runs against a fake. */
   GITHUB_API?: string;
   GITHUB_WEB?: string;
-  /** Uploads one IP may send an hour, and the uploads (KV writes) taken a day. Per data center. */
-  UPLOADS_PER_IP_HOUR?: string;
+  /** Uploads (KV writes) one GitHub login may make a day, and all of them together (the ledger). */
+  UPLOADS_PER_LOGIN?: string;
   UPLOADS_PER_DAY?: string;
+  /** Bytes all stored histories may take together (the ledger). */
+  STORED_BYTES?: string;
   /** Requests a minute per IP, and uploads a minute per IP (Workers rate limiting). */
   LIMITER?: RateLimit;
   UPLOAD_LIMITER?: RateLimit;
 };
 
-const HISTORY_ROUTE = /^\/v1\/history\/([^/]+)\/([^/]+)\/?$/;
+const HISTORY_ROUTE = /^\/v1\/history\/([^/]+)\/([^/]+?)(\/bad)?\/?$/;
 const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 /** Git's ref name rules, roughly: printable, no `..`, `//`, `@{`, leading or trailing `/`, or `.lock` end. */
 const BRANCH = /^(?!\/|.*(?:\.\.|\/\/|@\{|\.lock$|\/$))[!-~]{1,255}$/;
@@ -52,7 +69,7 @@ const BRANCH_CHARS = /^[^~^:?*[\\]*$/;
 /** GitHub token shapes (gho_, ghp_, github_pat_ and older hex tokens). Anything else is refused unseen. */
 const TOKEN = /^[A-Za-z0-9_]{20,255}$/;
 const MANIFEST_HEADER = 'X-History-Manifest';
-const HISTORY_TTL_S = 90 * 24 * 60 * 60;
+const HISTORY_TTL_S = DEFAULT_LEDGER_LIMITS.ttlMs / 1000;
 const ERROR_STATUS: Record<HistoryError, number> = {
   invalid: 400,
   unauthorized: 401,
@@ -63,6 +80,8 @@ const ERROR_STATUS: Record<HistoryError, number> = {
   stale: 409,
   'too-large': 413,
   mismatch: 422,
+  'not-default-branch': 422,
+  full: 507,
   'rate-limited': 429,
   upstream: 502,
 };
@@ -91,7 +110,7 @@ export default {
         status: 204,
         headers: {
           ...cors,
-          'Access-Control-Allow-Methods': 'GET, PUT',
+          'Access-Control-Allow-Methods': 'GET, PUT, POST',
           'Access-Control-Allow-Headers': `Authorization, Content-Type, ${MANIFEST_HEADER}`,
           'Access-Control-Max-Age': '86400',
         },
@@ -99,7 +118,11 @@ export default {
     }
     if (url.pathname === '/health') return new Response('ok', { headers: cors });
     const match = HISTORY_ROUTE.exec(url.pathname);
-    if (!match || (request.method !== 'GET' && request.method !== 'PUT')) {
+    const bad = match?.[3] !== undefined;
+    if (
+      !match ||
+      (bad ? request.method !== 'POST' : request.method !== 'GET' && request.method !== 'PUT')
+    ) {
       return new Response('not found', { status: 404, headers: cors });
     }
 
@@ -114,10 +137,14 @@ export default {
       return send({ status: 'error', error: 'rate-limited', retryAfter: 60 });
     }
     const key = historyKey(repo, branch);
+    if (bad) {
+      const head = url.searchParams.get('head') ?? '';
+      if (!/^[0-9a-f]{40}$/.test(head)) return send({ status: 'error', error: 'invalid' });
+      await askLedger(env, { op: 'bad', key, head, now: Date.now() });
+      return send({ status: 'noted' });
+    }
     if (request.method === 'GET') {
-      const { value, metadata } = await env.HISTORY.getWithMetadata<StoredManifest>(key, {
-        type: 'stream',
-      });
+      const { value, metadata } = await env.HISTORY.getWithMetadata(key, { type: 'stream' });
       if (!value || !metadata) {
         await value?.cancel();
         return send({ status: 'missing' });
@@ -131,21 +158,49 @@ export default {
         },
       });
     }
-    return send(await upload(request, env, { repo, branch, key, ip, url }));
+    return send(await upload(request, env, { repo, branch, key, ip }));
   },
 } satisfies ExportedHandler<Env>;
 
-/** PUT: the cheap checks, then GitHub's, then one KV write. */
+/**
+ * The ledger (core/ledger.ts) as a SQLite-backed Durable Object. One instance, named 'global',
+ * takes every request: each runs alone, so a check and its count cannot interleave.
+ */
+export class Ledger {
+  private readonly book: ReturnType<typeof ledger>;
+  constructor(state: DurableObjectState, env: Env) {
+    this.book = ledger(state.storage.sql, ledgerLimits(env));
+  }
+  async fetch(request: Request): Promise<Response> {
+    const op = parseLedgerRequest(await request.json().catch(() => null));
+    if (!op) return new Response('bad request', { status: 400 });
+    return Response.json(this.book.run(op));
+  }
+}
+
+export function ledgerLimits(env: Env): LedgerLimits {
+  const n = (value: string | undefined, fallback: number) =>
+    value && Number(value) > 0 ? Number(value) : fallback;
+  return {
+    ...DEFAULT_LEDGER_LIMITS,
+    perLogin: n(env.UPLOADS_PER_LOGIN, DEFAULT_LEDGER_LIMITS.perLogin),
+    perDay: n(env.UPLOADS_PER_DAY, DEFAULT_LEDGER_LIMITS.perDay),
+    maxBytes: n(env.STORED_BYTES, DEFAULT_LEDGER_LIMITS.maxBytes),
+  };
+}
+
+/** One request to the global ledger. */
+async function askLedger(env: Env, op: LedgerRequest): Promise<LedgerReply> {
+  const stub = env.LEDGER.get(env.LEDGER.idFromName('global'));
+  const res = await stub.fetch('https://ledger/', { method: 'POST', body: JSON.stringify(op) });
+  return (await res.json()) as LedgerReply;
+}
+
+/** PUT: the cheap checks, the ledger, GitHub's checks, the ledger again, then one KV write. */
 async function upload(
   request: Request,
   env: Env,
-  {
-    repo,
-    branch,
-    key,
-    ip,
-    url,
-  }: { repo: string; branch: string; key: string; ip: string; url: URL },
+  { repo, branch, key, ip }: { repo: string; branch: string; key: string; ip: string },
 ): Promise<HistoryReply> {
   const error = (e: HistoryError, retryAfter?: number): HistoryReply =>
     retryAfter ? { status: 'error', error: e, retryAfter } : { status: 'error', error: e };
@@ -161,13 +216,14 @@ async function upload(
   if (env.UPLOAD_LIMITER && !(await env.UPLOAD_LIMITER.limit({ key: ip })).success) {
     return error('rate-limited', 60);
   }
-  if (!(await countUp(`ip/${ip}`, 3600, Number(env.UPLOADS_PER_IP_HOUR ?? 6)))) {
-    return error('rate-limited', 3600);
-  }
-  // Same head stored already: nothing to write. (The body is never read.)
-  const held = await env.HISTORY.getWithMetadata<StoredManifest>(key, { type: 'stream' });
-  await held.value?.cancel();
-  if (held.metadata?.head === manifest.head) return error('exists');
+  // Same head stored and good, or the day's writes taken: refuse before asking GitHub anything.
+  const checked = await askLedger(env, {
+    op: 'check',
+    key,
+    head: manifest.head,
+    now: Date.now(),
+  });
+  if (!checked.ok) return error(checked.error, checked.retryAfter);
 
   const verdict = await verifyUpload(manifest, {
     fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
@@ -178,31 +234,42 @@ async function upload(
   if (!verdict.ok) return error(verdict.error, verdict.retryAfter);
 
   const body = await request.arrayBuffer();
-  const bytes = new Uint8Array(body, 0, Math.min(2, body.byteLength));
-  if (body.byteLength !== length || bytes[0] !== 0x1f || bytes[1] !== 0x8b) return error('invalid');
-  if (!(await countUp(`day/${url.host}`, 86_400, Number(env.UPLOADS_PER_DAY ?? 300)))) {
-    return error('rate-limited', 3600);
+  if (body.byteLength !== length) return error('invalid');
+  const inflated = gzipSize(body);
+  if (inflated === null) return error('invalid');
+  if (inflated > MAX_INFLATED_BYTES) return error('too-large');
+
+  const reserved = await askLedger(env, {
+    op: 'reserve',
+    key,
+    head: manifest.head,
+    bytes: length,
+    login: verdict.manifest.by,
+    now: Date.now(),
+  });
+  if (!reserved.ok) return error(reserved.error, reserved.retryAfter);
+  try {
+    await env.HISTORY.put(key, body, {
+      metadata: verdict.manifest,
+      expirationTtl: HISTORY_TTL_S,
+    });
+  } catch {
+    await askLedger(env, { op: 'release', key, head: manifest.head, now: Date.now() });
+    return error('upstream');
   }
-  await env.HISTORY.put(key, body, { metadata: verdict.manifest, expirationTtl: HISTORY_TTL_S });
   return { status: 'stored', manifest: verdict.manifest };
 }
 
 /**
- * Counts one more in a window in this data center's cache (no KV write), and says whether the
- * count is still within `limit`. Not exact: an abuse guard. Without a cache (tests), allows.
+ * The unpacked size a gzip body declares in its last four bytes (ISIZE, little-endian), or null
+ * when it does not start like gzip. A liar can understate it; readers stop unpacking at
+ * MAX_INFLATED_BYTES anyway. This turns away an honest bomb without unpacking a byte.
  */
-async function countUp(name: string, windowS: number, limit: number): Promise<boolean> {
-  if (typeof caches === 'undefined') return true;
-  const window = Math.floor(Date.now() / (windowS * 1000));
-  const req = new Request(`https://counter.invalid/${encodeURIComponent(name)}/${window}`);
-  const cache = caches.default;
-  const seen = Number((await (await cache.match(req))?.text()) ?? 0);
-  if (seen >= limit) return false;
-  await cache.put(
-    req,
-    new Response(String(seen + 1), { headers: { 'Cache-Control': `max-age=${windowS}` } }),
-  );
-  return true;
+export function gzipSize(body: ArrayBuffer): number | null {
+  if (body.byteLength < 18) return null;
+  const view = new DataView(body);
+  if (view.getUint8(0) !== 0x1f || view.getUint8(1) !== 0x8b) return null;
+  return view.getUint32(body.byteLength - 4, true);
 }
 
 function oauth(url: URL, env: Env): OAuthConfig | null {
@@ -238,20 +305,27 @@ async function callback(url: URL, env: Env): Promise<Response> {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
       'Referrer-Policy': 'no-referrer',
-      'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'",
+      'Content-Security-Policy':
+        "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors 'none'",
     },
   });
 }
 
 function isAllowed(origin: string, env: Env): boolean {
-  if (LOCAL.test(origin)) return true;
+  if (env.ALLOW_LOCALHOST === '1' && LOCAL.test(origin)) return true;
   const list = (env.ALLOWED_ORIGINS ?? 'https://jasonzhangggg.github.io').split(',');
   return list.some((o) => o.trim() === origin);
 }
 
 function respond(reply: HistoryReply, headers: Record<string, string>): Response {
   const status =
-    reply.status === 'error' ? ERROR_STATUS[reply.error] : reply.status === 'stored' ? 201 : 404;
+    reply.status === 'error'
+      ? ERROR_STATUS[reply.error]
+      : reply.status === 'stored'
+        ? 201
+        : reply.status === 'noted'
+          ? 202
+          : 404;
   const out: Record<string, string> = {
     ...headers,
     'Content-Type': 'application/json',

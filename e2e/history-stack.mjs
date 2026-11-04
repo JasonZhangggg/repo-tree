@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The servers the history e2e test needs, in one process tree:
 //   - a git repo `acme/widgets` holding the dotfiles sample's paths over three commits,
-//   - server/scripts/fake-github.mjs serving it (GitHub's API and OAuth pages),
+//   - server/scripts/fake-github.mjs serving it (GitHub's API and OAuth pages) with the branch
+//     head one commit back, until a test moves it (POST /__head) to see a history go stale,
 //   - server/scripts/local-worker.mjs, the real history Worker with KV in memory,
 //   - the app built with VITE_HISTORY_URL and VITE_GITHUB_API pointing at them, on vite preview.
 //
@@ -53,8 +54,11 @@ const now = Date.now();
   git(['commit', '-q', '-m', `step ${i}`], now - daysAgo * DAY);
 });
 
+// GitHub starts one commit behind: the newest is "pushed" later (POST /__head) to make the
+// shared history out of date.
+const behind = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD~1'], { encoding: 'utf8' }).trim();
 const children = [
-  spawn('node', ['server/scripts/fake-github.mjs', fake, `acme/widgets=${dir}`], {
+  spawn('node', ['server/scripts/fake-github.mjs', fake, `acme/widgets=${dir}@${behind}`], {
     stdio: 'inherit',
     env: { ...process.env, FAKE_REMAINING: '100000' },
   }),

@@ -2,21 +2,32 @@ import { describe, expect, test } from 'vitest';
 import type { History } from '../../server/src/shape';
 import {
   computeHistoryInWorker,
+  type ComputeCommand,
   type ComputeMessage,
-  type ComputeRequest,
 } from './compute-history';
 
+type Reply = ComputeMessage extends infer M
+  ? M extends { run: number }
+    ? Omit<M, 'run'>
+    : never
+  : never;
+
 function fakeWorker() {
-  const sent: ComputeRequest[] = [];
+  const sent: ComputeCommand[] = [];
   const worker = {
     terminated: false,
     onmessage: null as ((e: MessageEvent<ComputeMessage>) => void) | null,
     onerror: null as ((e: ErrorEvent) => void) | null,
-    postMessage: (data: ComputeRequest) => void sent.push(data),
+    postMessage: (data: ComputeCommand) => void sent.push(data),
     terminate() {
       worker.terminated = true;
     },
-    reply: (data: ComputeMessage) => worker.onmessage?.({ data } as MessageEvent<ComputeMessage>),
+    /** Answers as the latest run, or as `run`. */
+    reply: (data: Reply, run?: number) => {
+      const runs = sent.flatMap((c) => ('run' in c ? [c.run] : []));
+      const message = { ...data, run: run ?? runs[runs.length - 1]! } as ComputeMessage;
+      worker.onmessage?.({ data: message } as MessageEvent<ComputeMessage>);
+    },
   };
   return { worker, sent };
 }
@@ -33,7 +44,13 @@ describe('computeHistoryInWorker', () => {
       onProgress: (p) => seen.push(p),
     });
     expect(sent).toEqual([
-      { api: 'https://api.github.com', repo: 'vitejs/vite', branch: 'main', token: 'gho_x' },
+      {
+        run: expect.any(Number),
+        api: 'https://api.github.com',
+        repo: 'vitejs/vite',
+        branch: 'main',
+        token: 'gho_x',
+      },
     ]);
     worker.reply({ progress: 0.5 });
     const history = { v: 1 } as History;
@@ -73,15 +90,26 @@ describe('computeHistoryInWorker', () => {
     expect(other.sent).toHaveLength(1);
   });
 
-  test('abort terminates the worker and rejects', async () => {
-    const { worker } = fakeWorker();
+  test('cancel stops the run but keeps the worker, so trying again resumes', async () => {
+    const { worker, sent } = fakeWorker();
     const controller = new AbortController();
-    const done = computeHistoryInWorker(ref, 'aborted', {
+    const done = computeHistoryInWorker(ref, 'cancelled', {
       spawn: () => worker,
       signal: controller.signal,
     });
     controller.abort();
     await expect(done).rejects.toMatchObject({ name: 'AbortError' });
-    expect(worker.terminated).toBe(true);
+    const first = (sent[0] as { run: number }).run;
+    expect(sent[1]).toEqual({ cancel: first });
+    expect(worker.terminated).toBe(false);
+
+    const unused = fakeWorker();
+    const again = computeHistoryInWorker(ref, 'cancelled', { spawn: () => unused.worker });
+    expect(sent).toHaveLength(3);
+    // A late message of the cancelled run is not taken for the new one's.
+    worker.reply({ error: { kind: 'upstream' } }, first);
+    const history = { v: 1 } as History;
+    worker.reply({ history, snapshots: [] });
+    expect(await again).toEqual({ status: 'ready', history, snapshots: [] });
   });
 });

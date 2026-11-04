@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { quietSettings, ready, serveRepo } from './github';
+import { chooseAction } from './view';
 
 test.use({ reducedMotion: 'reduce' });
 
@@ -22,7 +23,11 @@ const fileCount = async (page: Page) =>
 async function scrubTo(page: Page, at: number) {
   const range = page.getByRole('slider', { name: 'Timeline position' });
   const box = (await range.boundingBox())!;
-  const thumb = 9;
+  // The thumb is wider on a phone; its centre travels from half a thumb to width minus half.
+  const thumb =
+    (await page
+      .locator('#scrubber')
+      .evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue('--thumb')))) / 2;
   await range.click({ position: { x: thumb + at * (box.width - 2 * thumb), y: box.height / 2 } });
 }
 
@@ -104,7 +109,7 @@ test('a shared link restores the timeline at its date', async ({ page, context }
   expect(Number((await playground.textContent())!.replace(/\D/g, ''))).toBeGreaterThan(0);
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.getByRole('button', { name: /Copy link/ }).click();
+  await chooseAction(page, /Copy link/);
   const link = await page.evaluate(() => navigator.clipboard.readText());
   const other = await context.newPage();
   other.on('pageerror', (err) => errors.push(err.message));
@@ -119,7 +124,7 @@ test('exporting a PNG mid-timeline names its date', async ({ page }) => {
   await ready(page, 'vitejs/vite');
   await expect(date(page)).toHaveText('Jun 2022');
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export PNG' }).click();
+  await chooseAction(page, 'Export PNG');
   expect((await download).suggestedFilename()).toBe('vitejs-vite-tree-2022-06-15.png');
 });
 

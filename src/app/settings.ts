@@ -11,6 +11,8 @@ export type Settings = {
   labels: boolean;
   growAnim: boolean;
   ground: boolean;
+  /** Sky and weather from the repo's recent GitHub Actions runs. */
+  weather: boolean;
   hidden: string[];
   /** A GitHub token, kept in this browser and sent only to api.github.com. */
   token: string;
@@ -24,6 +26,7 @@ export const DEFAULT_SETTINGS: Settings = {
   labels: true,
   growAnim: true,
   ground: true,
+  weather: true,
   hidden: [...DEFAULT_FILTERS.hidden],
   token: '',
 };
@@ -55,6 +58,7 @@ export function parseSettings(raw: string | null): Settings {
     labels: bool(stored.labels, d.labels),
     growAnim: bool(stored.growAnim, d.growAnim),
     ground: bool(stored.ground, d.ground),
+    weather: bool(stored.weather, d.weather),
     hidden: Array.isArray(hidden) && hidden.every((h) => typeof h === 'string') ? hidden : d.hidden,
     token: typeof stored.token === 'string' ? stored.token : d.token,
   };

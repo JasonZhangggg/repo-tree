@@ -20,6 +20,7 @@ describe('parseSettings', () => {
         spin: 'yes',
         labels: false,
         ground: false,
+        weather: 'off',
         hidden: ['dist', 7],
         token: 'ghp_x',
       }),

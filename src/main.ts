@@ -15,7 +15,7 @@ import { createLoader } from './app/loader';
 import { rememberRecent } from './app/recent';
 import { FIRST_VISIT } from './app/samples';
 import { autoQuality, parseSettings, STEP_DOWN, type Settings } from './app/settings';
-import { createStore, qualityOf, type AppState } from './app/state';
+import { createStore, qualityOf, weatherOf, type AppState } from './app/state';
 import { mountCanvas } from './app/ui/canvas';
 import { mountHeader } from './app/ui/header';
 import { mountSearch } from './app/ui/search-dialog';
@@ -45,6 +45,8 @@ const store = createStore({
     pixelRatio: devicePixelRatio || 1,
     cores: navigator.hardwareConcurrency || 4,
   }),
+  ci: {},
+  preview: null,
 });
 
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -60,7 +62,14 @@ const view = createTreeView(container, {
   reducedMotion: reducedMotion(initial.settings),
   ground: initial.settings.ground,
 });
-motion.addEventListener('change', () => view.setReducedMotion(reducedMotion(store.get().settings)));
+const showWeather = (state: AppState) => {
+  const weather = weatherOf(state);
+  view.setWeather(weather && { sky: weather.sky, still: motion.matches });
+};
+motion.addEventListener('change', () => {
+  view.setReducedMotion(reducedMotion(store.get().settings));
+  showWeather(store.get());
+});
 debug.view = view;
 
 const loader = createLoader(store);
@@ -143,6 +152,7 @@ function linkOf(state: AppState): string | null {
     colorBy: s.colorBy,
     sel,
     hl: highlight ?? undefined,
+    wx: state.preview ?? undefined,
   });
 }
 
@@ -151,6 +161,7 @@ function applyLink(link: ViewLink) {
   if (link.palette) patch.palette = link.palette;
   if (link.colorBy) patch.colorBy = link.colorBy;
   if (Object.keys(patch).length) store.dispatch({ type: 'settings', patch });
+  store.dispatch({ type: 'preview', sky: link.wx ?? null });
   const { repo } = store.get();
   const same =
     repo &&
@@ -186,6 +197,9 @@ store.subscribe((state, prev) => {
     reframe();
   }
   if (spinning(state) !== spinning(prev)) view.setSpin(spinning(state));
+  const weather = weatherOf(state);
+  const before = weatherOf(prev);
+  if (weather?.sky !== before?.sky) showWeather(state);
   if (reducedMotion(s) !== reducedMotion(prev.settings)) view.setReducedMotion(reducedMotion(s));
   if (qualityOf(state) !== qualityOf(prev)) view.setQuality(qualityOf(state));
   if (

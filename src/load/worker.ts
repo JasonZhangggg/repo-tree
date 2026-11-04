@@ -32,8 +32,13 @@ async function snapshotOf(source: LoadSource): Promise<Snapshot | LoadError> {
   const { owner, repo, ref = '' } = source.ref;
   const key = `${owner}/${repo}@${ref}`.toLowerCase();
   const hit = source.fresh ? undefined : await cachedSnapshot(key);
-  if (hit) return hit;
-  const snapshot = await fetchSnapshot(source.ref, source.token);
+  if (hit) {
+    post({ branch: hit.branch });
+    return hit;
+  }
+  const snapshot = await fetchSnapshot(source.ref, source.token, undefined, (branch) =>
+    post({ branch }),
+  );
   if (!('kind' in snapshot)) await cacheSnapshot(key, snapshot);
   return snapshot;
 }

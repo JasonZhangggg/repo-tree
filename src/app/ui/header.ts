@@ -1,12 +1,15 @@
 import type { LoadStep } from '../../load/load-in-worker';
+import { actionsUrl } from '../../repo/ci';
 import { parseRepoRef } from '../../repo/ref';
+import { PALETTES } from '../../render/palette';
 import { githubUrl, type App } from '../app';
 import { byId, fill, h, icon, ICONS } from '../dom';
 import { describeError, type ErrorAction } from '../errors';
 import { compact, count, plural } from '../format';
 import { readRecent } from '../recent';
 import { SAMPLES } from '../samples';
-import type { AppState } from '../state';
+import { weatherOf, type AppState } from '../state';
+import { describeWeather } from '../weather';
 
 const STEPS: { step: LoadStep; label: string }[] = [
   { step: 'fetch', label: 'Fetching' },
@@ -24,6 +27,7 @@ export function mountHeader(app: App): void {
   const meta = byId('repo-meta');
   const status = byId('status');
   const samples = byId('samples');
+  const weatherChip = byId<HTMLAnchorElement>('weather');
 
   const setInvalid = (message: string) => {
     error.textContent = message;
@@ -317,8 +321,48 @@ export function mountHeader(app: App): void {
     }
   };
 
+  /** The weather chip under the title: what the sky stands for, linking to the Actions runs. */
+  const renderWeather = (state: AppState) => {
+    const weather = weatherOf(state);
+    if (!weather || !state.repo) {
+      weatherChip.hidden = true;
+      return;
+    }
+    const { sky, health } = weather;
+    const { ref, branch } = state.repo.info;
+    const { verdict, detail } = describeWeather(sky, health, Date.now());
+    const snow = PALETTES[state.settings.palette].precip === 'snow';
+    const glyph = snow && (sky === 'rain' || sky === 'storm') ? 'snow' : sky;
+    weatherChip.hidden = false;
+    weatherChip.dataset.sky = sky;
+    if (health) weatherChip.href = actionsUrl(ref, branch);
+    else weatherChip.removeAttribute('href');
+    weatherChip.title = !health
+      ? 'A weather preview from the link, not this repository’s CI'
+      : health.runs
+        ? `Weather from the last ${plural(health.runs, 'finished GitHub Actions run')} on ${branch}`
+        : `No finished GitHub Actions runs on ${branch}`;
+    weatherChip.setAttribute('aria-label', detail ? `${verdict}, ${detail}` : verdict);
+    fill(
+      weatherChip,
+      icon(...ICONS[glyph]),
+      h('strong', {}, verdict),
+      detail && h('span', {}, detail),
+    );
+  };
+
   const render = (state: AppState, prev?: AppState) => {
     if (!prev || state.load !== prev.load || state.repo !== prev.repo) renderTitle(state);
+    if (
+      !prev ||
+      state.repo !== prev.repo ||
+      state.ci !== prev.ci ||
+      state.preview !== prev.preview ||
+      state.settings.weather !== prev.settings.weather ||
+      state.settings.palette !== prev.settings.palette
+    ) {
+      renderWeather(state);
+    }
     if (
       !prev ||
       state.load !== prev.load ||

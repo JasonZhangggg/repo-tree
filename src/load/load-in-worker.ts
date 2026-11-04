@@ -16,7 +16,12 @@ export type Loaded = { info: RepoInfo; tree: TreeModel; index: RepoIndex };
  * blocked the main thread for most of a second on the Linux sample.
  */
 export type WorkerMessage =
-  { step: LoadStep } | { loaded: Loaded; paths: string } | { error: LoadError };
+  | { step: LoadStep }
+  | { branch: string }
+  | { loaded: Loaded; paths: string }
+  | { error: LoadError };
+/** Progress from the worker: each step as it starts, and a GitHub repo's branch once known. */
+export type LoadProgress = { step(step: LoadStep): void; branch?(name: string): void };
 
 /**
  * Fetches, parses, builds and grows in a fresh worker, so the main thread only receives the
@@ -24,7 +29,7 @@ export type WorkerMessage =
  */
 export function loadInWorker(
   request: LoadRequest,
-  onStep: (step: LoadStep) => void,
+  progress: LoadProgress,
   signal: AbortSignal,
 ): Promise<Loaded | LoadError> {
   return new Promise((resolve, reject) => {
@@ -40,7 +45,8 @@ export function loadInWorker(
     };
     signal.addEventListener('abort', onAbort);
     worker.onmessage = ({ data }: MessageEvent<WorkerMessage>) => {
-      if ('step' in data) return onStep(data.step);
+      if ('step' in data) return progress.step(data.step);
+      if ('branch' in data) return progress.branch?.(data.branch);
       settle();
       if ('error' in data) return resolve(data.error);
       const { loaded, paths } = data;

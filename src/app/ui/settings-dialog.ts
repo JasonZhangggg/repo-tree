@@ -222,6 +222,9 @@ export function mountSettings(app: App): {
         toggle('Spin', null, settings.spin, (spin) => set({ spin })),
         toggle('Folder labels', null, settings.labels, (labels) => set({ labels })),
         toggle('Ground', null, settings.ground, (ground) => set({ ground })),
+        toggle('Weather', 'From recent GitHub Actions runs', settings.weather, (weather) =>
+          set({ weather }),
+        ),
         toggle(
           'Growth animation',
           reducedMotion.matches ? 'Off while your system asks for reduced motion' : null,

@@ -18,8 +18,6 @@ import {
   PerspectiveCamera,
   PlaneGeometry,
   ACESFilmicToneMapping,
-  Points,
-  PointsMaterial,
   Scene,
   ShaderMaterial,
   ShadowMaterial,
@@ -58,7 +56,7 @@ import {
   ALWAYS,
   barkShader,
   growing,
-  haloShader,
+  glowShader,
   leafShader,
   PICK_FRAGMENT,
   PICK_VERTEX,
@@ -211,15 +209,10 @@ const PULSE_MS = 2800;
 const PULSE_FRAME_MS = 70;
 /** How long dead-wood leaves take to fall when they drop. */
 const FALL_MS = 2600;
-/**
- * Each hot leaf's glow spans HALO_SPAN times the leaf (as drawn, HOT_SIZE large), so the light
- * hugs the leaf instead of washing over the crown.
- */
-const HALO_SPAN = 1.2;
-const HOT_SIZE = 2;
 /** A leaf is six triangles of its own three vertices each (grow.ts `leaf`). */
 const LEAF_VERTICES = 18;
-const HALO_COLOR = '#ff961a';
+/** The glow's warm amber, in sRGB. */
+const GLOW_COLOR = '#ffa21f';
 /** A birth past any cursor: the element never shows. */
 const NEVER = ALWAYS * 4;
 
@@ -332,22 +325,17 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     SLOTS,
   );
   const depthMaterial = growing(new MeshDepthMaterial());
-  const haloMaterial = haloShader(
-    new PointsMaterial({
-      color: HALO_COLOR,
-      // The vertex shader scales by the projection, so a world-size glow survives view offsets.
-      size: 1,
-      sizeAttenuation: true,
+  const glowMaterial = glowShader(
+    new MeshBasicMaterial({
+      color: GLOW_COLOR,
       transparent: true,
       depthWrite: false,
+      side: DoubleSide,
+      toneMapped: false,
     }),
   );
-  /** A soft light hugging each hot leaf, so the leaf itself reads as glowing. */
-  const halo = new Points(new BufferGeometry(), haloMaterial);
-  halo.frustumCulled = false;
-  halo.visible = false;
-  halo.renderOrder = 1;
-  scene.add(halo);
+  /** Light spilling past each hot leaf's edges: the leaves again, where only hot ones draw. */
+  let glow: Mesh<BufferGeometry, MeshBasicMaterial> | null = null;
   const pickMaterial = new ShaderMaterial({
     vertexShader: PICK_VERTEX,
     fragmentShader: PICK_FRAGMENT,
@@ -580,69 +568,82 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       }
     }
     shown.leaves.geometry.setAttribute('aHeat', new BufferAttribute(heat, 1));
-    placeHalo();
+    placeGlow();
     treeUniforms.uGlow.value = glowing === 0 ? 0 : reducedMotion ? GLOW : glowAt(performance.now());
     treeUniforms.uCalm.value = glowing === 0 ? 0 : 1;
     requestRender();
   };
 
   /**
-   * One glow point per hot leaf (each LEAF_VERTICES of a sprig's vertices), at the leaf's heart
-   * as drawn and a little wider than it. It takes the leaf's timing, node and birth, so it grows
-   * in, pins and drops with it.
+   * Builds the glow copy of the hot leaves only: each hot leaf's vertices with its heart
+   * (`aCenter`, the mean of its LEAF_VERTICES vertices) and whether each is on the leaf's rim
+   * (`aRim`: the third of each triangle is the heart), plus its timing, node and current birth,
+   * so it grows in, pins and drops with its leaf. Shown while any leaf is hot.
    */
-  const placeHalo = () => {
-    halo.geometry.dispose();
-    halo.geometry = new BufferGeometry();
-    halo.visible = false;
+  const placeGlow = () => {
+    glow?.geometry.dispose();
+    if (glow) glow.visible = false;
     if (!shown || glowing === 0) return;
     const { leaves, sprigs } = shown.model;
-    const born = shown.leaves.geometry.getAttribute('aBorn')?.array as Float32Array | undefined;
     const heat = shown.leaves.geometry.getAttribute('aHeat')?.array as Float32Array | undefined;
+    const born = shown.leaves.geometry.getAttribute('aBorn')?.array as Float32Array | undefined;
     if (!heat) return;
-    const at: number[] = [];
-    const t: number[] = [];
-    const id: number[] = [];
-    const births: number[] = [];
-    const heats: number[] = [];
-    const sizes: number[] = [];
-    const { position: p, base } = leaves;
+    const runs: [number, number][] = [];
+    let count = 0;
     for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
-      const end = sprigs.vertex[s + 1]!;
-      if (end <= sprigs.vertex[s]! || heat[sprigs.vertex[s]!]! <= 0) continue;
-      for (let from = sprigs.vertex[s]!; from < end; from += LEAF_VERTICES) {
+      const [from, to] = [sprigs.vertex[s]!, sprigs.vertex[s + 1]!];
+      if (to > from && heat[from]! > 0) {
+        runs.push([from, to]);
+        count += to - from;
+      }
+    }
+    const position = new Float32Array(3 * count);
+    const base = new Float32Array(3 * count);
+    const center = new Float32Array(3 * count);
+    const timing = new Float32Array(2 * count);
+    const id = new Float32Array(count);
+    const births = new Float32Array(count);
+    const heats = new Float32Array(count);
+    const rim = new Float32Array(count);
+    const p = leaves.position;
+    let w = 0;
+    for (const [start, end] of runs) {
+      for (let from = start; from < end; from += LEAF_VERTICES) {
         const to = Math.min(end, from + LEAF_VERTICES);
         const c = [0, 0, 0];
         for (let v = from; v < to; v++) for (let i = 0; i < 3; i++) c[i]! += p[3 * v + i]!;
-        for (let i = 0; i < 3; i++) c[i]! /= to - from;
-        let reach = 0;
-        for (let v = from; v < to; v++) {
-          reach = Math.max(
-            reach,
-            Math.hypot(p[3 * v]! - c[0]!, p[3 * v + 1]! - c[1]!, p[3 * v + 2]! - c[2]!),
-          );
+        for (let v = from; v < to; v++, w++) {
+          for (let i = 0; i < 3; i++) {
+            position[3 * w + i] = p[3 * v + i]!;
+            base[3 * w + i] = leaves.base[3 * v + i]!;
+            center[3 * w + i] = c[i]! / (to - from);
+          }
+          timing[2 * w] = leaves.timing[2 * v]!;
+          timing[2 * w + 1] = leaves.timing[2 * v + 1]!;
+          id[w] = leaves.nodeId[v]!;
+          births[w] = born?.[v] ?? 0;
+          heats[w] = heat[v]!;
+          rim[w] = (v - from) % 3 === 2 ? 0 : 1;
         }
-        // Drawn HOT_SIZE large about its stem, so its heart moves out with it.
-        for (let i = 0; i < 3; i++)
-          c[i] = base[3 * from + i]! + (c[i]! - base[3 * from + i]!) * HOT_SIZE;
-        at.push(...c);
-        t.push(leaves.timing[2 * from]!, leaves.timing[2 * from + 1]!);
-        id.push(leaves.nodeId[from]!);
-        births.push(born?.[from] ?? 0);
-        heats.push(heat[from]!);
-        sizes.push(2 * reach * HOT_SIZE * HALO_SPAN);
       }
     }
-    const position = new Float32Array(at);
-    halo.geometry = new BufferGeometry()
+    const geometry = new BufferGeometry()
       .setAttribute('position', new BufferAttribute(position, 3))
-      .setAttribute('aBase', new BufferAttribute(position, 3))
-      .setAttribute('aT', new BufferAttribute(new Float32Array(t), 2))
-      .setAttribute('aId', new BufferAttribute(new Float32Array(id), 1))
-      .setAttribute('aBorn', new BufferAttribute(new Float32Array(births), 1))
-      .setAttribute('aHeat', new BufferAttribute(new Float32Array(heats), 1))
-      .setAttribute('aSize', new BufferAttribute(new Float32Array(sizes), 1));
-    halo.visible = sizes.length > 0;
+      .setAttribute('aBase', new BufferAttribute(base, 3))
+      .setAttribute('aCenter', new BufferAttribute(center, 3))
+      .setAttribute('aT', new BufferAttribute(timing, 2))
+      .setAttribute('aId', new BufferAttribute(id, 1))
+      .setAttribute('aBorn', new BufferAttribute(births, 1))
+      .setAttribute('aHeat', new BufferAttribute(heats, 1))
+      .setAttribute('aRim', new BufferAttribute(rim, 1));
+    if (!glow) {
+      glow = new Mesh(geometry, glowMaterial);
+      glow.frustumCulled = false;
+      glow.renderOrder = 1;
+      scene.add(glow);
+    }
+    glow.geometry = geometry;
+    glow.visible = count > 0;
   };
 
   const bakeGround = () => {
@@ -898,11 +899,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     }
     shown.bark.geometry.setAttribute('aBorn', new BufferAttribute(barkBorn, 1));
     shown.leaves.geometry.setAttribute('aBorn', new BufferAttribute(leafBorn, 1));
+    if (glowing > 0) placeGlow();
     shown.leaves.geometry.setAttribute(
       'aFall',
       new BufferAttribute(falling ? fall : new Float32Array(leafBorn.length), 1),
     );
-    if (glowing > 0) placeHalo();
     births = next?.nodes ?? null;
     if (!next) treeUniforms.uTime.value = ALWAYS;
     renderer.shadowMap.needsUpdate = true;
@@ -912,7 +913,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const releaseTree = () => {
     if (!shown) return;
     scene.remove(shown.bark, shown.leaves);
-    halo.visible = false;
+    if (glow) glow.visible = false;
     shown.bark.geometry.dispose();
     shown.leaves.geometry.dispose();
     shown = null;
@@ -1064,7 +1065,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       if (!shown) return null;
       const { width, height, x: left, y: top, w, h } = freeRegion();
       if (x < 0 || y < 0 || x >= width || y >= height) return null;
-      const hidden = [sky, baked, halo, terrain.cover, ...weather.objects].filter((o) => o.visible);
+      const hidden = [sky, baked, glow, terrain.cover, ...weather.objects].filter(
+        (o): o is NonNullable<typeof o> => !!o?.visible,
+      );
       for (const mesh of hidden) mesh.visible = false;
       const shadowPending = renderer.shadowMap.needsUpdate;
       renderer.shadowMap.needsUpdate = false;
@@ -1180,13 +1183,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         mesh.geometry.dispose();
         mesh.material.dispose();
       }
-      halo.geometry.dispose();
       for (const material of [
         barkMaterial,
         leafMaterial,
         depthMaterial,
         pickMaterial,
-        haloMaterial,
+        glowMaterial,
       ]) {
         material.dispose();
       }

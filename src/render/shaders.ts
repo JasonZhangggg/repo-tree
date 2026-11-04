@@ -278,30 +278,37 @@ void main() {
 `;
 
 /**
- * The halo over each hot sprig: a soft additive disc `aSize` across (world units) at the sprig's
- * heart, as bright as its `aHeat` times the pulse `uGlow`. It grows in with its sprig, so it waits
- * for the sprig's birth on the timeline, and dims outside a pinned folder or a highlight.
+ * The glow around each hot leaf: a second copy of the leaves where only hot leaves draw, each
+ * SHELL times as large about its own heart (`aCenter`, the leaf as drawn HOT_SIZE large) and
+ * pushed a little away from the camera, so its own leaf covers its middle and the light spills
+ * past its edges. It is brightest at the leaf's heart (`aRim` 0) and fades to nothing at its
+ * rim (`aRim` 1), as bright as its `aHeat` times the pulse `uGlow`. Leaves nearer the camera
+ * still cover it. It grows, waits for its birth and dims with a pin or highlight like the leaf.
  */
-export const haloShader = <M extends Material>(m: M) =>
-  hook(m, 'halo', (shader) => {
+export const glowShader = <M extends Material>(m: M) =>
+  hook(m, 'glow', (shader) => {
     shader.vertexShader =
-      'attribute float aSize;\nattribute float aHeat;\nvarying float vHalo;\nuniform float uGlow;\n' +
-      shader.vertexShader.replace(
-        'gl_PointSize = size;',
-        'gl_PointSize = size * aSize * projectionMatrix[1][1] * grown();\nvHalo = aHeat * uGlow * HALO;',
-      );
+      '#define HOT_SIZE 2.0\n#define SHELL 1.9\n#define PUSH 0.6\n' +
+      'attribute float aHeat;\nattribute float aRim;\nattribute vec3 aCenter;\nuniform float uGlow;\nvarying float vGlow;\n' +
+      shader.vertexShader
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+vec3 heart = aBase + (aCenter - aBase) * HOT_SIZE;
+float reach = length(heart - aBase);
+transformed = aHeat > 0.0 ? heart + (aBase + (transformed - aBase) * HOT_SIZE - heart) * SHELL : vec3(0.0);
+vGlow = aHeat > 0.0 ? (1.0 - aRim) * (0.55 + 0.45 * aHeat) * uGlow * GLOW_GAIN : 0.0;`,
+        )
+        .replace(
+          '#include <project_vertex>',
+          '#include <project_vertex>\nmvPosition.xyz += normalize(mvPosition.xyz) * reach * PUSH;\ngl_Position = projectionMatrix * mvPosition;',
+        );
+    shader.vertexShader = '#define GLOW_GAIN 1.3\n' + shader.vertexShader;
     shader.fragmentShader =
-      'varying float vHalo;\nuniform vec2 uSel;\nuniform float uCategory;\n' +
+      'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\n' +
       shader.fragmentShader.replace(
-        '#include <map_particle_fragment>',
-        /* glsl */ `
-vec2 disc = gl_PointCoord * 2.0 - 1.0;
-float r2 = dot(disc, disc);
-if (r2 > 1.0) discard;
-diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.72, 0.28), 0.35 * exp(-r2 * 10.0));
-diffuseColor.a *= vHalo * (exp(-r2 * 4.5) - exp(-4.5)) / (1.0 - exp(-4.5));
-if (${OUTSIDE} || uCategory >= 0.0) diffuseColor.a *= 0.25;
-`,
+        'vec4 diffuseColor = vec4( diffuse, opacity );',
+        `vec4 diffuseColor = vec4( diffuse, opacity * clamp(vGlow, 0.0, 1.0) );
+if (${OUTSIDE} || uCategory >= 0.0) diffuseColor.a *= 0.25;`,
       );
-    shader.vertexShader = '#define HALO 0.55\n' + shader.vertexShader;
   });

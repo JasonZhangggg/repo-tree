@@ -103,7 +103,8 @@ function toSnapshot(ref: RepoRef, branch: string, body: unknown): Snapshot | Loa
   return { ref, branch, sha: body.sha, truncated: body.truncated, files, fetchedAt: Date.now() };
 }
 
-async function decode(buffer: ArrayBuffer): Promise<string> {
+/** A body as text, gunzipped when it starts with the gzip magic bytes. */
+export async function decode(buffer: ArrayBuffer): Promise<string> {
   const [b0, b1] = new Uint8Array(buffer, 0, Math.min(2, buffer.byteLength));
   if (b0 !== 0x1f || b1 !== 0x8b) return new TextDecoder().decode(buffer);
   const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));

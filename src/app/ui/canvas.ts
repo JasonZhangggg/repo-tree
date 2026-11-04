@@ -4,6 +4,7 @@ import { debug } from '../debug';
 import { byId, h } from '../dom';
 import { bytes, count, plural } from '../format';
 import { pickLabels, relaxLabels, type LabelPick } from '../labels';
+import { mountCiCard } from './ci-card';
 import type { AppState, Repo, Selection } from '../state';
 import type { Picked } from '../../render/tree-view';
 
@@ -13,6 +14,15 @@ const PANELS = '.bar, .title, .side, .controls';
 /** How much a label straight behind the trunk shrinks, and how much its stem thins. */
 const DEPTH_SHRINK = 0.15;
 const STEM_THIN = 0.4;
+/**
+ * How quickly a label settles where the layout wants it, as a time constant in ms. Labels ride
+ * their anchors exactly; only their offset from the anchor eases, so a label that the layout
+ * swaps or shoves glides there instead of jumping while the camera moves.
+ */
+const GLIDE_MS = 90;
+/** The least gap between a label and the side of the screen. */
+const EDGE = 6;
+const still = matchMedia('(prefers-reduced-motion: reduce)');
 
 /** The root folder's own files a rock lies for, as indices into RepoIndex.files. */
 const rockFiles = (repo: Repo, rock: number) =>
@@ -35,6 +45,11 @@ export function mountCanvas(app: App): {
   const container = byId('view');
   const tip = byId('tip');
   const layer = byId('labels');
+  const ci = mountCiCard(app);
+  // The CI chip explains the sky the same way before it leaves for GitHub.
+  byId('weather').addEventListener('click', (event) => {
+    if (ci.open()) event.preventDefault();
+  });
 
   let hovered: Picked | null = null;
   let pointer: { x: number; y: number; clientX: number; clientY: number } | null = null;
@@ -98,6 +113,8 @@ export function mountCanvas(app: App): {
     const picked = pointer ? view.pickAt(pointer.x, pointer.y) : null;
     setHovered(picked);
     showTip(picked);
+    // The sun and clouds open the CI card, so they take a pointer too.
+    if (!picked && pointer && view.skyAt(pointer.x, pointer.y)) container.style.cursor = 'pointer';
   };
 
   container.addEventListener('pointermove', (event) => {
@@ -121,16 +138,30 @@ export function mountCanvas(app: App): {
     pointer = null;
     probe();
   });
+  // A pinch is never a tap, even where its last finger lifts without moving.
+  const pressed = new Set<number>();
   container.addEventListener('pointerdown', (event) => {
-    down = { x: event.clientX, y: event.clientY };
+    pressed.add(event.pointerId);
+    down = pressed.size > 1 ? null : { x: event.clientX, y: event.clientY };
+  });
+  container.addEventListener('pointercancel', (event) => {
+    pressed.delete(event.pointerId);
+    down = null;
   });
   container.addEventListener('pointerup', (event) => {
+    pressed.delete(event.pointerId);
     if (!down || Math.hypot(event.clientX - down.x, event.clientY - down.y) > TAP_SLOP) return;
     down = null;
-    const rect = container.getBoundingClientRect();
-    const picked = view.pickAt(event.clientX - rect.left, event.clientY - rect.top);
-    const repo = store.get().repo;
     tip.hidden = true;
+    // On touch screens labels let gestures through to the tree, so a tap on one lands here.
+    const pill = pillAt(event.clientX, event.clientY);
+    if (pill) return app.select({ folder: pill.folder }, true);
+    const rect = container.getBoundingClientRect();
+    const [x, y] = [event.clientX - rect.left, event.clientY - rect.top];
+    const picked = view.pickAt(x, y);
+    // A tap on the sky says what it stands for, and keeps the pin as it was.
+    if (picked === null && view.skyAt(x, y) && ci.open()) return;
+    const repo = store.get().repo;
     app.select(picked === null || !repo ? null : selectionOf(repo, picked));
   });
 
@@ -149,8 +180,29 @@ export function mountCanvas(app: App): {
     count: HTMLElement;
     width: number;
     height: number;
+    /** Where the layout wants the label, as an offset from its anchor, and where it is now. */
+    goal: { x: number; y: number };
+    at: { x: number; y: number } | null;
+    anchor: { x: number; y: number };
+    size: number;
+    thin: number;
   };
   let pills: Pill[] = [];
+
+  /** The label under a point, front ones first, then the one drawn on top. */
+  const pillAt = (x: number, y: number) => {
+    if (layer.hidden) return null;
+    let hit: Pill | null = null;
+    for (const pill of pills) {
+      if (pill.el.hidden) continue;
+      const r = pill.el.getBoundingClientRect();
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+      if (!hit || hit.el.classList.contains('back') || !pill.el.classList.contains('back')) {
+        hit = pill;
+      }
+    }
+    return hit;
+  };
   let labeledFor: { repo: Repo; folder: number | null } | null = null;
 
   /** The pinned folder's own subfolders, when it is not the root. */
@@ -180,6 +232,8 @@ export function mountCanvas(app: App): {
       const path = repo.tree.folders.path[folder]!;
       return pinnedPath !== path && !pinnedPath.startsWith(`${path}/`);
     };
+    // A label that stays across a rebuild keeps its place, so pinning doesn't shove the rest.
+    const kept = new Map(pills.map((p) => [p.folder, p.at]));
     pills = picks.map(({ folder, files, tier }) => {
       const tally = h('b', {}, count(files));
       const el = h(
@@ -205,6 +259,11 @@ export function mountCanvas(app: App): {
         count: tally,
         width: 0,
         height: 0,
+        goal: { x: 0, y: 0 },
+        at: kept.get(folder) ?? null,
+        anchor: { x: 0, y: 0 },
+        size: 1,
+        thin: 1,
       };
     });
     layer.replaceChildren(...pills.flatMap((p) => [p.stem, p.dot]), ...pills.map((p) => p.el));
@@ -236,6 +295,7 @@ export function mountCanvas(app: App): {
     layer.style.opacity = shown.length ? '1' : '0';
     for (const pill of pills) {
       pill.el.hidden = pill.stem.hidden = pill.dot.hidden = !shown.includes(pill);
+      if (pill.el.hidden) pill.at = null;
     }
     for (const pill of shown) {
       if (pill.width < 0) pill.width = pill.el.offsetWidth;
@@ -260,18 +320,54 @@ export function mountCanvas(app: App): {
         return { x: r.x - origin.x, y: r.y - origin.y, width: r.width, height: r.height };
       });
     const placed = relaxLabels(anchors, crown, panels);
+    // Kept whole on screen: a label cut by the edge can't be read or tapped.
+    const room = layer.clientWidth;
     shown.forEach((pill, i) => {
-      const { x, y } = placed[i]!;
       const a = anchors[i]!;
-      const size = sizes[i]!;
-      const length = Math.max(0, Math.hypot(x - a.x, y - a.y) - a.height / 2);
-      const angle = Math.atan2(y - a.y, x - a.x);
-      const thin = 1 - STEM_THIN * at.get(pill.folder)!.depth;
+      const half = a.width / 2 + EDGE;
+      const x =
+        room > 2 * half ? Math.min(Math.max(placed[i]!.x, half), room - half) : placed[i]!.x;
+      pill.anchor = { x: a.x, y: a.y };
+      pill.goal = { x: x - a.x, y: placed[i]!.y - a.y };
+      pill.size = sizes[i]!;
+      pill.thin = 1 - STEM_THIN * at.get(pill.folder)!.depth;
+    });
+    glide();
+  });
+
+  let gliding = 0;
+  let lastGlide = 0;
+  /** Moves each shown label toward its goal and draws it; runs on until they settle. */
+  const glide = () => {
+    cancelAnimationFrame(gliding);
+    gliding = 0;
+    const now = performance.now();
+    const dt = lastGlide ? Math.min(now - lastGlide, 64) : 16;
+    lastGlide = now;
+    const k = still.matches ? 1 : 1 - Math.exp(-dt / GLIDE_MS);
+    let moving = false;
+    for (const pill of pills) {
+      if (pill.el.hidden) continue;
+      const { goal, anchor: a, size, thin } = pill;
+      let at = pill.at;
+      if (!at) at = pill.at = { ...goal };
+      else {
+        at.x += (goal.x - at.x) * k;
+        at.y += (goal.y - at.y) * k;
+        if (Math.hypot(goal.x - at.x, goal.y - at.y) > 0.3) moving = true;
+        else pill.at = at = { ...goal };
+      }
+      const x = a.x + at.x;
+      const y = a.y + at.y;
+      const length = Math.max(0, Math.hypot(at.x, at.y) - (pill.height * size) / 2);
+      const angle = Math.atan2(at.y, at.x);
       pill.el.style.transform = `translate(${x - pill.width / 2}px, ${y - pill.height / 2}px) scale(${size})`;
       pill.stem.style.transform = `translate(${a.x}px, ${a.y}px) rotate(${angle}rad) scale(${length}, ${thin})`;
       pill.dot.style.transform = `translate(${a.x}px, ${a.y}px) scale(${size})`;
-    });
-  });
+    }
+    if (moving) gliding = requestAnimationFrame(glide);
+    else lastGlide = 0;
+  };
 
   store.subscribe((state, prev) => {
     if (state.repo && state.repo !== prev.repo) {

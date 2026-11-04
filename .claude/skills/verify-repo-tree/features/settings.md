@@ -27,7 +27,7 @@ Preconditions:
 
 - **Open.** Choose `Settings`. Step `open`. The dialog `Settings` is visible.
 - **Palette.** Choose the `Winter` radio. Step `palette`. The URL has `palette=winter`.
-- **Color by.** Choose `Top-level folder`. Step `color-by`. The URL has `colorBy=folder` and `#legend-title` reads `Leaf colors by folder`.
+- **Color by.** Open the `Color leaves by` dropdown and choose `Folder`. Step `color-by`. The URL has `colorBy=folder` and `#legend-title` reads `Leaf colors by folder`.
 - **Quality.** Choose `High`. Step `quality`. A new tree replaces the old one (`__repoTree.tree` changes and `ready` is true) and `High` is checked.
 - **Hidden folder.** Type `playground` into `Folder name to hide` and choose `Hide`. Step `hide-folder`. The tree regrows and no folder path is `playground`.
 - **Token.** Type `ghp_verify_fake` into `GitHub token` and press Enter, close Settings, and load `acme/widgets` from the stand-in API. Step `token`. `Token saved in this browser` shows, and every request that carried an `Authorization` header went to `api.github.com`.

@@ -145,6 +145,8 @@ export interface TreeView {
   setInsets(insets: Insets): void;
   /** The folder or rock under a point in CSS pixels relative to the container, from a GPU id pass. */
   pickAt(x: number, y: number): Picked | null;
+  /** Whether a point in CSS pixels relative to the container lands on the sun or a cloud. */
+  skyAt(x: number, y: number): boolean;
   /** Shows the mound, its rocks and its grass under the tree, or the bare shadow. */
   setGround(on: boolean): void;
   /**
@@ -1058,6 +1060,26 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         applyView();
       }
       requestRender();
+    },
+
+    skyAt(x, y) {
+      if (!shown) return false;
+      const { width, height } = freeRegion();
+      const center = new Vector3();
+      const edge = new Vector3();
+      const right = new Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+      return weather.targets().some((t) => {
+        center.set(t.x, t.y, t.z).project(camera);
+        if (center.z > 1) return false;
+        edge.set(t.x, t.y, t.z).addScaledVector(right, t.r).project(camera);
+        const cx = ((center.x + 1) / 2) * width;
+        const cy = ((1 - center.y) / 2) * height;
+        const ex = ((edge.x + 1) / 2) * width;
+        const ey = ((1 - edge.y) / 2) * height;
+        // A finger needs room even round a far, small cloud.
+        const r = Math.max(Math.hypot(ex - cx, ey - cy), 22);
+        return Math.hypot(x - cx, y - cy) <= r;
+      });
     },
 
     pickAt(x, y) {

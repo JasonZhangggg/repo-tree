@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { quietSettings, ready, serveRepo } from './github';
+import { openRepoField } from './view';
 
 /**
  * Computing a missing history in the browser and sharing it, against e2e/history-stack.mjs:
@@ -25,6 +26,7 @@ const dialog = (page: Page) => page.getByRole('dialog', { name: /timeline|histor
 async function open(page: Page, name = 'acme/widgets') {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
+  await openRepoField(page);
   const input = page.getByLabel('GitHub repository');
   await input.fill(name);
   await input.press('Enter');

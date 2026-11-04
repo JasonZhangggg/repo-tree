@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { quietSettings, ready, serveRepo, serveRuns } from './github';
-import { settle } from './view';
+import { openRepoField, settle } from './view';
 
 test.use({ reducedMotion: 'reduce' });
 
@@ -15,6 +15,7 @@ test.afterEach(() => expect(errors).toEqual([]));
 const chip = (page: Page) => page.locator('#weather');
 
 async function enterRepo(page: Page, text: string) {
+  await openRepoField(page);
   await page.getByLabel('GitHub repository').fill(text);
   await page.getByLabel('GitHub repository').press('Enter');
 }
@@ -190,4 +191,50 @@ test.describe('with motion allowed', () => {
     ).toBeGreaterThan(2);
     expect(after.calls, 'the sun and the clouds draw in the scene').toBe(clear.calls + 2);
   });
+});
+
+test('a tap on the sun says what the sky stands for before leaving for CI', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await settle(page);
+  // Somewhere on the sun or a cloud and off the tree.
+  const spot = await page.evaluate(() => {
+    type View = {
+      skyAt(x: number, y: number): boolean;
+      pickAt(x: number, y: number): unknown;
+    };
+    const { view } = (window as unknown as { __repoTree: { view: View } }).__repoTree;
+    const box = document.querySelector('#view')!.getBoundingClientRect();
+    for (let y = 0; y < box.height; y += 8)
+      for (let x = 0; x < box.width; x += 8)
+        if (view.skyAt(x, y) && view.pickAt(x, y) === null) {
+          const hit = document.elementFromPoint(box.x + x, box.y + y);
+          if (hit?.closest('#view')) return { x: box.x + x, y: box.y + y };
+        }
+    return null;
+  });
+  expect(spot, 'the sun is on screen').not.toBeNull();
+  // A real tap on a phone: the click that ends it must not land on the card's scrim and close it.
+  if (isMobile) await page.touchscreen.tap(spot!.x, spot!.y);
+  else await page.mouse.click(spot!.x, spot!.y);
+  const card = page.getByRole('dialog', { name: 'CI passing' });
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('20 of 20 recent runs');
+  await expect(card).toContainText('Opens GitHub in a new tab');
+  await expect(card.getByRole('link', { name: 'Open GitHub Actions' })).toHaveAttribute(
+    'href',
+    /github\.com\/vitejs\/vite\/actions/,
+  );
+  // Nothing was pinned by the tap.
+  await expect(page.getByRole('article', { name: /Pinned folder/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(card).toBeHidden();
+  // The chip opens the same card rather than leaving at once.
+  await chip(page).click();
+  await expect(card).toBeVisible();
+  await card.getByRole('button', { name: 'Not now' }).click();
+  await expect(card).toBeHidden();
 });

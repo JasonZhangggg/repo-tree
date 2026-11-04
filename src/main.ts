@@ -21,6 +21,7 @@ import { mountHeader } from './app/ui/header';
 import { mountSearch } from './app/ui/search-dialog';
 import { mountSettings } from './app/ui/settings-dialog';
 import { childrenOf, mountSide } from './app/ui/side';
+import { mountTimeline } from './app/ui/timeline';
 
 const SETTINGS_KEY = 'repo-tree:settings';
 const MEASURE_MS = 2000;
@@ -285,7 +286,9 @@ byId('export').addEventListener('click', async () => {
   const { repo } = store.get();
   if (!repo) return;
   const blob = await view.snapshotPNG(2);
-  const name = `${repo.info.ref.owner}-${repo.info.ref.repo}-tree.png`;
+  const at = timeline.date();
+  const when = at === null ? '' : `-${new Date(at).toISOString().slice(0, 10)}`;
+  const name = `${repo.info.ref.owner}-${repo.info.ref.repo}-tree${when}.png`;
   const a = Object.assign(document.createElement('a'), {
     href: URL.createObjectURL(blob),
     download: name,
@@ -419,6 +422,7 @@ const canvas = mountCanvas(app);
 mountHeader(app);
 mountSide(app);
 const search = mountSearch(app);
+const timeline = mountTimeline(app, () => reducedMotion(store.get().settings));
 const settings = mountSettings(app);
 
 const link = parseLink(location.hash);

@@ -34,7 +34,7 @@ export type Ease = { at: Float64Array; p: Float64Array };
  * How far behind its birth an element finishes growing in, in progress. A branch grows in
  * along its length, its children after it, within this span.
  */
-export const SPAN = 0.04;
+export const SPAN = 0.015;
 /** Share of the axis spread evenly over time; the rest follows births and deletions. */
 export const LINEAR = 0.3;
 
@@ -90,8 +90,8 @@ export function dateOf({ at, p }: Ease, progress: number): number {
  * Lays the history over a grown tree. A time older than `recent.since` is the snapshot that
  * first showed it, so it is spread over the interval before that snapshot, by a hash of the
  * element: a folder's files then sprout across the months they arrived in, not in one pop.
- * Files deleted before head have no leaves; they count while they lived, and a folder that
- * held them appears from the folder table's birth, so its branch shows before today's files.
+ * Files deleted before head have no leaves of their own; they count while they lived, and a
+ * folder that held them appears in leaf from the folder table's birth, before today's files.
  */
 export function buildTimeline(
   history: History,
@@ -141,24 +141,32 @@ export function buildTimeline(
   const sprigs = new Float32Array(sprigCount);
   const nodeCount = node.parent.length;
   const nodes = new Float32Array(nodeCount).fill(Infinity);
+  const twigOf = new Uint32Array(sprigCount);
   for (let s = 0; s < sprigCount; s++) {
     let first = Infinity;
     for (let k = sprig.file[s]!; k < sprig.file[s + 1]!; k++) {
       first = Math.min(first, filesP[sprig.files[k]!]!);
     }
     sprigs[s] = first;
-    const twig = tree.leaves.nodeId[sprig.vertex[s]!]!;
-    nodes[twig] = Math.min(nodes[twig]!, first);
+    twigOf[s] = tree.leaves.nodeId[sprig.vertex[s]!]!;
   }
+  // A folder older than its files today held files since deleted: its earliest sprig stands
+  // in for them, so the folder sprouts in leaf when it appeared instead of as a bare branch.
   const folderMs = new Map<string, number>();
   history.folders.path.forEach((path, i) => folderMs.set(path, history.folders.born[i]!));
   const folderKey = filesP.length;
   folders.path.forEach((path, f) => {
     const ms = folderMs.get(path);
     if (ms === undefined) return;
-    const top = folders.range[2 * f]!;
-    nodes[top] = Math.min(nodes[top]!, spread(ms, folderKey + f));
+    const lo = upTo(twigOf, folders.range[2 * f]! - 1);
+    const hi = upTo(twigOf, folders.range[2 * f + 1]!);
+    let earliest = -1;
+    for (let s = lo; s < hi; s++) if (earliest < 0 || sprigs[s]! < sprigs[earliest]!) earliest = s;
+    if (earliest >= 0) sprigs[earliest] = Math.min(sprigs[earliest]!, spread(ms, folderKey + f));
   });
+  for (let s = 0; s < sprigCount; s++) {
+    nodes[twigOf[s]!] = Math.min(nodes[twigOf[s]!]!, sprigs[s]!);
+  }
   for (let n = nodeCount - 1; n > 0; n--) {
     const parent = node.parent[n]!;
     nodes[parent] = Math.min(nodes[parent]!, nodes[n]!);

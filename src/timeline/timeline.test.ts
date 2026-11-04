@@ -111,9 +111,13 @@ describe.each<SampleId>(['mathiasbynens-dotfiles', 'vitejs-vite', 'torvalds-linu
       expect(timeline.nodes[0]).toBe(0);
     });
 
-    test('a sprig appears with the first of its files, inside that file’s snapshot interval', () => {
+    test('a sprig appears by its first file, and no earlier than its folders appeared', () => {
       const born = new Map(history.files.path.map((p, i) => [p, history.files.born[i]!]));
-      const { file, files } = tree.sprigs;
+      const folderBorn = new Map(history.folders.path.map((p, i) => [p, history.folders.born[i]!]));
+      const snapshots = history.snapshots.map((x) => x.at);
+      const intervalStart = (ms: number) =>
+        Math.max(snapshots[0]!, ...snapshots.filter((at) => at < ms));
+      const { file, files, vertex } = tree.sprigs;
       timeline.sprigs.forEach((p, s) => {
         const first = Math.min(
           ...Array.from(files.subarray(file[s]!, file[s + 1]!), (f) =>
@@ -121,9 +125,25 @@ describe.each<SampleId>(['mathiasbynens-dotfiles', 'vitejs-vite', 'torvalds-linu
           ),
         );
         expect(p).toBeLessThanOrEqual(progressOf(timeline.ease, first) + 1e-6);
-        const snapshots = history.snapshots.map((x) => x.at);
-        const before = Math.max(snapshots[0]!, ...snapshots.filter((at) => at < first));
-        expect(p).toBeGreaterThanOrEqual(progressOf(timeline.ease, before) - 1e-6);
+        let earliest = first;
+        for (let f = tree.nodes.folder[tree.leaves.nodeId[vertex[s]!]!]!; f >= 0;) {
+          earliest = Math.min(earliest, folderBorn.get(tree.folders.path[f]!) ?? Infinity);
+          f = index.folders.parent[f]!;
+        }
+        expect(p).toBeGreaterThanOrEqual(progressOf(timeline.ease, intervalStart(earliest)) - 1e-6);
+      });
+    });
+
+    test('every folder appears in leaf: its earliest sprig is no later than the folder', () => {
+      const { range } = tree.folders;
+      const twig = (s: number) => tree.leaves.nodeId[tree.sprigs.vertex[s]!]!;
+      tree.folders.path.forEach((_, f) => {
+        let earliest = Infinity;
+        timeline.sprigs.forEach((p, s) => {
+          if (twig(s) >= range[2 * f]! && twig(s) <= range[2 * f + 1]!)
+            earliest = Math.min(earliest, p);
+        });
+        if (earliest < Infinity && f !== 0) expect(earliest).toBeCloseTo(timeline.folders[f]!, 5);
       });
     });
 

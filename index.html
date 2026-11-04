@@ -132,6 +132,30 @@
     </aside>
 
     <div class="controls">
+      <div class="scrubber" id="scrubber" role="group" aria-label="Timeline" hidden>
+        <button type="button" class="scrub-play" id="timeline-play" aria-label="Play">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6.5v11l9-5.5Z" /></svg>
+        </button>
+        <p class="scrub-when" aria-live="off">
+          <strong id="timeline-date"></strong>
+          <span id="timeline-files"></span>
+        </p>
+        <div class="scrub-track">
+          <div class="scrub-ticks" id="timeline-ticks" aria-hidden="true"></div>
+          <input
+            type="range"
+            id="timeline-range"
+            min="0"
+            max="1000"
+            step="1"
+            value="1000"
+            aria-label="Timeline position"
+          />
+        </div>
+        <button type="button" class="scrub-close" id="timeline-close" aria-label="Close timeline">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+        </button>
+      </div>
       <button
         type="button"
         class="pill-btn primary"
@@ -153,6 +177,14 @@
       >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12m6-12v12" /></svg>
         <span>Pause spin</span>
+      </button>
+      <button type="button" class="pill-btn" id="timeline" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5" />
+          <path d="M4 4v4.5h4.5" />
+          <path d="M12 8v4l2.5 1.5" />
+        </svg>
+        <span>Timeline</span>
       </button>
       <p class="help">Drag to orbit · scroll to zoom · click a branch to pin</p>
     </div>

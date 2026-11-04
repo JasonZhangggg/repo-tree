@@ -1,67 +1,89 @@
 # Repo Tree history server
 
-A Cloudflare Worker that computes a repo's commit history (when each file and folder last changed, how often, when it appeared and was deleted, who works where) and caches it in KV. The app reads it from `VITE_HISTORY_URL`. Without that variable the app has no history features and needs none of this.
+A small Cloudflare Worker that stores each repo's commit history (when each file and folder last changed, how often, when it appeared and was deleted, who works where) and serves it to everyone. It computes nothing. A signed-in visitor's browser computes a missing history with their own GitHub token (`src/core/engine.ts`, run in a Web Worker by the app) and uploads it here. The Worker checks the upload against GitHub and stores it in KV, and every visitor after that reads the stored copy. The app reads from `VITE_HISTORY_URL`. Without that variable the app has no history features beyond the bundled samples, and needs none of this.
 
 ## How it works
 
-- **Snapshots, not commits.** For each repo and branch head the server finds about 50 to 80 commits spaced weekly for 26 weeks, every 30 days back to two years, then yearly back to the first commit (`/commits?until=`). It reads each one's recursive tree and compares blob and tree shas between neighbours. That gives last-changed, churn, first-seen and deleted dates to within one interval for every path. The newest 100 non-merge commits are then read one by one (`/commits/{sha}`) for exact recent dates, commit counts and authors. CODEOWNERS is read when the head has one.
-- **Cost.** About 120 GitHub requests for a small repo and 180 for one like vite, almost all of them the 100 recent commits. It stays roughly flat with history length. A tree over GitHub's 100k-entry limit (Linux) is re-read one top-level folder at a time, skipping folders whose sha did not change, under a cap (`SPLIT_REQUESTS`). The head is always read in full. Past the cap, an older snapshot keeps its truncated listing: git lists paths in order, so only the paths after the last listed one are unknown, and they are assumed unchanged over that interval. The result then lists the `tree-truncated` gap. The job state is bounded by the head's paths plus the 5,000 most recently deleted files.
-- **Steps.** One request advances the job by at most `STEP_REQUESTS` GitHub requests and `STEP_ENTRIES` tree entries, saves progress in KV and answers `202 {status: 'pending', progress, retryAfter}`. The app polls until `200 {status: 'ready'}`.
-- **Who pays.** Visitors sign in with GitHub (an OAuth App with no scopes, so public data only). An uncached repo is computed with the visitor's own token, sent as `Authorization: Bearer`, for that request only. It is never stored or logged. The result comes from public data, so it goes in the shared KV cache and anyone can read it, signed in or not. A signed-out visitor asking for an uncached repo gets `401 {status: 'needs-auth'}`. Private repos are refused and never cached. If a token runs out of GitHub requests, the job waits for the reset (`pending` with `retryAfter`) and then resumes.
-- **Freshness.** A history is stored per head commit for 30 days. A branch head is trusted for six hours. After that, a signed-in request gets the stored history at once (`stale: true` while a newer head computes) and the update runs in the background.
-- **Limits.** Each IP gets 60 requests a minute (the `[[ratelimits]]` binding) and may start 10 new repos an hour (`NEW_REPOS_PER_HOUR`). Cached repos don't count. CORS allows `ALLOWED_ORIGINS` plus any localhost port.
-- **Prewarm.** If `GITHUB_TOKEN` is set, a cron runs one job step every ten minutes for one repo in `PREWARM` (`src/worker.ts`), taking turns. That is the only use of the server's own token.
-- **Plan limits.** The free Workers plan allows 50 subrequests and 10 ms CPU per request. That handles small and medium repos with the default `STEP_REQUESTS = 40`. A Linux-sized tree takes over a second of CPU to parse, so large repos need the paid plan (30 s CPU, 1,000 subrequests). The free plan also caps KV at 1,000 writes a day, and every job step is one write.
+- **The browser computes.** The engine samples about 50 to 80 first-parent commits, spaced weekly for 26 weeks, monthly back to two years, then yearly back to the root. It reads their trees through GitHub's GraphQL API and the newest 100 commits for exact recent dates and authors. A small repo costs a few dozen requests and well under 1 MB. Linux costs about 85 MB and roughly 500 MB of tab memory, so the app warns first on a big repo or a phone. The result is a `History` (`src/shape.ts`) of 0.05 MB gzipped for vite and 0.86 MB for Linux.
+- **Upload.** `PUT /v1/history/{owner}/{repo}?branch=` with `Authorization: Bearer <the visitor's token>`, the gzipped History JSON as the body and an `UploadManifest` in the `X-History-Manifest` header. The manifest names the repo, the branch, the head sha, the byte count and every snapshot as `{sha, at, tree}`. Linux's manifest is 7.8 KB.
+- **The Worker never opens the body.** Unpacking and parsing Linux's 8 MB of JSON takes about 60 ms of CPU, six times the free plan's 10 ms. The Worker checks the manifest against GitHub with the uploader's token instead (`src/core/upload.ts`):
+  1. `GET /user`: the token is valid. Its login is recorded as `by`.
+  2. `GET /repos/{repo}`: the repo exists and is public. Private repos are refused and never stored.
+  3. `GET /repos/{repo}/commits/{branch}` (as `application/vnd.github.sha`): the claimed head is the branch's head now. Anything else is `stale`.
+  4. `GET /repos/{repo}/git/commits/{sha}` for the head and 3 snapshots picked at random: each exists in the repo, with the claimed tree sha and commit time. Anything else is `mismatch`.
 
-The core (`src/core/`) uses only `fetch` and a small `Store` interface, so a Vercel or Netlify adapter would be another file like `src/worker.ts`.
+  Then it checks that the body is the declared size and starts with the gzip magic bytes. It stores the body with a `StoredManifest` as KV metadata. The metadata holds the repo, branch, head, snapshot count, a SHA-256 digest of the snapshots' `sha at` lines, the byte count, the uploader and the time.
+
+- **Readers check the binding.** `GET` streams the stored body and the `StoredManifest` (in `X-History-Manifest`) untouched. The app unpacks the body and drops it unless it parses as a History whose repo, branch, head, snapshot count and snapshot digest match the manifest. A stored body therefore always matches what the Worker checked against GitHub.
+- **One write per history.** An upload for the head that is already stored answers `409 exists` without writing. A history expires after 90 days, and a branch that moves gets a new upload under the same key.
+- **Sign-in.** An OAuth App with no scopes, so the token reads public data only. `/v1/auth/login` redirects to GitHub with a state signed by HMAC-SHA-256 (the app's origin, a 10-minute expiry and a nonce), so sign-in needs no KV. The callback exchanges the code and posts the token to the opener window at that origin only. The app keeps the token in `sessionStorage` for that tab and sends it only to GitHub's API and this Worker. The Worker never stores or logs it.
+
+## What a forged upload can and cannot do
+
+The history is cosmetic data about a public repo, and the checks are sized to the free plan rather than to proof.
+
+- **Caught:** a bad, revoked or missing token; a private repo; a head that is not the branch's current head; a snapshot sha that does not exist in the repo, or whose tree or time is wrong (for the head and 3 random snapshots per upload); an oversized or non-gzip body; a body that does not match its manifest (readers drop it).
+- **Not caught:** everything per path. The dates, churn, commit counts, author names, CODEOWNERS teams and even the paths are the uploader's word. A signed-in attacker could make a repo's timeline show made-up paths, dates or offensive author names, up to the moment the branch moves. Snapshots the spot check did not pick could also be wrong, and nothing checks that snapshots are ancestors of the head. A commit reachable only in a fork can pass `git/commits`, since GitHub shares objects across a fork network.
+- **How bad:** the timeline of one repo and branch shows wrong data until the branch's next commit. Nothing reaches the tree itself, which comes from GitHub directly, and no visitor's token or data is exposed. A junk upload blocks a correct one for the same head (`exists`). The owner can delete the key (`npx wrangler kv key delete --binding HISTORY 'h1:<owner/repo, lowercase>@<branch>'`), and the `by` login in its metadata names who uploaded it.
+
+## Limits (free plan)
+
+| Route                   | CPU (measured)           | Subrequests | KV              |
+| ----------------------- | ------------------------ | ----------- | --------------- |
+| `GET /v1/history/...`   | 0.75 ms Linux, 0.15 vite | 0           | 1 read          |
+| `PUT /v1/history/...`   | 1.85 ms Linux, 0.88 vite | 7 GitHub    | 1 read, 1 write |
+| `GET /v1/auth/login`    | under 1 ms (one HMAC)    | 0           | none            |
+| `GET /v1/auth/callback` | under 1 ms               | 1 GitHub    | none            |
+
+`node scripts/worker-cpu.mjs` measures the CPU numbers in Node against the fake. Workers run the same V8, so treat them as estimates.
+
+- **Requests.** Each IP gets 60 requests a minute (the `LIMITER` binding).
+- **Uploads.** Each IP gets 2 uploads a minute (`UPLOAD_LIMITER`) and 6 an hour (`UPLOADS_PER_IP_HOUR`). The Worker as a whole takes 300 a day (`UPLOADS_PER_DAY`). That leaves room in the account's 1,000 KV writes a day, which the owner's other project shares. The hourly and daily counters live in each data center's Cache API, so they cost no KV writes but are approximate. An upload over the limit answers `429` with `Retry-After`.
+- **Size.** Bodies over 8 MiB are refused (`413`). That is ten times Linux's. KV values may be up to 25 MiB.
+- **CORS.** `ALLOWED_ORIGINS` plus any localhost port. Other origins get `403`.
 
 ## Endpoints
 
-| Route                                    | What it does                                                                               |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `GET /v1/history/{owner}/{repo}?branch=` | The history, or `pending`, `needs-auth` or an error. Omit `branch` for the default branch. |
-| `GET /v1/auth/login?origin=`             | Starts sign-in in a popup opened by the app at `origin`.                                   |
-| `GET /v1/auth/callback`                  | GitHub returns here. The page posts the token to the opener and closes.                    |
-| `GET /health`                            | `ok`.                                                                                      |
+| Route                                    | Answers                                                                                                                                                                                                                    |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/history/{owner}/{repo}?branch=` | `200` with the gzipped History and `X-History-Manifest`, or `404 {status: 'missing'}`.                                                                                                                                     |
+| `PUT /v1/history/{owner}/{repo}?branch=` | `201 {status: 'stored', manifest}`, or an error: `400 invalid`, `401 unauthorized`, `403 private`/`forbidden`, `404 not-found`, `409 exists`/`stale`, `413 too-large`, `422 mismatch`, `429 rate-limited`, `502 upstream`. |
+| `GET /v1/auth/login?origin=`             | Starts sign-in in a popup opened by the app at `origin`.                                                                                                                                                                   |
+| `GET /v1/auth/callback`                  | GitHub returns here. The page posts the token to the opener and closes.                                                                                                                                                    |
+| `GET /health`                            | `ok`.                                                                                                                                                                                                                      |
+
+Errors are JSON, `{status: 'error', error, retryAfter?}`.
 
 ## Setup (owner)
 
-Do these once, in order. Run the commands in `server/`.
+The Worker is deployed at `https://repo-tree-history.jasonxyz.workers.dev`, and the KV namespace id is already in `wrangler.toml`. What remains is in `server/`.
 
-1. **Cloudflare account.** Sign up at https://dash.cloudflare.com/sign-up (the free plan is enough to start). Then run `npm ci` and `npx wrangler login`.
-2. **KV namespace.** Run `npx wrangler kv namespace create HISTORY`. Paste the `id` it prints into `wrangler.toml` in place of the zeros, for both `id` and `preview_id`. Commit that change. The id is not a secret.
-3. **First deploy.** Run `npx wrangler deploy`. It prints the Worker URL, for example `https://repo-tree-history.<your-subdomain>.workers.dev`. Call it `WORKER_URL` below.
-4. **GitHub OAuth App.** On GitHub go to Settings, Developer settings, OAuth Apps, New OAuth App.
+1. **GitHub OAuth App.** On GitHub go to Settings, Developer settings, OAuth Apps, New OAuth App.
    - Application name: Repo Tree.
    - Homepage URL: `https://jasonzhangggg.github.io/repo-tree/`.
-   - Authorization callback URL: `WORKER_URL/v1/auth/callback`.
+   - Authorization callback URL: `https://repo-tree-history.jasonxyz.workers.dev/v1/auth/callback`.
    - Leave device flow off.
 
    After you create it, copy the Client ID and generate a client secret.
 
-5. **Worker secrets.** Run `npx wrangler secret put GITHUB_CLIENT_ID`, then `npx wrangler secret put GITHUB_CLIENT_SECRET`, and paste each value when asked. The client id is public, but keeping it as a secret keeps both values in one place.
-6. **Optional prewarm token.** To keep the `PREWARM` repos warm, create a fine-grained personal access token with public repository read access only. Run `npx wrangler secret put GITHUB_TOKEN` and paste it. Skip this step and the cron does nothing.
-7. **Deploys from GitHub.** Create a Cloudflare API token with the "Edit Cloudflare Workers" template (My Profile, API Tokens). In the GitHub repo, under Settings, Secrets and variables, Actions, add the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The account id is on the Workers overview page. From then on, `.github/workflows/deploy-server.yml` deploys every push to `main` that touches `server/`. Until both secrets exist, the workflow skips with a notice instead of failing.
-8. **Point the app at it.** In the GitHub repo, add the Actions variable `VITE_HISTORY_URL` with the value `WORKER_URL` (Settings, Secrets and variables, Actions, Variables). The Pages build in `.github/workflows/deploy.yml` already reads it:
+2. **Worker secrets.** Run `npx wrangler secret put GITHUB_CLIENT_ID`, then `npx wrangler secret put GITHUB_CLIENT_SECRET`, and paste each value when asked. Until both exist, sign-in answers `503` and only stored histories are served. The Worker needs no GitHub token of its own. If an older setup set `GITHUB_TOKEN`, remove it with `npx wrangler secret delete GITHUB_TOKEN`.
+3. **Deploys.** `.github/workflows/deploy-server.yml` deploys every push to `main` that touches `server/`, using the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+4. **Point the app at it.** Set the Actions variable `VITE_HISTORY_URL` to `https://repo-tree-history.jasonxyz.workers.dev` (Settings, Secrets and variables, Actions, Variables). The Pages build reads it. Until it is set, the app builds with history off.
 
-   ```yaml
-   - run: npm run build
-     env:
-       VITE_HISTORY_URL: ${{ vars.VITE_HISTORY_URL }}
-   ```
-
-   Until the variable is set, the app builds with history off.
+Everything fits the free Workers plan. There is no cron and nothing runs between requests.
 
 ## Local development
 
-`wrangler dev` with no GitHub access runs against `scripts/fake-github.mjs`, which answers the API paths the job uses from local git clones and plays GitHub's OAuth endpoints:
+No GitHub access is needed. `scripts/fake-github.mjs` answers the REST, GraphQL and OAuth paths that the engine and the Worker use, from local git repositories. `scripts/local-worker.mjs` runs `src/worker.ts` in Node (22.18 or later) with KV in memory:
 
 ```sh
 git clone --bare --filter=blob:none https://github.com/vitejs/vite.git /tmp/vite.git
-node scripts/fake-github.mjs 8788 vitejs/vite=/tmp/vite.git &
-npx wrangler dev --var GITHUB_API:http://127.0.0.1:8788 --var GITHUB_WEB:http://127.0.0.1:8788 \
-  --var GITHUB_CLIENT_ID:local --var GITHUB_CLIENT_SECRET:local
-curl -H 'Authorization: Bearer gho_fakefakefakefakefake' http://127.0.0.1:8787/v1/history/vitejs/vite
+node scripts/fake-github.mjs 8791 vitejs/vite=/tmp/vite.git &
+FAKE_URL=http://localhost:8791 node scripts/local-worker.mjs 8790 &
+# then build the app against both, from the repo root:
+VITE_HISTORY_URL=http://localhost:8790 VITE_GITHUB_API=http://localhost:8791 npx vite build
 ```
 
-`npm run check` typechecks and runs the tests, which build small git repos and drive the core and the Worker through the same fake. `node scripts/save-history.mjs <worker url> <owner/repo> <out.history.json.gz> <token>` writes a history file like the bundled samples in `public/samples/`.
+`wrangler dev --var GITHUB_API:http://127.0.0.1:8791 --var GITHUB_WEB:http://127.0.0.1:8791 --var GITHUB_CLIENT_ID:local --var GITHUB_CLIENT_SECRET:local` runs the real Workers runtime in place of `local-worker.mjs`. `FAKE_NETWORK=<rtt ms>,<bytes per ms>` slows the fake down to watch progress. From the repo root, `node e2e/history-stack.mjs <app> <worker> <fake>` starts all three with a small test repo, `acme/widgets`. The Playwright `history` project and the `verify-repo-tree` skill's `history-compute` journey use it.
+
+`npm run check` typechecks and runs the tests. They build small git repos and drive the engine, the upload checks and the Worker's routes through the same fake. `node scripts/save-history.mjs <api url> <owner/repo> <branch> <out.history.json.gz> [token]` runs the engine in Node and writes a history file like the bundled samples in `public/samples/`.

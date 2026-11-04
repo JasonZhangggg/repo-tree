@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Usage: node .claude/skills/verify-repo-tree/scripts/drive.mjs <command> [--port 4175]
-//          [--out dir] [--viewport desktop|phone|phone-390]
+//          [--out dir] [--viewport desktop|phone|phone-390] [--scale 2] [--history]
 // Commands: launch, doctor, cleanup, or a journey: load-repo, explore, search, settings,
-// share-and-export, phone-layout, tree-sizes, weather. Journeys save numbered screenshots and report.json in --out
+// share-and-export, phone-layout, tree-sizes, timeline, weather, history-compute.
+// `launch --history` starts e2e/history-stack.mjs instead (app, history Worker and fake GitHub
+// on port, port+1 and port+2), which the history-compute journey needs. Journeys save numbered screenshots and report.json in --out
 // (default .verify/<journey>-<viewport>-<time>/) and exit 1 when a step fails.
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -28,12 +30,17 @@ const { positionals, values } = parseArgs({
     port: { type: 'string', default: process.env.VERIFY_PORT ?? '4175' },
     out: { type: 'string' },
     viewport: { type: 'string', default: 'desktop' },
+    scale: { type: 'string' },
+    history: { type: 'boolean', default: false },
   },
 });
 const [command = ''] = positionals;
 const { port, viewport } = values;
 const base = `http://localhost:${port}/`;
 const pidFile = `.verify/preview-${port}.pid`;
+const worker = `http://localhost:${Number(port) + 1}`;
+const fake = `http://localhost:${Number(port) + 2}`;
+const dist = existsSync(`dist-history-${port}`) ? `dist-history-${port}` : 'dist';
 const answers = () =>
   fetch(base).then(
     (r) => r.ok,
@@ -42,6 +49,7 @@ const answers = () =>
 
 async function launch() {
   if (await answers()) throw new Error(`port ${port} already answers; pick another --port`);
+  if (values.history) return launchHistory();
   if (spawnSync('node', ['node_modules/vite/bin/vite.js', 'build'], { stdio: 'inherit' }).status)
     throw new Error('vite build failed');
   mkdirSync('.verify', { recursive: true });
@@ -57,6 +65,30 @@ async function launch() {
   console.log(`ready ${base} pid ${child.pid}`);
 }
 
+/** The app, the history Worker and a fake GitHub on a slow link, so progress can be watched. */
+async function launchHistory() {
+  mkdirSync('.verify', { recursive: true });
+  const log = openSync(`.verify/preview-${port}.log`, 'w');
+  const ports = [port, String(Number(port) + 1), String(Number(port) + 2)];
+  const child = spawn('node', ['e2e/history-stack.mjs', ...ports], {
+    detached: true,
+    stdio: ['ignore', log, log],
+    env: { ...process.env, FAKE_NETWORK: process.env.FAKE_NETWORK ?? '400,30' },
+  });
+  let exited = false;
+  child.on('exit', () => (exited = true));
+  child.unref();
+  writeFileSync(pidFile, String(child.pid));
+  for (let i = 0; !(await answers()); i++) {
+    if (exited || i > 900) throw new Error(`no answer on ${base}; see .verify/preview-${port}.log`);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  console.log(`ready ${base} worker ${worker} github ${fake} pid ${child.pid}`);
+}
+
+/** The process group a pid leads (a detached launch leads its own). */
+const group = (pid) => spawnSync('ps', ['-o', 'pgid=', '-p', pid]).stdout.toString().trim();
+
 const owners = () =>
   spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'])
     .stdout.toString()
@@ -66,7 +98,8 @@ const owners = () =>
 function cleanup() {
   if (!existsSync(pidFile)) return console.log(`nothing started on ${port} by this skill`);
   const pid = readFileSync(pidFile, 'utf8').trim();
-  if (owners().includes(pid)) process.kill(Number(pid));
+  // A history stack's preview is its child, in the group the launched pid leads.
+  if (owners().some((o) => o === pid || group(o) === pid)) process.kill(Number(pid));
   else console.log(`pid ${pid} no longer owns port ${port}; left it alone`);
   rmSync(pidFile);
   rmSync(`.verify/preview-${port}.log`, { force: true });
@@ -93,6 +126,7 @@ async function open() {
   if (!device) throw new Error(`unknown --viewport ${viewport}; use desktop, phone or phone-390`);
   const context = await browser.newContext({
     ...device,
+    ...(values.scale ? { deviceScaleFactor: Number(values.scale) } : {}),
     reducedMotion: 'reduce',
     acceptDownloads: true,
   });
@@ -107,9 +141,10 @@ async function doctor() {
   const pid = existsSync(pidFile) ? readFileSync(pidFile, 'utf8').trim() : null;
   const checks = {
     'started by this skill': pid !== null,
-    'pid owns the port': pid !== null && owners().includes(pid),
+    'pid owns the port': pid !== null && owners().some((o) => o === pid || group(o) === pid),
     'dist newer than src':
-      existsSync('dist/index.html') && statSync('dist/index.html').mtimeMs >= (await newest('src')),
+      existsSync(`${dist}/index.html`) &&
+      statSync(`${dist}/index.html`).mtimeMs >= (await newest('src')),
   };
   const { browser, page, errors } = await open();
   try {
@@ -583,6 +618,87 @@ const JOURNEYS = {
       await expect(chip).toBeHidden();
       await page.getByRole('button', { name: 'Close settings' }).click();
       await settle(page);
+    });
+  },
+
+  'history-compute': async ({ page, context, step }) => {
+    const up = await fetch(`${worker}/health`).then(
+      (r) => r.ok,
+      () => false,
+    );
+    if (!up) throw new Error(`no history Worker on ${worker}; run launch --history first`);
+    const phone = viewport.startsWith('phone');
+    const dialog = page.getByRole('dialog', { name: /timeline|history/i });
+    const scrubber = page.getByRole('group', { name: 'Timeline' });
+    const authorized = new Set();
+    context.on('request', (req) => {
+      if (req.headers()['authorization']) authorized.add(new URL(req.url()).origin);
+    });
+    await serveRepo(page, 'acme/widgets');
+    await serveRepo(page, 'acme/huge', 'torvalds-linux');
+    const openTimeline = async (repo) => {
+      await enter(page, repo);
+      await ready(page, repo);
+      await page.locator('#timeline').click();
+      await expect(dialog).toBeVisible();
+    };
+    await step('offer', async () => {
+      await page.goto(base);
+      await ready(page, 'vitejs/vite');
+      await openTimeline('acme/widgets');
+      await expect(dialog).toContainText('No timeline yet for acme/widgets');
+      await expect(dialog).toContainText('your own GitHub requests, under 1 MB to download');
+      await expect(dialog).toContainText('everyone who opens acme/widgets gets it at once');
+      if (phone) await expect(dialog).toContainText('This looks like a phone or a small device.');
+    });
+    await step('decline', async () => {
+      await page.getByRole('button', { name: 'Not now' }).click();
+      await expect(dialog).toBeHidden();
+      await expect(scrubber).toBeHidden();
+    });
+    await step('big-repo', async () => {
+      await openTimeline('acme/huge');
+      await expect(dialog).toContainText('This is a big repo.');
+      await expect(dialog).toContainText(/about \d+ MB to download/);
+      await expect(page.getByRole('button', { name: 'Sign in and compute anyway' })).toBeVisible();
+    });
+    await step('progress', async () => {
+      await page.getByRole('button', { name: 'Not now' }).click();
+      await openTimeline('acme/widgets');
+      const popup = page.waitForEvent('popup');
+      await page.getByRole('button', { name: /^Sign in/ }).click();
+      await (await popup).waitForEvent('close');
+      await expect(dialog.locator('progress')).toHaveAttribute('value', /^[1-9]\d?$/);
+      await expect(dialog).toContainText(/\d+% · /);
+      await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    });
+    await step('timeline', async () => {
+      await expect(scrubber).toBeVisible({ timeout: 60_000 });
+      await expect(dialog).toBeHidden();
+      const res = await fetch(`${worker}/v1/history/acme/widgets?branch=main`);
+      expect(res.status).toBe(200);
+      const manifest = JSON.parse(res.headers.get('x-history-manifest'));
+      expect(manifest).toMatchObject({ repo: 'acme/widgets', branch: 'main', by: 'visitor' });
+      expect([...authorized].sort()).toEqual([fake, worker].sort());
+      const stored = await page.evaluate(() => JSON.stringify(localStorage));
+      expect(stored).not.toMatch(/gho_|token/i);
+      await settle(page);
+    });
+    await step('shared', async () => {
+      // Someone else, signed out, in a fresh browser: the Worker's copy, no prompt.
+      const other = await context.browser().newContext({ reducedMotion: 'reduce' });
+      try {
+        const visitor = await other.newPage();
+        await quietSettings(visitor);
+        await serveRepo(visitor, 'acme/widgets');
+        await visitor.goto(`${base}#/acme/widgets`);
+        await ready(visitor, 'acme/widgets');
+        await visitor.locator('#timeline').click();
+        await expect(visitor.getByRole('group', { name: 'Timeline' })).toBeVisible();
+        await expect(visitor.getByRole('dialog', { name: /timeline|history/i })).toBeHidden();
+      } finally {
+        await other.close();
+      }
     });
   },
 };

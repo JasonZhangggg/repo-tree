@@ -777,13 +777,21 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   // FAKE_REMAINING: the token's request budget (GitHub: 5,000 an hour).
   const remaining = Number(process.env.FAKE_REMAINING ?? 5000);
-  const handle = gitHubFetch(repos, { log: (line) => console.error(line), remaining });
+  // FAKE_NETWORK=<rtt ms>,<bytes per ms>: a slow link, to watch progress (verify-repo-tree).
+  const [rttMs, bytesPerMs] = (process.env.FAKE_NETWORK ?? '').split(',').map(Number);
+  const network = rttMs && bytesPerMs ? { rttMs, bytesPerMs } : undefined;
+  const handle = gitHubFetch(repos, {
+    log: (line) => console.error(line),
+    remaining,
+    ...(network ? { network } : {}),
+  });
   createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'access-control-allow-origin': '*',
         'access-control-allow-methods': 'GET, POST',
-        'access-control-allow-headers': 'authorization, content-type, x-github-api-version',
+        'access-control-allow-headers':
+          'authorization, content-type, user-agent, x-github-api-version',
         'access-control-max-age': '86400',
       });
       res.end();

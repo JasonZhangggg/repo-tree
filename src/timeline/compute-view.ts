@@ -75,7 +75,10 @@ export function describeStep(
         lines: [
           {
             kind: 'progress',
-            text: `${Math.round(step.progress * 100)}% · ${Math.round(step.progress * estimate.downloadMB)} MB of ${download}`,
+            text:
+              estimate.downloadMB < 1
+                ? `${Math.round(step.progress * 100)}% · ${download}`
+                : `${Math.round(step.progress * 100)}% · ${Math.round(step.progress * estimate.downloadMB)} MB of ${download}`,
           },
           {
             kind: 'fine',

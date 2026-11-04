@@ -40,6 +40,11 @@ describe('describeStep', () => {
     expect(v.progress).toBe(0.42);
     expect(v.lines[0]).toEqual({ kind: 'progress', text: '42% · 35 MB of about 85 MB' });
     expect(v.buttons).toEqual([{ label: 'Cancel', act: 'cancel' }]);
+    const tiny = describeStep(
+      { kind: 'computing', progress: 0.5 },
+      { ...ctx, estimate: estimateCompute(100) },
+    );
+    expect(tiny.lines[0]!.text).toBe('50% · under 1 MB');
   });
 
   test('explains a failure and offers to resume', () => {

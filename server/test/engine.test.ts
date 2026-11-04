@@ -1,11 +1,22 @@
 import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { gitHubFetch } from '../scripts/fake-github.mjs';
-import { computeHistory, thin, type EngineOptions } from '../src/core/engine';
-import { gitHub } from '../src/core/github';
+import {
+  computeHistory,
+  createCheckpoint,
+  mainlineCommitter,
+  thin,
+  type EngineOptions,
+  type EngineStats,
+} from '../src/core/engine';
+import { gitHub, type CommitSummary } from '../src/core/github';
 import { DEFAULT_LIMITS, createJob, step } from '../src/core/job';
 import { summarize } from '../src/core/summarize';
-import { MODE, treeReader, type Node, type TreeFetch } from '../src/core/trees';
+import { blobKey } from '../src/core/store';
+import { MODE, TreeStore, graphqlLoader, restReader, type TreeFetch } from '../src/core/trees';
 import type { History } from '../src/shape';
 import { DAY, makeRepo, type Commit } from './repo';
 
@@ -65,15 +76,17 @@ function fetchTreeVia(f: ReturnType<typeof fake>, log: string[] = []): TreeFetch
   };
 }
 
-/** Every path below a node, as `git ls-tree -r -t` names them, with its sha. */
-function flatten(node: Node, prefix = ''): string[] {
+/** Every path below tree t, with its tree sha (a folder) or blob key (a file), sorted. */
+function flatten(store: TreeStore, t: number, prefix = ''): string[] {
   const out: string[] = [];
-  node.names.forEach((name, i) => {
-    out.push(`${prefix}${name} ${node.shas[i]}`);
-    const kid = node.kids[i];
-    if (kid) out.push(...flatten(kid, `${prefix}${name}/`));
-  });
-  return out;
+  for (let i = 0; i < store.length(t); i++) {
+    const path = `${prefix}${store.name(t, i)}`;
+    if (store.isTree(t, i)) {
+      out.push(`${path} ${store.oids[store.ref(t, i)]}`);
+      out.push(...flatten(store, store.ref(t, i), `${path}/`));
+    } else out.push(`${path} ${store.ref(t, i)}`);
+  }
+  return prefix ? out : out.sort();
 }
 
 function lsTree(commit: string): string[] {
@@ -82,37 +95,40 @@ function lsTree(commit: string): string[] {
     .split('\n')
     .map((line) => {
       const [meta = '', path = ''] = line.split('\t');
-      return `${path} ${meta.split(' ')[2]}`;
-    });
+      const [, type, oid = ''] = meta.split(' ');
+      return `${path} ${type === 'tree' ? oid : blobKey(oid)}`;
+    })
+    .sort();
 }
 
-const kid = (node: Node, name: string) => node.kids[node.names.indexOf(name)]!;
+const kid = (store: TreeStore, t: number, name: string) => store.ref(t, store.find(t, name, true));
+
+const LEVELS = { requestBytes: 0, entryBytes: 1, prior: 0, priorWeight: 1, firstPrior: 0 };
 
 describe('pruned tree reading', () => {
   it('reads the head whole in one request', async () => {
     const log: string[] = [];
-    const reader = treeReader(fetchTreeVia(fake(), log));
-    const head = await reader.read(treeOf(repo.shas[4]!), null, () => undefined, 0);
+    const store = new TreeStore();
+    const reader = restReader(fetchTreeVia(fake(), log), store);
+    const head = await reader.read(treeOf(repo.shas[4]!), -1, () => undefined, 0, 0);
     expect(log).toHaveLength(1);
-    expect(flatten(head)).toEqual(lsTree(repo.shas[4]!));
+    expect(flatten(store, head)).toEqual(lsTree(repo.shas[4]!));
   });
 
   it('shares unchanged folders with the newer snapshot and fetches only what changed', async () => {
     const log: string[] = [];
-    const reader = treeReader(fetchTreeVia(fake(), log), {
-      requestBytes: 0,
-      entryBytes: 1,
-      prior: 0,
-      priorWeight: 1,
-      firstPrior: 0,
-    });
-    const newer = await reader.read(treeOf(repo.shas[4]!), null, () => undefined, 0);
+    const store = new TreeStore();
+    const reader = restReader(fetchTreeVia(fake(), log), store, LEVELS);
+    const newer = await reader.read(treeOf(repo.shas[4]!), -1, () => undefined, 0, 0);
     log.length = 0;
-    const older = await reader.read(treeOf(repo.shas[3]!), newer, () => undefined, 0);
-    expect(flatten(older)).toEqual(lsTree(repo.shas[3]!));
-    // lib/, c/ and m/ did not change between these snapshots: the very same objects.
-    for (const name of ['lib', 'c', 'm']) expect(kid(older, name)).toBe(kid(newer, name));
-    expect(kid(kid(older, 'b'), 'deep')).not.toBe(kid(kid(newer, 'b'), 'deep'));
+    const older = await reader.read(treeOf(repo.shas[3]!), newer, () => undefined, 0, 1);
+    expect(flatten(store, older)).toEqual(lsTree(repo.shas[3]!));
+    // lib/, c/ and m/ did not change between these snapshots: the very same trees.
+    for (const name of ['lib', 'c', 'm']) {
+      expect(kid(store, older, name)).toBe(kid(store, newer, name));
+    }
+    const deep = (t: number) => kid(store, kid(store, t, 'b'), 'deep');
+    expect(deep(older)).not.toBe(deep(newer));
     // The root, b/ and b/deep/ a level at a time; b/deep/er/ (one file, a tie) and d/ (new
     // here, no size to go by) whole.
     expect(log.filter((l) => l.startsWith('L'))).toHaveLength(3);
@@ -121,42 +137,88 @@ describe('pruned tree reading', () => {
 
   it('reuses a renamed folder by its sha instead of fetching it', async () => {
     const log: string[] = [];
-    const levels = { requestBytes: 0, entryBytes: 1, prior: 0, priorWeight: 1, firstPrior: 0 };
-    const reader = treeReader(fetchTreeVia(fake(), log), levels);
-    const newer = await reader.read(treeOf(repo.shas[1]!), null, () => undefined, 0);
+    const store = new TreeStore();
+    const reader = restReader(fetchTreeVia(fake(), log), store, LEVELS);
+    const newer = await reader.read(treeOf(repo.shas[1]!), -1, () => undefined, 0, 0);
     log.length = 0;
-    const older = await reader.read(treeOf(repo.shas[0]!), newer, () => undefined, 1);
+    const older = await reader.read(treeOf(repo.shas[0]!), newer, () => undefined, 1, 1);
     expect(log).toHaveLength(1);
-    expect(flatten(older)).toEqual(lsTree(repo.shas[0]!));
-    expect(kid(older, 'a')).toBe(kid(newer, 'c'));
-    expect(reader.stats.moved).toBeGreaterThanOrEqual(1);
+    expect(flatten(store, older)).toEqual(lsTree(repo.shas[0]!));
+    expect(kid(store, older, 'a')).toBe(kid(store, newer, 'c'));
   });
 
   it('keeps the complete folders of a truncated listing and reads only the rest', async () => {
     const log: string[] = [];
-    const reader = treeReader(fetchTreeVia(fake({ maxEntries: 8 }), log));
-    const head = await reader.read(treeOf(repo.shas[4]!), null, () => undefined, 0);
-    expect(flatten(head)).toEqual(lsTree(repo.shas[4]!));
+    const store = new TreeStore();
+    const reader = restReader(fetchTreeVia(fake({ maxEntries: 8 }), log), store);
+    const head = await reader.read(treeOf(repo.shas[4]!), -1, () => undefined, 0, 0);
+    expect(flatten(store, head)).toEqual(lsTree(repo.shas[4]!));
     expect(reader.stats.truncated).toBeGreaterThanOrEqual(1);
     expect(reader.stats.salvaged).toBeGreaterThanOrEqual(1);
-    const whole = lsTree(repo.shas[4]!).length;
-    expect(whole).toBeGreaterThan(8);
+    expect(lsTree(repo.shas[4]!).length).toBeGreaterThan(8);
     // Far fewer requests than one per folder.
-    const folders = flatten(head).filter((l) => !l.split(' ')[0]!.includes('.')).length;
-    expect(log.length).toBeLessThan(folders + 1);
+    expect(log.length).toBeLessThan(store.trees);
   });
 
   it('reads truncated listings correctly even when no folder can be salvaged', async () => {
-    const reader = treeReader(fetchTreeVia(fake({ maxEntries: 1 })));
-    const head = await reader.read(treeOf(repo.shas[4]!), null, () => undefined, 0);
-    expect(flatten(head)).toEqual(lsTree(repo.shas[4]!));
+    const store = new TreeStore();
+    const reader = restReader(fetchTreeVia(fake({ maxEntries: 1 })), store);
+    const head = await reader.read(treeOf(repo.shas[4]!), -1, () => undefined, 0, 0);
+    expect(flatten(store, head)).toEqual(lsTree(repo.shas[4]!));
   });
 
   it('counts entries below each folder', async () => {
-    const reader = treeReader(fetchTreeVia(fake()));
-    const head = await reader.read(treeOf(repo.shas[4]!), null, () => undefined, 0);
-    expect(head.count).toBe(lsTree(repo.shas[4]!).length);
-    expect(head.modes[head.names.indexOf('lib')]).toBe(MODE.tree);
+    const store = new TreeStore();
+    const reader = restReader(fetchTreeVia(fake()), store);
+    const head = await reader.read(treeOf(repo.shas[4]!), -1, () => undefined, 0, 0);
+    expect(store.count(head)).toBe(lsTree(repo.shas[4]!).length);
+    expect(store.mode(head, store.find(head, 'lib', true))).toBe(MODE.tree);
+  });
+});
+
+describe('graphql tree loader', () => {
+  const query = (f: ReturnType<typeof fake>, log: number[] = []) => {
+    const gh = gitHub({
+      fetch: f as unknown as typeof fetch,
+      api: API,
+      token: 't',
+      limit: Infinity,
+    });
+    return (q: string) => {
+      log.push((q.match(/object\(/g) ?? []).length);
+      return gh.graphql(q);
+    };
+  };
+
+  it('reads every tree below the roots, each once, many to a query', async () => {
+    const store = new TreeStore();
+    const log: number[] = [];
+    const loader = graphqlLoader(query(fake(), log), { owner: 'acme', name: 'app' }, store);
+    for (const sha of repo.shas) loader.add(treeOf(sha));
+    await loader.drain();
+    for (const sha of repo.shas) {
+      expect(flatten(store, store.id(treeOf(sha)))).toEqual(lsTree(sha));
+    }
+    expect(loader.stats.trees).toBe(store.trees);
+    expect(log.length).toBeLessThan(store.trees);
+  });
+
+  it('halves its batch when GitHub fails a query, and finishes', async () => {
+    const store = new TreeStore();
+    const loader = graphqlLoader(
+      query(gitHubFetch({ 'acme/app': { dir: repo.dir } }, { graphqlMaxEntries: 15 })),
+      { owner: 'acme', name: 'app' },
+      store,
+      { batch: 8, concurrency: 1 },
+    );
+    // Five roots of five or six entries each: too many for one query, fine two at a time.
+    for (const sha of repo.shas) loader.add(treeOf(sha));
+    await loader.drain();
+    expect(loader.stats.failed).toBeGreaterThan(0);
+    expect(loader.gaveUp).toBe(false);
+    for (const sha of repo.shas) {
+      expect(flatten(store, store.id(treeOf(sha)))).toEqual(lsTree(sha));
+    }
   });
 });
 
@@ -272,6 +334,255 @@ describe('browser engine', () => {
   it('turns a refused token into an UpstreamError', async () => {
     const f = gitHubFetch({ 'acme/app': { dir: repo.dir } }, { tokens: ['good'] });
     await expect(engine(f, { token: 'bad' })).rejects.toMatchObject({ kind: 'unauthorized' });
+  });
+});
+
+const QUICK = { attempts: 4, maxWaitMs: 90_000, sleep: async () => undefined };
+
+describe('graphql reader', () => {
+  it('yields the same history as the server job', async () => {
+    for (const recentCommits of [0, 2]) {
+      const expected = await jobHistory(fake(), recentCommits);
+      let stats: EngineStats | undefined;
+      const h = await engine(fake(), {
+        recentCommits,
+        token: 't',
+        onStats: (s) => (stats = s),
+      });
+      expect(h).toEqual(expected);
+      expect(stats!.requests.graphql).toBeGreaterThan(0);
+      expect(stats!.requests.trees).toBe(0);
+    }
+  });
+
+  it('falls back to REST when GraphQL keeps failing', async () => {
+    const expected = await jobHistory(fake(), 2);
+    const f = gitHubFetch(
+      { 'acme/app': { dir: repo.dir } },
+      {
+        inject: (url) =>
+          url.pathname === '/graphql'
+            ? Promise.resolve({ status: 502, body: '', kind: 'graphql', extra: {} })
+            : undefined,
+      },
+    );
+    let stats: EngineStats | undefined;
+    const h = await engine(f, {
+      recentCommits: 2,
+      token: 't',
+      retry: QUICK,
+      onStats: (s) => (stats = s),
+    });
+    expect(h).toEqual(expected);
+    expect(stats!.graphql!.gaveUp).toBe(true);
+    expect(stats!.requests.trees).toBeGreaterThan(0);
+  });
+});
+
+describe('retries and resuming', () => {
+  /** A fake whose first `n` requests of a kind fail with `status` (and a body, headers). */
+  function flaky(
+    n: number,
+    match: RegExp,
+    reply: { status: number; body?: string; extra?: Record<string, string> },
+  ) {
+    let left = n;
+    return gitHubFetch(
+      { 'acme/app': { dir: repo.dir } },
+      {
+        inject: (url) =>
+          match.test(url.pathname) && left-- > 0
+            ? Promise.resolve({
+                status: reply.status,
+                body: reply.body ?? '',
+                kind: 'injected',
+                extra: reply.extra ?? {},
+              })
+            : undefined,
+      },
+    );
+  }
+
+  it('retries server errors, secondary limits and Retry-After, then succeeds', async () => {
+    const expected = await jobHistory(fake(), 2);
+    const waits: number[] = [];
+    const retry = { ...QUICK, sleep: async (ms: number) => void waits.push(ms) };
+    for (const [f, wait] of [
+      [flaky(2, /git\/trees/, { status: 502 }), 0],
+      [
+        flaky(1, /commits/, { status: 403, body: 'You have exceeded a secondary rate limit' }),
+        60_000,
+      ],
+      [flaky(1, /git\/trees/, { status: 429, extra: { 'retry-after': '7' } }), 7_000],
+    ] as const) {
+      waits.length = 0;
+      let stats: EngineStats | undefined;
+      expect(await engine(f, { recentCommits: 2, retry, onStats: (s) => (stats = s) })).toEqual(
+        expected,
+      );
+      expect(stats!.retried).toBeGreaterThan(0);
+      if (wait) expect(waits).toContain(wait);
+    }
+  });
+
+  it('gives up after its attempts, and fails a long wait at once as rate-limited', async () => {
+    await expect(
+      engine(flaky(99, /git\/trees/, { status: 502 }), { retry: QUICK }),
+    ).rejects.toMatchObject({ kind: 'upstream' });
+    const reset = String(Math.floor(Date.now() / 1000) + 3600);
+    const spent = flaky(99, /git\/trees/, {
+      status: 403,
+      extra: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset },
+    });
+    await expect(engine(spent, { retry: QUICK })).rejects.toMatchObject({ kind: 'rate-limited' });
+  });
+
+  it('resumes from a checkpoint without reading anything twice', async () => {
+    const expected = await jobHistory(fake(), 2);
+    const checkpoint = createCheckpoint();
+    // The budget runs out after a few trees.
+    let trees = 0;
+    const failing = gitHubFetch(
+      { 'acme/app': { dir: repo.dir } },
+      {
+        inject: (url) =>
+          url.pathname.includes('/git/trees/') && ++trees > 2
+            ? Promise.resolve({ status: 502, body: '', kind: 'injected', extra: {} })
+            : undefined,
+      },
+    );
+    const plan = { requestBytes: 0, entryBytes: 1, prior: 0, priorWeight: 1, firstPrior: 0 };
+    await expect(
+      engine(failing, { recentCommits: 2, checkpoint, plan, retry: { attempts: 0, maxWaitMs: 0 } }),
+    ).rejects.toMatchObject({ kind: 'upstream' });
+    const held = checkpoint.store.trees;
+    expect(held).toBeGreaterThan(0);
+    const again = fake();
+    const log: string[] = [];
+    const logged = gitHubFetch({ 'acme/app': { dir: repo.dir } }, { log: (l) => log.push(l) });
+    expect(await engine(logged, { recentCommits: 2, checkpoint, plan })).toEqual(expected);
+    // Nothing read before is asked for again: no listing, no tree already held.
+    expect(log.filter((l) => /\/commits\?sha=[^&]*&per_page=100$/.test(l))).toHaveLength(0);
+    const fresh = await engine(again, { recentCommits: 2, plan });
+    expect(fresh).toEqual(expected);
+    expect(log.length).toBeLessThan(again.state.requests);
+  });
+});
+
+describe('commit files', () => {
+  it("reads every page of a big commit, and records GitHub's 3,000-file cap", async () => {
+    // Written straight to disk and added at once: makeRepo adds file by file.
+    const big = makeRepo([{ at: HEAD - 20 * DAY, files: { 'seed.txt': 's' } }]);
+    const commit = (n: number, v: string, at: number) => {
+      mkdirSync(join(big.dir, 'f'), { recursive: true });
+      for (let i = 0; i < n; i++) writeFileSync(join(big.dir, 'f', `${i}.txt`), v);
+      const date = new Date(at).toISOString();
+      execFileSync('git', ['-C', big.dir, 'add', '-A']);
+      execFileSync('git', ['-C', big.dir, 'commit', '-q', '-m', v], {
+        env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+      });
+    };
+    commit(3001, 'a', HEAD - 10 * DAY);
+    commit(320, 'b', HEAD);
+    const log: string[] = [];
+    const h = await computeHistory({
+      fetch: gitHubFetch(
+        { 'acme/big': { dir: big.dir } },
+        { log: (l) => log.push(l) },
+      ) as unknown as typeof fetch,
+      api: API,
+      repo: 'acme/big',
+      branch: 'main',
+    });
+    big.remove();
+    expect(log.filter((l) => /\/commits\/[0-9a-f]{40}\?page=2/.test(l))).toHaveLength(2);
+    expect(log.filter((l) => /\?page=10$/.test(l))).toHaveLength(1);
+    expect(h.gaps).toContain('commit-files-capped');
+    // f/319.txt changed in the head commit: the second page of its files.
+    expect(h.files.changed[h.files.path.indexOf('f/319.txt')]).toBe(HEAD);
+  }, 60_000);
+});
+
+describe('first-parent snapshots', () => {
+  /**
+   * A mainline committed by `linus` that merges a topic branch each week; the topic commits are
+   * committed by `dev` after the mainline commit they fork from, so the newest commit before a
+   * target is often on a branch.
+   */
+  function merged() {
+    const dir = mkdtempSync(join(tmpdir(), 'history-merge-'));
+    const git = (args: string[], who = 'linus', at = 0) =>
+      execFileSync('git', ['-C', dir, ...args], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: who,
+          GIT_AUTHOR_EMAIL: `${who}@example.com`,
+          GIT_COMMITTER_NAME: who,
+          GIT_COMMITTER_EMAIL: `${who}@example.com`,
+          GIT_AUTHOR_DATE: new Date(at).toISOString(),
+          GIT_COMMITTER_DATE: new Date(at).toISOString(),
+        },
+      }).trim();
+    git(['init', '-q', '-b', 'main']);
+    const start = HEAD - 12 * 7 * DAY;
+    const write = (path: string, text: string) => {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), text);
+      git(['add', path]);
+    };
+    write('main.txt', '0');
+    git(['commit', '-q', '-m', 'root'], 'linus', start);
+    for (let w = 1; w <= 12; w++) {
+      const at = start + w * 7 * DAY;
+      git(['checkout', '-q', '-b', `t${w}`]);
+      for (let k = 0; k < 2; k++) {
+        write(`topic/${w}-${k}.txt`, String(k));
+        git(['commit', '-q', '-m', `topic ${w}.${k}`], 'dev', at - 3 * DAY + k * DAY);
+      }
+      git(['checkout', '-q', 'main']);
+      write('main.txt', String(w));
+      git(['commit', '-q', '-m', `main ${w}`], 'linus', at - 4 * DAY);
+      git(['merge', '-q', '--no-ff', '--no-edit', `t${w}`], 'linus', at - 2 * DAY + 12 * 3600_000);
+    }
+    const chain = new Set(git(['rev-list', '--first-parent', 'main']).split('\n'));
+    return { dir, chain, remove: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  it('picks every snapshot on the first-parent chain', async () => {
+    const m = merged();
+    let stats: EngineStats | undefined;
+    const h = await computeHistory({
+      fetch: gitHubFetch({ 'acme/m': { dir: m.dir } }) as unknown as typeof fetch,
+      api: API,
+      repo: 'acme/m',
+      branch: 'main',
+      recentCommits: 0,
+      onStats: (s) => (stats = s),
+    });
+    m.remove();
+    expect(stats!.mainline).toBe('linus@example.com');
+    expect(h.snapshots.length).toBeGreaterThan(8);
+    for (const s of h.snapshots) expect(m.chain.has(s.sha)).toBe(true);
+  }, 60_000);
+
+  it('keeps the date pick for a linear history', () => {
+    const c = (sha: string, parent: string, committer: string): CommitSummary =>
+      ({
+        sha,
+        parents: parent ? [parent] : [],
+        committer,
+        at: 0,
+        tree: '',
+        author: committer,
+        merge: false,
+      }) as unknown as CommitSummary;
+    expect(mainlineCommitter([c('b', 'a', 'x'), c('a', '', 'y')])).toBeNull();
+    // A merge commit's second parent listed before its first: not a straight line.
+    const merge = { ...c('m', 'a', 'x'), parents: ['a', 'b'], merge: true };
+    expect(mainlineCommitter([merge, c('b', 'z', 'y'), c('a', 'z', 'x'), c('z', '', 'x')])).toBe(
+      'x',
+    );
   });
 });
 

@@ -15,7 +15,12 @@ export type Gap =
   /** The root commit could not be found, so the oldest snapshot is not the first commit. */
   | 'root-unknown'
   /** A CODEOWNERS file exists but could not be read. */
-  | 'codeowners-unread';
+  | 'codeowners-unread'
+  /**
+   * A recent commit changed more files than GitHub lists for one commit (3,000), so the rest of
+   * its changes are dated to snapshot resolution only.
+   */
+  | 'commit-files-capped';
 
 /**
  * One row per path, as parallel columns. Folders have no trailing slash and the root folder

@@ -1,47 +1,32 @@
 /**
- * Pruned incremental reading of a repo's tree snapshots, for hosts that hold every snapshot's
- * tree in memory (the browser engine, src/core/engine.ts).
+ * Reading a repo's snapshot trees into a TreeStore (store.ts), two ways.
  *
- * A snapshot is read against the newer one already in memory: a folder whose tree sha did not
- * change is that same object (structural sharing, never a copy), and a folder whose sha appears
- * anywhere in the newer snapshot (a move or a rename) is reused too. Only changed folders are
- * fetched, each one either whole (`?recursive=1`, one request) or one level at a time (its own
- * listing, then the same choice for each changed child). `choose` picks by an expected cost
- * built from the newer snapshot's sizes and how often each folder changed in the intervals
- * read so far.
+ * GraphQL (`graphqlLoader`, the default): every tree not yet in the store is asked for once,
+ * about fifty to a query as aliased `object(oid:)` lookups, breadth first across all snapshots
+ * at once. Each distinct tree object costs its entries once and no request of its own, so the
+ * bytes follow what changed between snapshots. GraphQL needs a token; the loader backs off to
+ * smaller batches when a query fails and gives up (leaving the rest to REST) when they keep
+ * failing.
  *
- * A recursive listing GitHub cut short (`truncated`, past 100,000 entries or 7 MB) is not
- * thrown away: every folder in it whose entries hash to its own sha is complete, whatever order
- * GitHub listed them in, and only the others are read again.
+ * REST (`restReader`, the fallback): a snapshot is read against the newer one already in the
+ * store. Trees already read cost nothing; each changed folder is read whole (`?recursive=1`, one
+ * request) or one level at a time, whichever an expected cost favours. That cost comes from the
+ * newer snapshot's sizes, how often each subfolder changed along with its parent, and how busy
+ * this interval looks in the level reads made so far. A truncated recursive listing keeps every
+ * folder whose entries hash to its own sha, whatever order GitHub listed them in.
  */
 
-import { UpstreamError, isRecord } from './github';
+import { GraphQLError, UpstreamError, isRecord } from './github';
+import { MODE, TreeStore, type Entry, type Mode } from './store';
 
-/** Entry modes, as git stores them. */
-export const MODE = { file: 0, exec: 1, link: 2, tree: 3, module: 4 } as const;
+export { MODE, TreeStore };
+
 const MODE_TEXT = ['100644', '100755', '120000', '40000', '160000'] as const;
-type Mode = (typeof MODE)[keyof typeof MODE];
-
-/**
- * One folder of one snapshot. Immutable once built, so snapshots share every folder that did not
- * change. `kids[i]` is the folder entry i points to (null for files and submodules).
- */
-export type Node = {
-  readonly sha: string;
-  readonly names: readonly string[];
-  readonly shas: readonly string[];
-  readonly modes: Uint8Array;
-  readonly kids: readonly (Node | null)[];
-  /** Entries anywhere below this folder. */
-  readonly count: number;
-};
-
-export type TreeFetch = (sha: string, recursive: boolean) => Promise<unknown>;
 
 export type Plan = {
   /** What one request costs, in the gzipped bytes it is worth. */
   requestBytes: number;
-  /** Gzipped bytes per tree entry in a listing (GitHub's url per entry is most of it). */
+  /** Gzipped bytes per tree entry in a REST listing (the sha is most of it). */
   entryBytes: number;
   /** How likely a child folder changed when its parent did, before anything was seen of it. */
   prior: number;
@@ -56,15 +41,13 @@ export type Plan = {
 };
 
 /**
- * Tuned on linux and vite against scripts/fake-github.mjs (scripts/measure.mjs --plan). A tree
- * entry costs 37 to 40 gzipped bytes as GitHub serves it. Linux, all 65 snapshots:
+ * Tuned on linux and vite against scripts/fake-github.mjs (scripts/measure.mjs --plan --reader
+ * rest). A tree entry costs 37 to 40 gzipped bytes as REST serves it, the url about 3 of them.
+ * Linux, 65 snapshots, REST only (before snapshots kept to the first-parent chain):
  *   requestBytes  6,000: 6,015 tree requests, 4.24M entries listed
  *   requestBytes 12,000: 1,574 tree requests, 4.80M entries (the default)
  *   requestBytes 25,000:   988 tree requests, 5.11M entries
- * Reading every snapshot whole lists 5.5M; no planner can go below about 3.1M (the entries of
- * every distinct tree object), or 4.2M at 1,800 requests, knowing the answers in advance.
- * Without `adapt` the default costs 2,648 requests for 5.01M entries; `decay` below 1 or
- * scaling the odds by interval length (tried) bought bytes at worse than 4 KB a request.
+ * Without `adapt` the default cost 2,648 requests for 5.01M entries.
  */
 export const DEFAULT_PLAN: Plan = {
   requestBytes: 12_000,
@@ -78,7 +61,7 @@ export const DEFAULT_PLAN: Plan = {
 
 /**
  * What was seen of a folder so far, in intervals in which its parent changed: `changed` of
- * `seen` also changed (the engine discounts older intervals). Undefined for a folder never seen.
+ * `seen` also changed (older intervals discounted). Undefined for a folder never seen.
  */
 export type ChangeStats = (path: string) => { changed: number; seen: number } | undefined;
 
@@ -86,9 +69,7 @@ export type ReadStats = {
   requests: number;
   recursive: number;
   level: number;
-  /** Changed folders reused from elsewhere in the newer snapshot (moves and renames). */
-  moved: number;
-  /** Folders kept from a truncated listing because their entries hash to their sha. */
+  /** Folders kept from truncated listings because their entries hash to their sha. */
   salvaged: number;
   truncated: number;
   /** Entries listed by all those requests. */
@@ -97,29 +78,23 @@ export type ReadStats = {
 
 type Flat = { path: string; mode: Mode; sha: string };
 
-/** One string per distinct name, shared by every snapshot that lists it (one table per reader). */
-function interner(): (name: string) => string {
-  const names = new Map<string, string>();
-  return (name) => {
-    const known = names.get(name);
-    if (known !== undefined) return known;
-    names.set(name, name);
-    return name;
-  };
-}
-
 function modeOf(text: unknown, type: unknown): Mode | null {
   switch (text) {
     case '100644':
+    case 0o100644:
       return MODE.file;
     case '100755':
+    case 0o100755:
       return MODE.exec;
     case '120000':
+    case 0o120000:
       return MODE.link;
     case '040000':
     case '40000':
+    case 0o40000:
       return MODE.tree;
     case '160000':
+    case 0o160000:
       return MODE.module;
   }
   if (type === 'tree') return MODE.tree;
@@ -139,55 +114,17 @@ export function parseListing(body: unknown): { entries: Flat[]; truncated: boole
   return { entries, truncated: body.truncated === true };
 }
 
-function makeNode(
-  sha: string,
-  entries: readonly Flat[],
-  names: readonly string[],
-  intern: (name: string) => string,
-): Node {
-  const n = entries.length;
-  const modes = new Uint8Array(n);
-  const shas: string[] = new Array(n);
-  for (let i = 0; i < n; i++) {
-    modes[i] = entries[i]!.mode;
-    shas[i] = entries[i]!.sha;
-  }
-  return { sha, names: names.map(intern), shas, modes, kids: new Array(n).fill(null), count: n };
-}
-
-/** Builds a node with its kids filled; count follows them. */
-function withKids(base: Node, kids: (Node | null)[]): Node {
-  let count = base.names.length;
-  for (const k of kids) if (k) count += k.count;
-  return { ...base, kids, count };
-}
-
-/** Every folder of a snapshot by sha, to reuse moved and renamed folders. */
-export function indexFolders(root: Node): Map<string, Node> {
-  const index = new Map<string, Node>();
-  const visit = (node: Node) => {
-    if (index.has(node.sha)) return;
-    index.set(node.sha, node);
-    for (const k of node.kids) if (k) visit(k);
-  };
-  visit(root);
-  return index;
-}
-
 /** git's object id for a tree with these entries, in this order. */
-async function treeSha(
-  names: readonly string[],
-  modes: ArrayLike<number>,
-  shas: readonly string[],
-) {
+async function treeSha(entries: readonly Entry[]): Promise<string> {
   const enc = new TextEncoder();
   const parts: Uint8Array[] = [];
   let length = 0;
-  for (let i = 0; i < names.length; i++) {
-    const head = enc.encode(`${MODE_TEXT[modes[i] as Mode]} ${names[i]}\0`);
-    const id = hexBytes(shas[i]!);
+  for (const e of entries) {
+    const head = enc.encode(`${MODE_TEXT[e.mode]} ${e.name}\0`);
+    const id = new Uint8Array(20);
+    for (let i = 0; i < 20; i++) id[i] = parseInt(e.oid.slice(2 * i, 2 * i + 2), 16);
     parts.push(head, id);
-    length += head.length + id.length;
+    length += head.length + 20;
   }
   const prefix = enc.encode(`tree ${length}\0`);
   const all = new Uint8Array(prefix.length + length);
@@ -203,93 +140,135 @@ async function treeSha(
   return hex;
 }
 
-function hexBytes(hex: string): Uint8Array {
-  const out = new Uint8Array(20);
-  for (let i = 0; i < 20; i++) out[i] = parseInt(hex.slice(2 * i, 2 * i + 2), 16);
-  return out;
-}
-
-/** The entries of a recursive listing grouped by folder ('' is the listed tree itself). */
-function groupByFolder(
+/**
+ * Stores the folders of a recursive listing of tree `sha`. A truncated listing keeps only the
+ * folders whose entries hash to their sha. Returns how many folders were kept that way.
+ */
+async function storeListing(
+  store: TreeStore,
+  sha: string,
   entries: readonly Flat[],
-): Map<string, { entries: Flat[]; names: string[] }> {
-  const groups = new Map<string, { entries: Flat[]; names: string[] }>();
+  truncated: boolean,
+): Promise<number> {
+  const groups = new Map<string, Entry[]>();
+  const shaOf = new Map<string, string>([['', sha]]);
   for (const e of entries) {
     const slash = e.path.lastIndexOf('/');
     const folder = slash < 0 ? '' : e.path.slice(0, slash);
     let g = groups.get(folder);
-    if (!g) groups.set(folder, (g = { entries: [], names: [] }));
-    g.entries.push(e);
-    g.names.push(slash < 0 ? e.path : e.path.slice(slash + 1));
+    if (!g) groups.set(folder, (g = []));
+    g.push({ name: slash < 0 ? e.path : e.path.slice(slash + 1), mode: e.mode, oid: e.sha });
+    if (e.mode === MODE.tree) shaOf.set(e.path, e.sha);
   }
-  return groups;
+  let kept = 0;
+  for (const [folder, list] of groups) {
+    const oid = shaOf.get(folder);
+    if (!oid || store.has(oid)) continue;
+    if (truncated) {
+      if ((await treeSha(list)) !== oid) continue;
+      kept++;
+    }
+    store.add(store.id(oid), list);
+  }
+  return kept;
 }
 
-export type Reader = {
+export type TreeFetch = (sha: string, recursive: boolean, snapshot: number) => Promise<unknown>;
+
+export type RestReader = {
   /**
-   * Snapshot `sha`'s whole tree, read against the newer snapshot `newer` (null for the first).
-   * `changes(path)` says how often that folder changed along with its parent; `intervals`
-   * counts the intervals read so far.
+   * Makes snapshot `snapshot`'s tree `sha` complete in the store, read against the newer
+   * snapshot's tree `newer` (-1 for none). Returns its tree id. `changes(path)` says how often
+   * that folder changed along with its parent; `intervals` counts the intervals folded so far.
    */
-  read(sha: string, newer: Node | null, changes: ChangeStats, intervals: number): Promise<Node>;
-  /**
-   * Starts reading tree `sha` whole before its turn, for a snapshot expected to be read whole
-   * anyway (its newer neighbour was): snapshots then download side by side instead of one
-   * after another. `read` takes it from there, whatever it would have chosen.
-   */
-  prefetch(sha: string): void;
+  read(
+    sha: string,
+    newer: number,
+    changes: ChangeStats,
+    intervals: number,
+    snapshot: number,
+  ): Promise<number>;
+  /** Starts reading tree `sha` whole before its turn (a snapshot expected to be read whole). */
+  prefetch(sha: string, snapshot: number): void;
   /** Whether the last `read` fetched its root whole. */
   readonly lastWhole: boolean;
   readonly stats: ReadStats;
 };
 
 /**
- * A pruned reader over `fetchTree`, which returns a /git/trees body (and may run several at a
- * time; the caller bounds concurrency).
+ * A pruned REST reader over `fetchTree`, which returns a /git/trees body (and may run several
+ * at a time; the caller bounds concurrency).
  */
-export function treeReader(fetchTree: TreeFetch, partial: Partial<Plan> = {}): Reader {
+export function restReader(
+  fetchTree: TreeFetch,
+  store: TreeStore,
+  partial: Partial<Plan> = {},
+): RestReader {
   const plan: Plan = { ...DEFAULT_PLAN, ...partial };
-  const intern = interner();
   const stats: ReadStats = {
     requests: 0,
     recursive: 0,
     level: 0,
-    moved: 0,
     salvaged: 0,
     truncated: 0,
     entries: 0,
   };
-
-  const early = new Map<string, ReturnType<typeof list>>();
+  /** Reads in flight by tree id, so no tree is asked for twice at once. */
+  const pending = new Map<number, Promise<void>>();
   let lastWhole = false;
 
-  function prefetch(sha: string) {
-    if (early.has(sha)) return;
-    const pending = list(sha, true);
-    pending.catch(() => undefined);
-    early.set(sha, pending);
-  }
-
-  async function list(sha: string, recursive: boolean) {
+  async function list(sha: string, recursive: boolean, snapshot: number) {
     stats.requests++;
     if (recursive) stats.recursive++;
     else stats.level++;
-    const listing = parseListing(await fetchTree(sha, recursive));
+    const listing = parseListing(await fetchTree(sha, recursive, snapshot));
     if (listing.truncated) stats.truncated++;
     stats.entries += listing.entries.length;
     return listing;
   }
 
+  /** Reads tree `sha` whole into the store (what it can of a truncated listing). */
+  function whole(sha: string, snapshot: number): Promise<void> {
+    const t = store.id(sha);
+    const known = pending.get(t);
+    if (known) return known;
+    const p = (async () => {
+      const { entries, truncated } = await list(sha, true, snapshot);
+      stats.salvaged += await storeListing(store, sha, entries, truncated);
+    })().finally(() => pending.delete(t));
+    pending.set(t, p);
+    return p;
+  }
+
+  /** Reads tree `sha`'s own entries into the store. */
+  function level(sha: string, snapshot: number): Promise<void> {
+    const t = store.id(sha);
+    const known = pending.get(t);
+    if (known) return known;
+    const p = (async () => {
+      const { entries } = await list(sha, false, snapshot);
+      store.add(
+        t,
+        entries.map((e) => ({ name: e.path, mode: e.mode, oid: e.sha })),
+      );
+    })().finally(() => pending.delete(t));
+    pending.set(t, p);
+    return p;
+  }
+
+  function prefetch(sha: string, snapshot: number) {
+    if (store.has(sha) || pending.has(store.id(sha))) return;
+    whole(sha, snapshot).catch(() => undefined);
+  }
+
   async function read(
     rootSha: string,
-    newer: Node | null,
+    newer: number,
     changes: ChangeStats,
     intervals: number,
-  ): Promise<Node> {
+    snapshot: number,
+  ): Promise<number> {
     lastWhole = false;
-    if (newer && newer.sha === rootSha) return newer;
-    const index = newer ? indexFolders(newer) : new Map<string, Node>();
-    let expected = new Map<Node, number>();
     // How busy this interval is next to the ones learnt from: subfolders seen to change in the
     // level reads so far, against how many the odds predicted. Busy and quiet weeks alternate
     // (a merge window, then release candidates), so the odds follow it within the snapshot.
@@ -307,173 +286,89 @@ export function treeReader(fetchTree: TreeFetch, partial: Partial<Plan> = {}): R
     const odds = (path: string) => Math.min(1, learnt(path) * busy());
 
     /** Expected cost of reading a changed folder shaped like `old`, choosing well below it. */
-    const cost = (old: Node, path: string): number => {
-      const known = expected.get(old);
+    const cost = (old: number, path: string, memo: Map<number, number>): number => {
+      const known = memo.get(old);
       if (known !== undefined) return known;
-      const whole = plan.requestBytes + plan.entryBytes * old.count;
-      let level = plan.requestBytes + plan.entryBytes * old.names.length;
-      for (let i = 0; i < old.kids.length && level < whole; i++) {
-        const kid = old.kids[i];
-        if (!kid) continue;
-        const kidPath = path ? `${path}/${old.names[i]}` : old.names[i]!;
-        level += odds(kidPath) * cost(kid, kidPath);
+      const all = plan.requestBytes + plan.entryBytes * store.count(old);
+      const n = store.length(old);
+      let lvl = plan.requestBytes + plan.entryBytes * n;
+      for (let i = 0; i < n && lvl < all; i++) {
+        if (!store.isTree(old, i)) continue;
+        const kidPath = join(path, store.name(old, i));
+        lvl += odds(kidPath) * cost(store.ref(old, i), kidPath, memo);
       }
-      const best = Math.min(whole, level);
-      expected.set(old, best);
+      const best = Math.min(all, lvl);
+      memo.set(old, best);
       return best;
     };
 
-    const choose = (old: Node | undefined, path: string): boolean => {
+    const chooseWhole = (old: number, path: string): boolean => {
       // A folder new at this path has no sizes to go by; most are small, so read it whole.
-      if (!old) return true;
+      if (old < 0 || !store.complete(old)) return true;
       // An over-limit listing would be cut short; read those a level at a time.
-      if (old.count > 90_000) return false;
-      expected = new Map();
-      return plan.requestBytes + plan.entryBytes * old.count <= cost(old, path);
+      if (store.count(old) > 90_000) return false;
+      const all = plan.requestBytes + plan.entryBytes * store.count(old);
+      return all <= cost(old, path, new Map());
     };
 
-    const kidOf = (old: Node | undefined, name: string): Node | undefined => {
-      if (!old) return undefined;
-      const i = old.names.indexOf(name);
-      return i >= 0 ? (old.kids[i] ?? undefined) : undefined;
+    const kidOf = (old: number, name: string): number => {
+      if (old < 0 || !store.loaded(old)) return -1;
+      const i = store.find(old, name, true);
+      return i < 0 ? -1 : store.ref(old, i);
     };
 
-    /** The folder `sha` at `path`, whose counterpart in the newer snapshot is `old`. */
-    async function resolve(sha: string, old: Node | undefined, path: string): Promise<Node> {
-      if (old && old.sha === sha) return old;
-      const moved = index.get(sha);
-      if (moved) {
-        stats.moved++;
-        return moved;
-      }
-      const started = early.get(sha);
-      if (started) early.delete(sha);
-      if (started || choose(old, path)) {
-        if (path === '') lastWhole = true;
-        const listing = await (started ?? list(sha, true));
-        return fromRecursive(sha, listing.entries, listing.truncated, old, path);
-      }
-      const { entries } = await list(sha, false);
-      return fromLevel(
-        makeNode(
-          sha,
-          entries,
-          entries.map((e) => e.path),
-          intern,
-        ),
-        old,
-        path,
-      );
-    }
-
-    /** Fills a folder known one level deep: unchanged kids are shared, changed ones resolved. */
-    async function fromLevel(base: Node, old: Node | undefined, path: string): Promise<Node> {
-      if (old && intervals > 0) {
-        base.names.forEach((name, i) => {
-          const was = base.modes[i] === MODE.tree ? kidOf(old, name) : undefined;
-          if (!was) return;
-          predicted += learnt(path ? `${path}/${name}` : name);
-          if (was.sha !== base.shas[i] && !index.has(base.shas[i]!)) observed++;
-        });
-      }
-      const kids = await Promise.all(
-        base.names.map((name, i) =>
-          base.modes[i] === MODE.tree
-            ? resolve(base.shas[i]!, kidOf(old, name), path ? `${path}/${name}` : name)
-            : null,
-        ),
-      );
-      return withKids(base, kids);
-    }
-
-    /**
-     * Builds a folder from its recursive listing. Folders that also exist in the newer snapshot
-     * are swapped for those objects, so a whole read costs memory only for what changed. A
-     * truncated listing keeps the folders that hash to their sha and reads the rest again.
-     */
-    async function fromRecursive(
-      sha: string,
-      entries: readonly Flat[],
-      truncated: boolean,
-      old: Node | undefined,
-      path: string,
-    ): Promise<Node> {
-      const groups = groupByFolder(entries);
-      /** Entries the listing holds below a folder. */
-      const below = (folder: string) => {
-        const prefix = `${folder}/`;
-        let n = 0;
-        for (const e of entries) if (e.path.startsWith(prefix)) n++;
-        return n;
-      };
-      const build = async (
-        folder: string,
-        folderSha: string,
-        oldHere: Node | undefined,
-      ): Promise<Node> => {
-        const shared = index.get(folderSha);
-        if (shared) return shared;
-        const g = groups.get(folder);
-        const base = makeNode(folderSha, g?.entries ?? [], g?.names ?? [], intern);
-        if (truncated) {
-          const ok =
-            g !== undefined && (await treeSha(base.names, base.modes, base.shas)) === folderSha;
-          if (!ok) {
-            // Read this folder's own listing; kids the listing held completely are kept below.
-            const { entries: own } = await list(folderSha, false);
-            const fresh = makeNode(
-              folderSha,
-              own,
-              own.map((e) => e.path),
-              intern,
-            );
-            // Many subfolders missing from the listing would cost a request each: past the
-            // bytes of what the listing held below this folder, read the folder whole instead.
-            const missing = fresh.names.filter(
-              (name, i) =>
-                fresh.modes[i] === MODE.tree &&
-                !groups.has(folder ? `${folder}/${name}` : name) &&
-                kidOf(oldHere, name)?.sha !== fresh.shas[i],
-            ).length;
-            if (folder && missing * plan.requestBytes > plan.entryBytes * below(folder)) {
-              const whole = await list(folderSha, true);
-              return fromRecursive(
-                folderSha,
-                whole.entries,
-                whole.truncated,
-                oldHere,
-                join(path, folder),
-              );
-            }
-            const kids = await Promise.all(
-              fresh.names.map((name, i) => {
-                if (fresh.modes[i] !== MODE.tree) return null;
-                const kidPath = folder ? `${folder}/${name}` : name;
-                const kidSha = fresh.shas[i]!;
-                const oldKid = kidOf(oldHere, name);
-                if (oldKid?.sha === kidSha) return oldKid;
-                return groups.has(kidPath)
-                  ? build(kidPath, kidSha, oldKid)
-                  : resolve(kidSha, oldKid, join(path, kidPath));
-              }),
-            );
-            return withKids(fresh, kids);
-          }
-          stats.salvaged++;
+    /** Makes the folder `sha` at `path` complete; `old` is its counterpart in `newer`. */
+    async function resolve(sha: string, old: number, path: string): Promise<void> {
+      const t = store.id(sha);
+      if (store.complete(t)) return;
+      if (!store.loaded(t)) {
+        const busyRead = pending.get(t);
+        if (busyRead) await busyRead;
+        else if (chooseWhole(old, path)) {
+          if (path === '') lastWhole = true;
+          await whole(sha, snapshot);
         }
-        const kids = await Promise.all(
-          base.names.map((name, i) => {
-            if (base.modes[i] !== MODE.tree) return null;
-            const kidPath = folder ? `${folder}/${name}` : name;
-            return build(kidPath, base.shas[i]!, kidOf(oldHere, name));
-          }),
-        );
-        return withKids(base, kids);
-      };
-      return build('', sha, old);
+        if (!store.loaded(t)) await level(sha, snapshot);
+        else if (store.complete(t)) return;
+      }
+      // Read a level (or kept from a cut-short listing): fill in what is missing below.
+      const n = store.length(t);
+      const missing: number[] = [];
+      for (let i = 0; i < n; i++) {
+        if (!store.isTree(t, i)) continue;
+        const kid = store.ref(t, i);
+        if (store.complete(kid)) continue;
+        missing.push(i);
+        if (old >= 0 && intervals > 0) {
+          const was = kidOf(old, store.name(t, i));
+          if (was >= 0) {
+            predicted += learnt(join(path, store.name(t, i)));
+            if (was !== kid) observed++;
+          }
+        }
+      }
+      // Many unread subfolders and no newer counterpart to go by (the tail of a cut-short
+      // listing): one whole read of this folder beats a request for each.
+      if (old < 0 && path !== '' && missing.length > 4) {
+        let held = 0;
+        for (let i = 0; i < n; i++) {
+          if (store.isTree(t, i)) held += Math.max(0, store.count(store.ref(t, i)));
+        }
+        if (missing.length * plan.requestBytes > plan.entryBytes * held) {
+          await whole(sha, snapshot);
+          if (store.complete(t)) return;
+        }
+      }
+      await Promise.all(
+        missing.map((i) => {
+          const name = store.name(t, i);
+          return resolve(store.oids[store.ref(t, i)]!, kidOf(old, name), join(path, name));
+        }),
+      );
     }
 
-    return resolve(rootSha, newer ?? undefined, '');
+    await resolve(rootSha, newer, '');
+    return store.id(rootSha);
   }
 
   return {
@@ -481,6 +376,171 @@ export function treeReader(fetchTree: TreeFetch, partial: Partial<Plan> = {}): R
     prefetch,
     get lastWhole() {
       return lastWhole;
+    },
+    stats,
+  };
+}
+
+export type LoaderStats = {
+  queries: number;
+  /** Queries GitHub failed (timeouts and errors), each retried in smaller batches. */
+  failed: number;
+  trees: number;
+  entries: number;
+  /** Largest batch that went through. */
+  batch: number;
+};
+
+export type GraphQLLoader = {
+  /** Queues a tree (and, as it arrives, everything below it) to be read. */
+  add(sha: string): void;
+  /** Settles when the queue is empty, or GraphQL gave up (then `gaveUp` is set). */
+  drain(): Promise<void>;
+  readonly gaveUp: boolean;
+  readonly stats: LoaderStats;
+};
+
+export type GraphQLOptions = {
+  /** Trees per query to start with; halves after a failed query, grows back after successes. */
+  batch: number;
+  maxBatch: number;
+  /** Queries in flight at once. */
+  concurrency: number;
+  /** Failed queries in a row (at a batch of one) before giving up on GraphQL. */
+  giveUpAfter: number;
+};
+
+/**
+ * Reads trees with GitHub's GraphQL API, many per query. GitHub does not publish what such a
+ * query costs: one point each (no connections) by its documented formula; a reply must finish
+ * within ten seconds; secondary limits apply. Batches therefore start at fifty trees, halve on
+ * any failure and grow back slowly, and a tree that fails alone is left for REST.
+ */
+export function graphqlLoader(
+  query: (q: string) => Promise<Record<string, unknown>>,
+  repo: { owner: string; name: string },
+  store: TreeStore,
+  partial: Partial<GraphQLOptions> = {},
+): GraphQLLoader {
+  const options: GraphQLOptions = {
+    batch: 50,
+    maxBatch: 100,
+    concurrency: 4,
+    giveUpAfter: 3,
+    ...partial,
+  };
+  const stats: LoaderStats = { queries: 0, failed: 0, trees: 0, entries: 0, batch: 0 };
+  const queue: string[] = [];
+  const queued = new Set<number>();
+  /** Trees that failed alone: left for the REST reader. */
+  const skipped = new Set<number>();
+  let batch = options.batch;
+  let streak = 0;
+  let failedAlone = 0;
+  let inFlight = 0;
+  let gaveUp = false;
+  let fatal: unknown = null;
+  let settle: (() => void) | null = null;
+
+  const owner = JSON.stringify(repo.owner);
+  const name = JSON.stringify(repo.name);
+
+  function add(sha: string) {
+    const t = store.id(sha);
+    if (store.loaded(t) || queued.has(t) || skipped.has(t)) return;
+    queued.add(t);
+    queue.push(sha);
+    pump();
+  }
+
+  function pump() {
+    while (!gaveUp && inFlight < options.concurrency && queue.length > 0) {
+      const take = queue.splice(0, batch);
+      inFlight++;
+      void send(take).finally(() => {
+        inFlight--;
+        pump();
+      });
+    }
+    if (inFlight === 0 && (queue.length === 0 || gaveUp)) settle?.();
+  }
+
+  async function send(shas: string[]) {
+    const body = shas
+      .map((sha, i) => `t${i}:object(oid:"${sha}"){...on Tree{entries{name oid mode}}}`)
+      .join(' ');
+    stats.queries++;
+    let data: Record<string, unknown>;
+    try {
+      data = await query(`query{repository(owner:${owner},name:${name}){${body}}}`);
+    } catch (error) {
+      if (!(error instanceof GraphQLError) && !(error instanceof UpstreamError)) {
+        fatal = error;
+        gaveUp = true;
+        return;
+      }
+      if (error instanceof UpstreamError && error.kind === 'unauthorized') {
+        fatal = error;
+        gaveUp = true;
+        return;
+      }
+      stats.failed++;
+      streak = 0;
+      if (shas.length === 1) {
+        // Alone and still failing: REST reads it; GraphQL is given up after a few of these.
+        const t = store.id(shas[0]!);
+        queued.delete(t);
+        skipped.add(t);
+        if (++failedAlone >= options.giveUpAfter) gaveUp = true;
+        return;
+      }
+      batch = Math.max(1, Math.floor(shas.length / 2));
+      queue.unshift(...shas);
+      return;
+    }
+    const repoData = isRecord(data.repository) ? data.repository : null;
+    if (!repoData) {
+      gaveUp = true;
+      return;
+    }
+    failedAlone = 0;
+    stats.batch = Math.max(stats.batch, shas.length);
+    if (++streak >= 3 && batch < options.maxBatch) {
+      batch = Math.min(options.maxBatch, Math.ceil(batch * 1.5));
+      streak = 0;
+    }
+    shas.forEach((sha, i) => {
+      const t = store.id(sha);
+      queued.delete(t);
+      const obj = repoData[`t${i}`];
+      const raw = isRecord(obj) && Array.isArray(obj.entries) ? obj.entries : null;
+      if (!raw) {
+        skipped.add(t);
+        return;
+      }
+      const entries: Entry[] = [];
+      for (const e of raw as unknown[]) {
+        if (!isRecord(e) || typeof e.name !== 'string' || typeof e.oid !== 'string') continue;
+        const mode = modeOf(e.mode, undefined);
+        if (mode !== null) entries.push({ name: e.name, mode, oid: e.oid });
+      }
+      store.add(t, entries);
+      stats.trees++;
+      stats.entries += entries.length;
+      for (const e of entries) if (e.mode === MODE.tree) add(e.oid);
+    });
+  }
+
+  return {
+    add,
+    drain() {
+      return new Promise<void>((resolve, reject) => {
+        settle = () => (fatal ? reject(fatal) : resolve());
+        pump();
+      });
+    },
+    get gaveUp() {
+      return gaveUp;
     },
     stats,
   };

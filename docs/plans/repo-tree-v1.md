@@ -51,7 +51,7 @@ function loadSampleRuns(id: string, branch: string, base?: string): Promise<CiRu
 // load/cache.ts also keeps runs for ten minutes under runs:owner/repo@branch.
 
 // server/src/shape.ts  (wire contract of the history server; repo/history.ts re-exports the types)
-type Gap = 'tree-truncated' /* paths past an over-limit listing assumed unchanged for that interval */ | 'root-unknown' | 'codeowners-unread';
+type Gap = 'tree-truncated' /* paths past an over-limit listing assumed unchanged for that interval */ | 'root-unknown' | 'codeowners-unread' | 'commit-files-capped' /* a recent commit listed 3,000 files, GitHub's cap: the rest are not dated by it */;
 type PathTable = { path: string[] /* folders without trailing slash, root '' */; changed: number[]; born: number[]; churn: number[] /* snapshot intervals with a sha change */; commits: number[] /* in `recent` */ };
 // A time older than recent.since is known to snapshot resolution: the time of the snapshot that first showed it, an upper bound.
 type History = { v: 1; repo: string; branch: string; head: string; computedAt: number; gaps: Gap[];

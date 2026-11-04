@@ -18,7 +18,9 @@
 // derived from the sha (33 B to 22 KB, log-uniform), and /commits/{sha} files carry no `patch`
 // (real ones do, so real per-commit bodies are larger than these).
 import { execFile, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 const API = 'https://api.github.com';
@@ -30,6 +32,8 @@ const FIELDS = ['%H', '%T', '%P', '%an', '%ae', '%cn', '%ce', '%cI', '%aI', '%B'
  * @typedef {{ dir: string, branch?: string, head?: string, private?: boolean }} FakeRepo
  * @typedef {{ rttMs: number, bytesPerMs: number }} Network
  * @typedef {{ maxEntries?: number, maxTreeBytes?: number, remaining?: number, tokens?: string[],
+ *   graphqlMaxEntries?: number,
+ *   inject?: (url: URL, init: RequestInit) => Promise<{ status: number, body: unknown, kind: string, type?: string, extra: Record<string, string> } | undefined> | undefined,
  *   log?: (line: string) => void, network?: Network, gzipLevel?: number }} FakeOptions
  * @typedef {{ requests: number, bytes: number, raw: number }} Tally
  * @typedef {{ mode: string, type: 'blob' | 'tree' | 'commit', name: string, sha: string }} RawEntry
@@ -59,6 +63,8 @@ export function gitHubFetch(repos, options = {}) {
     kinds: {},
     /** Most requests in flight at once. */
     peakInFlight: 0,
+    /** Tree entries answered over GraphQL. */
+    graphqlEntries: 0,
     inFlight: 0,
   };
   /** @type {Map<string, GitObjects>} */
@@ -80,7 +86,8 @@ export function gitHubFetch(repos, options = {}) {
       const headers = new Headers(/** @type {HeadersInit} */ (init.headers ?? {}));
       const { status, body, kind, type, extra } = url.pathname.startsWith('/login/oauth/')
         ? oauth(url, String(init.body ?? ''))
-        : await answer(url, headers);
+        : ((await options.inject?.(url, init)) ??
+          (await answer(url, headers, String(init.body ?? ''))));
       const text = typeof body === 'string' ? body : JSON.stringify(body);
       const gz = text ? gzipSync(text, { level: gzipLevel }) : Buffer.alloc(0);
       const tally = (state.kinds[kind] ??= { requests: 0, bytes: 0, raw: 0 });
@@ -155,14 +162,15 @@ export function gitHubFetch(repos, options = {}) {
     extra,
   });
 
-  /** @param {URL} url @param {Headers} headers */
-  async function answer(url, headers) {
+  /** @param {URL} url @param {Headers} headers @param {string} body */
+  async function answer(url, headers, body) {
     const auth = headers.get('authorization') ?? '';
     if (options.tokens && !options.tokens.some((t) => auth === `Bearer ${t}`)) {
       return reply({ message: 'Bad credentials' }, 401, 'error');
     }
     if (state.remaining <= 0) return reply({ message: 'API rate limit exceeded' }, 403, 'error');
     state.remaining--;
+    if (url.pathname === '/graphql') return graphql(headers, body);
     const m = /^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/.exec(url.pathname);
     const name = m ? `${m[1]}/${m[2]}` : '';
     const repo = Object.entries(repos).find(([k]) => k.toLowerCase() === name.toLowerCase());
@@ -197,7 +205,15 @@ export function gitHubFetch(repos, options = {}) {
         const per = Math.min(100, Number(q.get('per_page') ?? 30));
         const page = Number(q.get('page') ?? 1);
         const until = q.get('until');
-        const range = [start, ...(until ? [`--until=${until}`] : [])];
+        const committer = q.get('committer');
+        const range = [
+          start,
+          ...(until ? [`--until=${until}`] : []),
+          // GitHub matches a login or an exact email; git matches a pattern on name <email>.
+          ...(committer
+            ? [`--committer=<${committer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>`]
+            : []),
+        ];
         const out = await git(
           'log',
           '-z',
@@ -227,11 +243,31 @@ export function gitHubFetch(repos, options = {}) {
         ).trim();
         const line = (await git('log', '-z', '-1', sha, `--format=${FIELDS}`)).replace(/\0$/, '');
         const commit = toCommit(line, fullName);
-        const files = commit.parents.length > 1 ? [] : await changedFiles(config.dir, sha, base);
+        const all = commit.parents.length > 1 ? [] : await changedFiles(config.dir, sha, base);
+        // GitHub lists 300 files a page (per_page lowers it), up to 3,000 in all.
+        const per = Math.min(300, Number(q.get('per_page') ?? 300));
+        const page = Number(q.get('page') ?? 1);
+        const capped = all.slice(0, 3000);
+        const files = capped.slice((page - 1) * per, page * per);
+        const pages = Math.ceil(capped.length / per);
+        const extra = /** @type {Record<string, string>} */ ({});
+        if (pages > 1) {
+          const at = (/** @type {number} */ n) => {
+            const link = new URL(url);
+            link.searchParams.set('page', String(n));
+            return link.href;
+          };
+          const rels = [];
+          if (page < pages)
+            rels.push(`<${at(page + 1)}>; rel="next"`, `<${at(pages)}>; rel="last"`);
+          if (page > 1) rels.push(`<${at(1)}>; rel="first"`, `<${at(page - 1)}>; rel="prev"`);
+          extra.link = rels.join(', ');
+        }
         return reply(
           { ...commit, stats: { total: 0, additions: 0, deletions: 0 }, files },
           200,
           'commit',
+          extra,
         );
       }
       const tree = /^\/git\/trees\/([0-9a-f]{40})$/.exec(rest);
@@ -272,6 +308,93 @@ export function gitHubFetch(repos, options = {}) {
       return reply({ message: 'Not Found' }, 404, 'error');
     }
     return reply({ message: 'Not Found' }, 404, 'error');
+  }
+
+  /**
+   * GitHub's GraphQL endpoint, for the one query shape the tree reader sends: aliased
+   * `object(oid:)` lookups with `... on Tree { entries { <fields> } }` under one repository.
+   * A query whose trees hold more than `graphqlMaxEntries` entries fails the way GitHub's do
+   * when they run past their time limit (200 with errors and null data).
+   * @param {Headers} headers @param {string} raw
+   */
+  async function graphql(headers, raw) {
+    if (!headers.get('authorization')) {
+      return reply({ message: 'This endpoint requires you to be authenticated.' }, 401, 'graphql');
+    }
+    /** @type {string} */
+    let query;
+    try {
+      query = String(JSON.parse(raw).query ?? '');
+    } catch {
+      return reply({ message: 'Problems parsing JSON' }, 400, 'graphql');
+    }
+    const repoMatch = /repository\(\s*owner:\s*"([^"]+)"\s*,\s*name:\s*"([^"]+)"\s*\)/.exec(query);
+    const name = repoMatch ? `${repoMatch[1]}/${repoMatch[2]}` : '';
+    const found = Object.entries(repos).find(([k]) => k.toLowerCase() === name.toLowerCase());
+    if (!found) {
+      return reply(
+        {
+          data: { repository: null },
+          errors: [
+            {
+              type: 'NOT_FOUND',
+              path: ['repository'],
+              message: `Could not resolve to a Repository with the name '${name}'.`,
+            },
+          ],
+        },
+        200,
+        'graphql',
+      );
+    }
+    const [, config] = found;
+    let objs = objects.get(config.dir);
+    if (!objs) objects.set(config.dir, (objs = new GitObjects(config.dir)));
+    const fields = (/entries\s*\{([^}]*)\}/.exec(query)?.[1] ?? 'name oid').trim().split(/\s+/);
+    /** @type {Record<string, unknown>} */
+    const out = {};
+    let total = 0;
+    for (const [, alias = '', oid = ''] of query.matchAll(
+      /(\w+)\s*:\s*object\(\s*oid:\s*"([0-9a-f]{40})"\s*\)/g,
+    )) {
+      const tree = await objs.tree(oid);
+      if (!tree) {
+        const any = await objs.read(oid);
+        out[alias] = any ? {} : null;
+        continue;
+      }
+      total += tree.length;
+      out[alias] = {
+        entries: tree.map((e) => {
+          /** @type {Record<string, unknown>} */
+          const entry = {};
+          for (const f of fields) {
+            if (f === 'name') entry.name = e.name;
+            else if (f === 'oid') entry.oid = e.sha;
+            else if (f === 'mode') entry.mode = parseInt(e.mode, 8);
+            else if (f === 'type') entry.type = e.type;
+          }
+          return entry;
+        }),
+      };
+    }
+    state.graphqlEntries = (state.graphqlEntries ?? 0) + total;
+    if (total > (options.graphqlMaxEntries ?? 50_000)) {
+      return reply(
+        {
+          data: null,
+          errors: [
+            {
+              message:
+                'Something went wrong while executing your query. This may be the result of a timeout, or it could be a GitHub bug. Please include `0000:FAKE` when reporting this issue.',
+            },
+          ],
+        },
+        200,
+        'graphql',
+      );
+    }
+    return reply({ data: { repository: out } }, 200, 'graphql');
   }
 
   return Object.assign(fetchFn, {
@@ -597,6 +720,31 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const remaining = Number(process.env.FAKE_REMAINING ?? 5000);
   const handle = gitHubFetch(repos, { log: (line) => console.error(line), remaining });
   createServer(async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': 'GET, POST',
+        'access-control-allow-headers': 'authorization, content-type, x-github-api-version',
+        'access-control-max-age': '86400',
+      });
+      res.end();
+      return;
+    }
+    const staticDir = process.env.FAKE_STATIC;
+    if (staticDir && req.url?.startsWith('/__static/')) {
+      // A page and worker bundle served from this origin (scripts/measure-browser.mjs).
+      const file = join(staticDir, req.url.slice('/__static/'.length).split('?')[0] ?? '');
+      try {
+        const bytes = readFileSync(file);
+        const type = file.endsWith('.html') ? 'text/html' : 'text/javascript';
+        res.writeHead(200, { 'content-type': type });
+        res.end(bytes);
+      } catch {
+        res.writeHead(404);
+        res.end();
+      }
+      return;
+    }
     if (req.url === '/__stats') {
       // What scripts/measure.mjs --remote reads before and after a run.
       res.writeHead(200, { 'content-type': 'application/json' });

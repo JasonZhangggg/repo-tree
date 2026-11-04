@@ -2124,6 +2124,12 @@ body:has(.scrubber:not([hidden])) .toast {
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
     animation: sheet 0.36s var(--ease-drawer);
   }
+  /* iOS zooms the page into any focused field whose text is under 16px. */
+  .repo input,
+  .search-field input,
+  .inline-form input {
+    font-size: 16px;
+  }
   .settings .seg button,
   .swatches button,
   .switch,

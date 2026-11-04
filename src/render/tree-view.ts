@@ -263,6 +263,13 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   let raf = 0;
   let lastFrame = 0;
   let renders = 0;
+  /**
+   * Meshes held back from the first tree frames, one more drawn per frame, so a frame waits on
+   * at most one new program: a software GL links each in 100 to 250 ms, and the first tree frame
+   * waited on all of them at once. A growing tree starts collapsed, so the hold does not show.
+   */
+  let staged: Mesh[] = [];
+  let linked = false;
   const listeners = new Set<(info: FrameInfo) => void>();
 
   const mountRenderer = () => {
@@ -285,6 +292,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       container.append(next.domElement);
     }
     renderer = next;
+    linked = false;
     key.shadow.mapSize.set(shadowMap, shadowMap);
     groundTarget.setSize(shadowMap, shadowMap);
     renderer.setClearColor(0x000000, 0);
@@ -393,9 +401,16 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     if (controls.update(dt)) busy = true;
 
     const shadowChanged = renderer.shadowMap.needsUpdate;
+    const held = staged.filter((mesh) => mesh.visible);
+    for (const mesh of held) mesh.visible = false;
     renderer.render(scene, camera);
     if (shadowChanged) {
       bakeGround();
+      busy = true;
+    }
+    for (const mesh of held) mesh.visible = true;
+    if (staged.shift()) {
+      renderer.shadowMap.needsUpdate = true;
       busy = true;
     }
     renders++;
@@ -561,6 +576,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         mesh.frustumCulled = false;
       }
       scene.add(bark, leaves);
+      if (!linked) staged = [terrain.cover, bark, leaves];
+      linked = true;
       const nodes = model.nodes.folder.length;
       shown = {
         model,

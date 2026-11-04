@@ -40,6 +40,25 @@ test('first visit grows a bundled sample', async ({ page }) => {
   await expect(page).toHaveURL(/#\/vitejs\/vite\?branch=main&palette=autumn&colorBy=language$/);
 });
 
+test('the repo suggestions show small icons beside readable names', async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem('repo-tree:recent', JSON.stringify(['facebook/react'])),
+  );
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await page.getByLabel('GitHub repository').focus();
+  const rows = page.locator('.suggest button');
+  await expect(rows).toHaveCount(4);
+  for (const row of await rows.all()) {
+    const glyph = (await row.locator('svg').boundingBox())!;
+    expect(glyph.width, 'icon width').toBeLessThanOrEqual(20);
+    expect(glyph.height, 'icon height').toBeLessThanOrEqual(20);
+    const name = (await row.locator('span').boundingBox())!;
+    expect(name.width, 'room for the repo name').toBeGreaterThan(100);
+  }
+  await expect(rows.first()).toContainText('facebook/react');
+});
+
 test('typing owner/repo loads it from GitHub', async ({ page }) => {
   await serveRepo(page, 'acme/widgets');
   await page.goto('./');

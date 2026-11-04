@@ -177,6 +177,9 @@ test('a repo with no history source shows the timeline as unavailable', async ({
   // Still focusable and clickable, so a tap says why rather than doing nothing.
   await timelineButton(page).click({ force: true });
   await expect(page.locator('#toast')).toHaveText('History unavailable for this repo');
+  // One line, even on a phone, so it covers as little of the tree as it can.
+  const toast = (await page.locator('#toast').boundingBox())!;
+  expect(toast.height).toBeLessThan(48);
   await expect(scrubber(page)).toBeHidden();
   await expect(timelineButton(page)).toHaveAttribute('aria-pressed', 'false');
 });

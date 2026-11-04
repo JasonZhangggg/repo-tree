@@ -51,7 +51,7 @@ import {
   SKY_VERTEX,
   treeUniforms,
 } from './shaders';
-import { createWeather, weatherLight, weatherSky } from './weather';
+import { createWeather, SUN_BEARING, weatherLight, weatherSky } from './weather';
 
 /** What a pixel shows: a folder's branch, or a rock lying for some of the root folder's files. */
 export type Picked = { folder: number; rock?: number };
@@ -367,9 +367,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
    * one scale and a bigger repo shows as a bigger tree.
    */
   const reaim = (snap: boolean) => {
-    if (!shown || !aim) return;
+    if (!shown) return;
     const room = stage(groundOn);
     const whole = frameTree(room, camera.aspect);
+    weather.setStage(shown.model.bounds, whole.position[1], groundOn);
+    if (!aim) return;
     controls.minDistance = whole.minDistance;
     controls.maxDistance = whole.maxDistance;
     const goal =
@@ -424,7 +426,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       busy = true;
     }
     if (controls.update(dt)) busy = true;
-    showFlash(weather.tick(dt, backdropSpan()));
+    showFlash(weather.tick(dt));
     if (weather.animated()) busy = true;
 
     const shadowChanged = renderer.shadowMap.needsUpdate;
@@ -526,12 +528,6 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     hemi.intensity = LIGHT.sky * weatherLight(weatherShown?.sky ?? null).sky * (1 + flash * 0.6);
   };
 
-  /** The canvas's left and right edges in backdrop units, where half the free height is one. */
-  const backdropSpan = () => {
-    const { width, x, w, h } = freeRegion();
-    return { left: -(x + w / 2) / (h / 2), right: (width - x - w / 2) / (h / 2) };
-  };
-
   const categories = () => leafCategories(shown!.model, colorBy, palette);
 
   const showHighlight = () => {
@@ -567,7 +563,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const { min, max } = shown.bounds;
     const center: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
     const size = Math.max(max[0] - min[0], max[1] - min[1]);
-    key.position.set(center[0] - 3, 12, center[2] + 5);
+    const toSun = Math.hypot(3, 5);
+    key.position.set(center[0] + SUN_BEARING[0] * toSun, 12, center[2] + SUN_BEARING[1] * toSun);
     key.target.position.set(...center);
     Object.assign(key.shadow.camera, {
       left: -size * 0.9,

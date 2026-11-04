@@ -154,3 +154,30 @@ test('turning weather off in settings clears the sky and survives a reload', asy
   await page.getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('switch', { name: /^Weather/ })).not.toBeChecked();
 });
+
+test.describe('with motion allowed', () => {
+  test.use({ reducedMotion: 'no-preference' });
+
+  test('the sun and clouds in the scene keep moving, and a clear sky rests', async ({ page }) => {
+    type Stats = { renders: number; calls: number };
+    const stats = () =>
+      page.evaluate(() =>
+        (window as unknown as { __repoTree: { view: { stats(): Stats } } }).__repoTree.view.stats(),
+      );
+    await page.goto('./?visit=clear#/vitejs/vite?wx=clear');
+    await ready(page, 'vitejs/vite');
+    await settle(page);
+    const clear = await stats();
+
+    await page.goto('./?visit=cloudy#/vitejs/vite?wx=cloudy');
+    await ready(page, 'vitejs/vite');
+    const before = await stats();
+    await page.waitForTimeout(1500);
+    const after = await stats();
+    expect(
+      after.renders - before.renders,
+      'spin is off, so only the weather renders',
+    ).toBeGreaterThan(2);
+    expect(after.calls, 'the sun and the clouds draw in the scene').toBe(clear.calls + 2);
+  });
+});

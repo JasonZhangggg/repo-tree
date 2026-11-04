@@ -9,7 +9,11 @@
 // repo: linux, vite, dotfiles (default: all three), or owner/name=<git dir>. --clones holds
 // <name>.git for the short names. It runs the in-browser engine (src/core/engine.ts) in Node.
 // --rtt / --mbps model a network (default 60 ms, 40 Mbit/s on one shared link) so concurrency
-// shows in wall time; --rtt 0 turns the model off. --out writes each history as JSON for diffing.
+// shows in wall time; --rtt 0 turns the model off. --latency github adds GitHub's own time to
+// answer each request (fake-github.mjs GITHUB_LATENCY), which is what a real run waits on most.
+// --pack reads the trees in one git fetch through the history Worker's git-upload-pack route
+// (src/worker.ts, run in this process against the fake); --reader is then the fallback.
+// --out writes each history as JSON for diffing.
 // Set FAKE_GIT_CACHE=<dir> to keep the fake's history walks on disk: a second run then times the
 // engine and the modelled network, not git walking Linux's history for each probe.
 import { execFileSync } from 'node:child_process';
@@ -17,7 +21,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { register } from 'node:module';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { gitHubFetch } from './fake-github.mjs';
+import { GITHUB_LATENCY, gitHubFetch } from './fake-github.mjs';
 
 // Lets plain Node load the core's TypeScript (erasable syntax only, extensionless imports).
 register(
@@ -41,7 +45,7 @@ const { values, positionals } = parseArgs({
     },
     rtt: { type: 'string', default: '60' },
     mbps: { type: 'string', default: '40' },
-    concurrency: { type: 'string', default: '6' },
+    concurrency: { type: 'string' },
     out: { type: 'string' },
     plan: { type: 'string' },
     recent: { type: 'string' },
@@ -49,6 +53,11 @@ const { values, positionals } = parseArgs({
     remote: { type: 'string' },
     budget: { type: 'string' },
     reader: { type: 'string' },
+    latency: { type: 'string' },
+    graphql: { type: 'string' },
+    tag: { type: 'string' },
+    sparse: { type: 'boolean', default: false },
+    pack: { type: 'boolean', default: false },
     'per-snapshot': { type: 'boolean', default: false },
     json: { type: 'boolean', default: false },
   },
@@ -73,6 +82,9 @@ const network =
   rtt > 0 ? { rttMs: rtt, bytesPerMs: (Number(values.mbps) * 1e6) / 8 / 1000 } : undefined;
 
 const engine = await import('../src/core/engine.ts');
+const { default: worker } = await import('../src/worker.ts');
+const TOKEN = `gho_${'x'.repeat(36)}`;
+const { tracer, formatTrace } = await import('../src/core/trace.ts');
 
 const rows = [];
 for (const t of targets) {
@@ -86,9 +98,32 @@ for (const t of targets) {
     const remote = values.remote;
     const fake = remote
       ? await remoteFake(remote)
-      : gitHubFetch({ [t.full]: { dir: t.dir, branch } }, { network, remaining: 1e9 });
-    const fetch = /** @type {typeof globalThis.fetch} */ (/** @type {unknown} */ (fake));
+      : gitHubFetch(
+          { [t.full]: { dir: t.dir, branch } },
+          {
+            ...(network ? { network } : {}),
+            ...(values.latency === 'github' ? { latency: GITHUB_LATENCY } : {}),
+            remaining: 1e9,
+          },
+        );
+    const github = /** @type {typeof globalThis.fetch} */ (/** @type {unknown} */ (fake));
     const api = remote ?? 'https://api.github.test';
+    // --pack: the Worker runs here, its own requests going to the fake as GitHub's would.
+    const realFetch = globalThis.fetch;
+    if (values.pack && !remote) globalThis.fetch = github;
+    const env = { GITHUB_API: api, GITHUB_WEB: remote ?? 'https://github.test' };
+    const fetch = /** @type {typeof globalThis.fetch} */ (
+      async (/** @type {any} */ input, /** @type {any} */ init) => {
+        const url = typeof input === 'string' ? input : input.url;
+        if (url.startsWith('https://history.test/')) {
+          // As the page would send it: the route refuses a request with no Origin.
+          const headers = new Headers(init?.headers);
+          headers.set('Origin', 'https://jasonzhangggg.github.io');
+          return worker.fetch(new Request(url, { ...init, headers }), /** @type {any} */ (env));
+        }
+        return github(input, init);
+      }
+    );
     if (global.gc) global.gc();
     const base = process.memoryUsage();
     let peakHeap = base.heapUsed;
@@ -103,26 +138,35 @@ for (const t of targets) {
     let history;
     /** @type {any} */
     let stats = null;
+    const trace = tracer();
     {
       history = await engine.computeHistory({
         fetch,
         api,
-        token: 'x',
+        token: values.pack ? TOKEN : 'x',
+        ...(values.pack
+          ? { packUrl: `https://history.test/v1/git/${t.full}/git-upload-pack` }
+          : {}),
         repo: t.full,
         branch,
-        concurrency: Number(values.concurrency),
+        ...(values.concurrency ? { concurrency: Number(values.concurrency) } : {}),
         ...(values.plan ? { plan: JSON.parse(values.plan) } : {}),
         ...(values.recent ? { recentCommits: Number(values.recent) } : {}),
         ...(values.snapshots ? { maxSnapshots: Number(values.snapshots) } : {}),
         ...(values.budget ? { treeBudget: Number(values.budget) } : {}),
         ...(values.reader ? { reader: values.reader } : {}),
+        ...(values.graphql ? { graphql: JSON.parse(values.graphql) } : {}),
+        ...(values.sparse ? { sparse: true } : {}),
         onStats: (/** @type {any} */ s) => (stats = s),
+        trace,
       });
     }
     const ms = performance.now() - started;
+    globalThis.fetch = realFetch;
     clearInterval(sampler);
     fake.close();
     const s = remote ? await /** @type {any} */ (fake).delta() : fake.state;
+    const summary = trace.summary();
     const row = {
       repo: t.short,
       engine: which,
@@ -137,6 +181,7 @@ for (const t of targets) {
       snapshots: history.snapshots.length,
       files: history.files.path.length,
       gaps: history.gaps.join(',') || '-',
+      trace: summary,
       kinds: Object.fromEntries(
         Object.entries(s.kinds).map(([k, v]) => [k, `${v.requests} req ${mb(v.bytes)} MB`]),
       ),
@@ -148,6 +193,7 @@ for (const t of targets) {
             split: stats.requests,
             rest: stats.rest,
             graphql: stats.graphql,
+            pack: stats.pack,
             store: stats.store,
             retried: stats.retried,
             mainline: stats.mainline,
@@ -169,7 +215,10 @@ for (const t of targets) {
     }
     if (values.out) {
       mkdirSync(values.out, { recursive: true });
-      writeFileSync(join(values.out, `${t.short}.${which}.json`), JSON.stringify(history));
+      writeFileSync(
+        join(values.out, `${t.short}.${values.tag ?? which}.json`),
+        JSON.stringify(history),
+      );
     }
     if (!values.json) {
       console.log(
@@ -183,11 +232,13 @@ for (const t of targets) {
           .map(([k, v]) => `${k}: ${v}`)
           .join(' | ')}`,
       );
+      console.log(`          ${formatTrace(t.full, summary)}`);
       if (stats)
         console.log(
           `          requests: ${JSON.stringify(stats.requests)} retried ${stats.retried} rest: ${JSON.stringify(stats.rest)}\n` +
             `          graphql: ${JSON.stringify(stats.graphql)} store: ${JSON.stringify(stats.store)}\n` +
-            `          mainline: ${stats.mainline} (${stats.mainlineProbes} filtered probes) parallel probes: ${stats.parallelProbes} rows: ${stats.rows}`,
+            `          pack: ${JSON.stringify(stats.pack)}\n` +
+            `          mainline: ${stats.mainline} (${stats.mainlineProbes} filtered probes) probes ahead: ${stats.aheadProbes} rows: ${stats.rows}`,
         );
     }
   }

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { failRepo, quietSettings, ready, serveRepo } from './github';
 import { treePixels } from './pixels';
-import { settle } from './view';
+import { chooseAction, settle } from './view';
 
 test.use({ reducedMotion: 'reduce' });
 
@@ -110,7 +110,7 @@ test('a shared link restores repo, palette and pinned folder', async ({ page, co
   await expectPinned(page, 'vite/packages/vite');
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.getByRole('button', { name: /Copy link/ }).click();
+  await chooseAction(page, /Copy link/);
   await expect(page.getByRole('status').last()).toHaveText('Link copied');
   const link = await page.evaluate(() => navigator.clipboard.readText());
   expect(link).toMatch(
@@ -438,4 +438,47 @@ test('the orbit hint fades after the first drag and stays gone', async ({ page, 
   await page.reload();
   await ready(page, 'vitejs/vite');
   await expect(hint).toBeHidden();
+});
+
+test('on a phone, focusing a text field does not zoom the page', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'iOS zooms into fields under 16px on phones');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const sizes = await page.evaluate(() =>
+    [...document.querySelectorAll('input')]
+      .filter((el) => !['checkbox', 'range', 'radio'].includes(el.type))
+      .map((el) => [el.id || el.name || el.type, parseFloat(getComputedStyle(el).fontSize)]),
+  );
+  // The repo field is always there; dialogs add theirs only when open.
+  expect(sizes.map(([id]) => id)).toContain('repo-input');
+  for (const [id, size] of sizes) expect(size, String(id)).toBeGreaterThanOrEqual(16);
+  await page.locator('#search-open').click();
+  const search = page.getByRole('combobox', { name: 'Search folders and files' });
+  expect(
+    await search.evaluate((el) => parseFloat(getComputedStyle(el).fontSize)),
+  ).toBeGreaterThanOrEqual(16);
+});
+
+test('a tapped suggestion loads its repo even when tapping does not focus buttons', async ({
+  page,
+}) => {
+  // iOS Safari: pressing a button blurs the focused field but focuses nothing, so the field's
+  // focusout has no related target. Emulate that default for any press nobody prevented.
+  await page.addInitScript(() =>
+    addEventListener('mousedown', (event) => {
+      const target = event.target as Element;
+      if (event.defaultPrevented || !target.closest('button')) return;
+      event.preventDefault();
+      (document.activeElement as HTMLElement | null)?.blur();
+    }),
+  );
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const input = page.getByLabel('GitHub repository');
+  await input.click();
+  const row = page.locator('#suggest button', { hasText: 'torvalds/linux' });
+  await expect(row).toBeVisible();
+  await row.click();
+  await ready(page, 'torvalds/linux');
+  await expect(page.locator('#suggest')).toBeHidden();
 });

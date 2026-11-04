@@ -45,3 +45,5 @@ Every run drew 4 calls per frame. Repeat runs of `linux low` and `dotfiles low` 
 - `longest main-thread task during load` covers everything from navigation, including script parse and startup, while the target speaks of generation. Read the task start times before calling a regression.
 - Spin fps counts renders. Render on demand means an idle tree renders nothing, so the script relies on spin being on, which is the default it leaves in place.
 - Port `4174` is fixed in the script. Two perf runs at once collide.
+
+Weather, measured on 2026-11-04 in the same sandbox at load average 7 to 8 with other agents running, `vite low`, five interleaved runs each, median spin fps: main 14.8, this branch with the sample's own sunny sky 14.8 (8 draw calls, 16,489 triangles), `rain` 13.2 (7 calls, 18,923 triangles), `storm` 12.8 (7 calls, 19,507 triangles). Disabling the rain alone recovered the storm's loss in a one-off run, so falling drops are most of the cost (inferred from one noisy run).

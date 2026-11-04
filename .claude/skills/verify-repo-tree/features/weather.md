@@ -39,3 +39,4 @@ Preconditions:
 - Journeys and e2e run with reduced motion, so moving weather is still and `settle` returns. Without reduced motion, rain, clouds and storms keep the view rendering every frame, like spin, and `settle` never returns.
 - A light sky helps the e2e pixel checks that count tree pixels: the sun is pale enough not to count as tree. Darker skies from `wx=` would count, so those checks run on samples without a preview.
 - `api.github.com` is unreachable from this sandbox, so the runs endpoint has only been exercised through the stand-in.
+- Navigating by hash alone (`page.goto(base + '#/...')`) and reloading before the tree is ready reloads the old repo: applying a link dispatches its palette first, and the store writes the shown repo's link back into the hash. Use a `?visit=` query so the navigation is a real page load.

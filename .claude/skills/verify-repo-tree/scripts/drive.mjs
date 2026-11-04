@@ -512,8 +512,7 @@ const JOURNEYS = {
       await expect(page.locator('#status')).toBeEmpty();
     });
     await step('winter-preview', async () => {
-      await page.goto(`${base}#/vitejs/vite?palette=winter&wx=storm`);
-      await page.reload();
+      await page.goto(`${base}?visit=winter#/vitejs/vite?palette=winter&wx=storm`);
       await ready(page, 'vitejs/vite');
       await expect(chip).toHaveAttribute('aria-label', 'Weather preview, storm');
       await settle(page);

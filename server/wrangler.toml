@@ -15,11 +15,11 @@ SPLIT_REQUESTS = "150"
 RESERVE = "200"
 NEW_REPOS_PER_HOUR = "10"
 
-# Replace both ids with the output of `npx wrangler kv namespace create HISTORY`.
+# The HISTORY namespace in the owner's Cloudflare account (not a secret).
 [[kv_namespaces]]
 binding = "HISTORY"
-id = "00000000000000000000000000000000"
-preview_id = "00000000000000000000000000000000"
+id = "ec28567b37484b10bce0f34c81e13889"
+preview_id = "ec28567b37484b10bce0f34c81e13889"
 
 # 60 history requests a minute per IP.
 [[ratelimits]]

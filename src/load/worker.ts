@@ -43,7 +43,10 @@ async function snapshotOf(source: LoadSource): Promise<Snapshot | LoadError> {
   return snapshot;
 }
 
-function buffers({ bark, leaves, nodes, folders, sprigs }: TreeModel, index: RepoIndex): ArrayBuffer[] {
+function buffers(
+  { bark, leaves, nodes, folders, sprigs }: TreeModel,
+  index: RepoIndex,
+): ArrayBuffer[] {
   const arrays = [
     ...Object.values(bark),
     ...Object.values(leaves),

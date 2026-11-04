@@ -45,6 +45,7 @@ import {
   growing,
   leafShader,
   PICK_FRAGMENT,
+  ALWAYS,
   PICK_VERTEX,
   SKY_FRAGMENT,
   SKY_VERTEX,
@@ -77,6 +78,13 @@ export interface TreeView {
   setTree(model: TreeModel): void;
   /** Replays the growth of the tree on show, or shows it grown under reduced motion. */
   grow(): void;
+  /**
+   * Gives each node and sprig of the tree on show the timeline progress it appears at
+   * (Timeline.nodes and Timeline.sprigs), or null to show the whole tree again.
+   */
+  setTimeline(births: { nodes: Float32Array; sprigs: Float32Array } | null): void;
+  /** Moves the timeline's cursor: what was born by then shows, and nothing after. */
+  setTime(cursor: number): void;
   setPalette(id: PaletteId): void;
   setColorBy(by: ColorBy): void;
   /** What each leaf color stands for under the current palette and color-by. */
@@ -246,7 +254,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const pickMaterial = new ShaderMaterial({
     vertexShader: PICK_VERTEX,
     fragmentShader: PICK_FRAGMENT,
-    uniforms: { uGrow: treeUniforms.uGrow },
+    uniforms: { uGrow: treeUniforms.uGrow, uTime: treeUniforms.uTime, uSpan: treeUniforms.uSpan },
     side: DoubleSide,
     toneMapped: false,
   });
@@ -263,6 +271,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   controls.autoRotateSpeed = SPIN_SPEED;
 
   let shown: Shown | null = null;
+  /** Per node, the timeline progress it appears at, while the timeline is open. */
+  let births: Float32Array | null = null;
   let growStart = 0;
   let growingNow = false;
   /**
@@ -449,12 +459,20 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     if (!shown || listeners.size === 0) return;
     const { width, height, x: left, y: top, w, h } = freeRegion();
     const growth = treeUniforms.uGrow.value;
+    const { range } = shown.model.folders;
+    const born = (folder: number) =>
+      !births || births[range[2 * folder]!]! + treeUniforms.uSpan.value <= treeUniforms.uTime.value;
     const labels = shown.model.labels.map(({ folder, anchor: [ax, ay, az] }) => {
       anchor.set(ax, ay, az).project(camera);
       const x = ((anchor.x + 1) / 2) * width;
       const y = ((1 - anchor.y) / 2) * height;
       const free = x >= left && x <= left + w && y >= top && y <= top + h;
-      return { folder, x, y, visible: growth > LABELS_FROM && anchor.z < 1 && free };
+      return {
+        folder,
+        x,
+        y,
+        visible: growth > LABELS_FROM && anchor.z < 1 && free && born(folder),
+      };
     });
     for (const listener of listeners) listener({ growth, labels });
   };
@@ -573,6 +591,26 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     requestRender();
   };
 
+  /** Writes each vertex's birth: its node's for bark, its sprig's for leaves. */
+  const applyBirths = (next: { nodes: Float32Array; sprigs: Float32Array } | null) => {
+    if (!shown) return;
+    const { bark, leaves, sprigs } = shown.model;
+    const barkBorn = new Float32Array(bark.nodeId.length);
+    const leafBorn = new Float32Array(leaves.nodeId.length);
+    if (next) {
+      for (let v = 0; v < barkBorn.length; v++) barkBorn[v] = next.nodes[bark.nodeId[v]!]!;
+      for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
+        leafBorn.fill(next.sprigs[s]!, sprigs.vertex[s]!, sprigs.vertex[s + 1]!);
+      }
+    }
+    shown.bark.geometry.setAttribute('aBorn', new BufferAttribute(barkBorn, 1));
+    shown.leaves.geometry.setAttribute('aBorn', new BufferAttribute(leafBorn, 1));
+    births = next?.nodes ?? null;
+    if (!next) treeUniforms.uTime.value = ALWAYS;
+    renderer.shadowMap.needsUpdate = true;
+    requestRender();
+  };
+
   const releaseTree = () => {
     if (!shown) return;
     scene.remove(shown.bark, shown.leaves);
@@ -628,6 +666,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         groundBounds: terrain.setTree(model, quality),
       };
       highlight = null;
+      applyBirths(null);
       applyColorBy();
       placeScene();
       aim = { kind: 'tree' };
@@ -647,6 +686,17 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
     grow() {
       if (shown) startGrowth();
+    },
+
+    setTimeline(next) {
+      applyBirths(next);
+    },
+
+    setTime(cursor) {
+      if (treeUniforms.uTime.value === cursor) return;
+      treeUniforms.uTime.value = cursor;
+      renderer.shadowMap.needsUpdate = true;
+      requestRender();
     },
 
     setWeather(next) {

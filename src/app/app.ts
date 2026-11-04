@@ -6,7 +6,10 @@ import type { Selection, Store } from './state';
 export type App = {
   store: Store;
   view: TreeView;
-  load(ref: RepoRef, options?: { fresh?: boolean; select?: string; highlight?: string }): void;
+  load(
+    ref: RepoRef,
+    options?: { fresh?: boolean; select?: string; highlight?: string; timeline?: number },
+  ): void;
   cancelLoad(): void;
   /** Pins a folder (or one of its files) or clears the pin; `frame` glides the camera to it. */
   select(selection: Selection | null, frame?: boolean): void;

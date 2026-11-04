@@ -15,6 +15,7 @@ const INITIAL: AppState = {
   autoQuality: 'medium',
   ci: {},
   preview: null,
+  timeline: null,
 };
 const repo = (name: string, truncated = false) =>
   ({

@@ -3,7 +3,7 @@ import { parseRepoRef, type RepoRef } from '../repo/ref';
 import type { ColorBy, PaletteId } from '../render/palette';
 import { COLOR_BYS, PALETTE_IDS } from './settings';
 
-/** Everything a shared URL restores: `#/owner/repo?branch=&palette=&colorBy=&sel=&hl=&wx=`. */
+/** Everything a shared URL restores: `#/owner/repo?branch=&palette=&colorBy=&sel=&hl=&wx=&t=`. */
 export type ViewLink = {
   ref: RepoRef;
   palette?: PaletteId;
@@ -14,6 +14,8 @@ export type ViewLink = {
   hl?: string;
   /** Weather to preview in place of the repo's own, for demos, tests and screenshots. */
   wx?: Sky;
+  /** The timeline is open at this date (ms, UTC), written as YYYY-MM-DD; YYYY-MM and YYYY also read. */
+  t?: number;
 };
 
 export function parseLink(hash: string): ViewLink | null {
@@ -34,10 +36,12 @@ export function parseLink(hash: string): ViewLink | null {
   if (sel) link.sel = sel;
   if (hl) link.hl = hl;
   if (SKIES.includes(wx as Sky)) link.wx = wx as Sky;
+  const t = parseDay(query.get('t'));
+  if (t !== undefined) link.t = t;
   return link;
 }
 
-export function formatLink({ ref, palette, colorBy, sel, hl, wx }: ViewLink): string {
+export function formatLink({ ref, palette, colorBy, sel, hl, wx, t }: ViewLink): string {
   const params: [string, string | undefined][] = [
     ['branch', ref.ref],
     ['palette', palette],
@@ -45,10 +49,22 @@ export function formatLink({ ref, palette, colorBy, sel, hl, wx }: ViewLink): st
     ['sel', sel],
     ['hl', hl],
     ['wx', wx],
+    ['t', t === undefined ? undefined : new Date(t).toISOString().slice(0, 10)],
   ];
   const query = params
     .filter((p): p is [string, string] => p[1] !== undefined)
     .map(([key, value]) => `${key}=${encodeURIComponent(value).replaceAll('%2F', '/')}`)
     .join('&');
   return `#/${ref.owner}/${ref.repo}${query ? `?${query}` : ''}`;
+}
+
+/** A UTC date from YYYY-MM-DD, YYYY-MM or YYYY; anything else is no date. */
+function parseDay(text: string | null): number | undefined {
+  const match = text?.match(/^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/);
+  if (!match) return undefined;
+  const [year, month = 1, day = 1] = match
+    .slice(1)
+    .map((part) => (part ? Number(part) : undefined));
+  if (month! < 1 || month! > 12 || day! < 1 || day! > 31) return undefined;
+  return Date.UTC(year!, month! - 1, day);
 }

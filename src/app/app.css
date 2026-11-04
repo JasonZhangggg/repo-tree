@@ -1005,8 +1005,11 @@ h1 a[aria-disabled] {
 
 /* Timeline: the button among the controls and the scrubber above them. */
 #timeline[aria-pressed='true'] {
-  background: var(--ink);
-  color: #fff;
+  background: #fbeee9;
+  color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(184, 64, 31, 0.35),
+    var(--shadow);
 }
 #timeline[aria-disabled='true'] {
   color: var(--faint);
@@ -1032,6 +1035,7 @@ h1 a[aria-disabled] {
   border-radius: 999px;
   box-shadow: var(--shadow-lift);
   --thumb: 18px;
+  animation: rise 0.24s var(--ease);
 }
 .scrub-play,
 .scrub-close {
@@ -1098,13 +1102,13 @@ h1 a[aria-disabled] {
 }
 .scrub-ticks i {
   position: absolute;
-  top: 11px;
+  top: 20px;
   width: 1px;
-  height: 8px;
+  height: 4px;
   background: rgba(37, 34, 30, 0.2);
   font: 500 10.5px/1 var(--sans);
   font-style: normal;
-  color: var(--faint);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .scrub-ticks i[data-y] {
@@ -1113,7 +1117,7 @@ h1 a[aria-disabled] {
 .scrub-ticks i[data-y]::after {
   content: attr(data-y);
   position: absolute;
-  top: 13px;
+  top: 7px;
   left: 0;
   transform: translateX(-50%);
 }
@@ -1157,6 +1161,29 @@ h1 a[aria-disabled] {
   background: #fff;
   border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
+  transition:
+    transform 0.16s var(--ease),
+    box-shadow 0.16s var(--ease);
+}
+#timeline-range:active::-webkit-slider-thumb {
+  transform: scale(1.2);
+  box-shadow:
+    0 0 0 6px rgba(184, 64, 31, 0.14),
+    0 2px 6px rgba(60, 40, 20, 0.3);
+}
+#timeline-range:active::-moz-range-thumb {
+  transform: scale(1.2);
+  box-shadow:
+    0 0 0 6px rgba(184, 64, 31, 0.14),
+    0 2px 6px rgba(60, 40, 20, 0.3);
+}
+@media (hover: hover) and (pointer: fine) {
+  #timeline-range:hover::-webkit-slider-thumb {
+    transform: scale(1.1);
+  }
+  #timeline-range:hover::-moz-range-thumb {
+    transform: scale(1.1);
+  }
 }
 #timeline-range::-moz-range-thumb {
   width: var(--thumb);
@@ -1165,6 +1192,9 @@ h1 a[aria-disabled] {
   background: #fff;
   border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
+  transition:
+    transform 0.16s var(--ease),
+    box-shadow 0.16s var(--ease);
 }
 #timeline-range:focus-visible {
   outline: none;
@@ -1559,7 +1589,7 @@ h1 a[aria-disabled] {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
   translate: -50% 12px;
   z-index: 9;
   padding: 10px 16px;
@@ -1578,6 +1608,9 @@ h1 a[aria-disabled] {
 .toast.on {
   opacity: 1;
   translate: -50% 0;
+}
+body:has(.scrubber:not([hidden])) .toast {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 140px);
 }
 
 /* Press feedback. Every button answers a press by settling slightly, so a tap
@@ -1918,6 +1951,7 @@ h1 a[aria-disabled] {
   }
   .scrubber {
     gap: 8px;
+    --thumb: 22px;
   }
   .scrub-when {
     min-width: 78px;
@@ -1925,9 +1959,14 @@ h1 a[aria-disabled] {
   .scrub-when strong {
     font-size: 14px;
   }
+  .scrub-play {
+    width: 44px;
+    height: 44px;
+  }
   .scrub-close {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
+    margin-left: -6px;
   }
   .help {
     display: none;
@@ -1971,6 +2010,9 @@ h1 a[aria-disabled] {
   }
   .toast {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 124px);
+  }
+  body:has(.scrubber:not([hidden])) .toast {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 196px);
   }
 }
 @media (max-width: 380px) {

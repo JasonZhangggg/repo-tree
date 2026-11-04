@@ -484,7 +484,11 @@ const JOURNEYS = {
     const range = page.getByRole('slider', { name: 'Timeline position' });
     const scrubTo = async (at) => {
       const box = await range.boundingBox();
-      await range.click({ position: { x: 9 + at * (box.width - 18), y: box.height / 2 } });
+      const thumb = await page
+        .locator('#scrubber')
+        .evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue('--thumb')));
+      const x = thumb / 2 + at * (box.width - thumb);
+      await range.click({ position: { x, y: box.height / 2 } });
     };
     await step('open', async () => {
       await page.goto(base);

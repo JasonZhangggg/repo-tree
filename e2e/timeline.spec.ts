@@ -22,7 +22,11 @@ const fileCount = async (page: Page) =>
 async function scrubTo(page: Page, at: number) {
   const range = page.getByRole('slider', { name: 'Timeline position' });
   const box = (await range.boundingBox())!;
-  const thumb = 9;
+  // The thumb is wider on a phone; its centre travels from half a thumb to width minus half.
+  const thumb =
+    (await page
+      .locator('#scrubber')
+      .evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue('--thumb')))) / 2;
   await range.click({ position: { x: thumb + at * (box.width - 2 * thumb), y: box.height / 2 } });
 }
 

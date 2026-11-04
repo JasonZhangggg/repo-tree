@@ -11,6 +11,7 @@ A user points at a branch to see which folder it is, clicks to pin that folder's
 - `explore-label` pins a folder from its label pill over the tree.
 - `explore-rock` hovers a rock on the ground to see the root file it stands for (name and size, or `N more files` on the last rock past twelve), and clicks it to pin the root folder with that file's card. `view.pickAt` returns `{ folder: 0, rock }` there. e2e covers it in `a rock names its root file on hover and pins it on click`.
 - `explore-clear` clears the pin with Escape or `Clear selection`.
+- `explore-legend` highlights one legend entry's leaves on click (hover previews it on desktop), shows its file count under the legend, writes `hl=` to the URL, and clears on a second click, Escape or a pin.
 - `explore-frame` frames the whole tree with `f`.
 - `explore-orbit` orbits by dragging and zooms by scrolling.
 
@@ -36,7 +37,7 @@ Preconditions:
 - **Side list.** Choose `playground/` in `Top-level folders`. Step `side-list`. The crumbs read `vite/playground`.
 - **Frame whole.** Press Escape, then `f`. Step `frame-whole`. The card is hidden and the camera distance returns to the whole-tree distance.
 - **Proof.** `report.json` passes, and `02-hover.png` shows the tooltip while `03-pin.png` shows the faded tree and the pinned card.
-- `explore-label` and `explore-orbit` have no step. `e2e/app.spec.ts` covers pinning by label on a phone.
+- `explore-label`, `explore-orbit` and `explore-legend` have no step. `e2e/app.spec.ts` covers pinning by label on a phone and the legend highlight on both viewports.
 
 ## Gotchas
 

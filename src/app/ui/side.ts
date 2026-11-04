@@ -37,6 +37,7 @@ export function mountSide(app: App): void {
   const folders = byId('folders');
   const legend = byId('legend');
   const legendTitle = byId('legend-title');
+  const legendNote = byId('legend-note');
   const detail = byId('detail');
 
   const setOpen = (open: boolean) => {
@@ -114,39 +115,64 @@ export function mountSide(app: App): void {
       folders.append(h('li', {}, h('p', { class: 'more' }, 'Every file sits at the top level.')));
   };
 
+  /** A legend label as the panel shows it: folders end in a slash. */
+  const shownLabel = (state: AppState, label: string) =>
+    state.settings.colorBy === 'folder' && state.repo!.folderIds.has(label) ? `${label}/` : label;
+
   const renderLegend = (state: AppState) => {
-    const repo = state.repo!;
-    const byFolder = state.settings.colorBy === 'folder';
-    legendTitle.textContent = byFolder ? 'Leaf colors by folder' : 'Leaf colors by language';
+    const entries = view.legend();
+    const total = entries.reduce((sum, e) => sum + e.files, 0);
+    legendTitle.textContent =
+      state.settings.colorBy === 'folder' ? 'Leaf colors by folder' : 'Leaf colors by language';
     legend.replaceChildren(
-      ...view.legend().map(({ color, label, files }, _, all) => {
-        const folder = byFolder ? repo.folderIds.get(label) : undefined;
-        const parts = [
-          h('i', { class: 'swatch', style: `--c:${color}` }),
-          h('span', { title: label }, byFolder && folder !== undefined ? `${label}/` : label),
-          h(
-            'span',
-            { class: 'num', title: count(files) },
-            percent(
-              files,
-              all.reduce((sum, e) => sum + e.files, 0),
-            ),
-          ),
-        ];
-        return h(
+      ...entries.map(({ color, label, files }) =>
+        h(
           'li',
           {},
-          ...(folder === undefined
-            ? parts
-            : [h('button', { type: 'button', onclick: () => pick(folder) }, ...parts)]),
-        );
-      }),
+          h(
+            'button',
+            {
+              type: 'button',
+              'data-label': label,
+              onclick: () => {
+                app.hoverCategory(null);
+                app.highlight(store.get().highlight === label ? null : label);
+              },
+              onpointerenter: (event: PointerEvent) => {
+                if (event.pointerType === 'mouse') app.hoverCategory(label);
+              },
+              onpointerleave: () => app.hoverCategory(null),
+            },
+            h('i', { class: 'swatch', style: `--c:${color}` }),
+            h('span', { title: label }, shownLabel(state, label)),
+            h('span', { class: 'num', title: count(files) }, percent(files, total)),
+          ),
+        ),
+      ),
     );
   };
 
+  const markLegend = (state: AppState) => {
+    for (const button of legend.querySelectorAll('button')) {
+      button.setAttribute('aria-pressed', String(button.dataset.label === state.highlight));
+    }
+    const entry = view.legend().find((e) => e.label === state.highlight);
+    legendNote.textContent = entry
+      ? `${shownLabel(state, entry.label)} · ${plural(entry.files, 'file')}`
+      : 'Pick a color to highlight its leaves.';
+  };
+
   const renderDetail = (state: AppState) => {
-    const { repo, selection } = state;
-    sheetClear.hidden = !selection;
+    const { repo, selection, highlight } = state;
+    sheetClear.hidden = !selection && highlight === null;
+    sheetClear.setAttribute('aria-label', selection ? 'Clear selection' : 'Clear highlight');
+    const entry = view.legend().find((e) => e.label === highlight);
+    if (repo && entry) {
+      detail.hidden = true;
+      sheetTitle.textContent = shownLabel(state, entry.label);
+      sheetStat.textContent = `${plural(entry.files, 'file')} highlighted`;
+      return;
+    }
     if (!repo || !selection) {
       detail.hidden = true;
       sheetTitle.textContent = 'Folders and leaf colors';
@@ -326,8 +352,12 @@ export function mountSide(app: App): void {
       state.settings.palette !== prev?.settings.palette ||
       state.settings.colorBy !== prev?.settings.colorBy;
     if (colorsChanged || state.selection !== prev?.selection) renderFolders(state);
+    const focusChanged = state.selection !== prev?.selection || state.highlight !== prev?.highlight;
     if (colorsChanged) renderLegend(state);
-    if (colorsChanged || state.selection !== prev?.selection) renderDetail(state);
+    if (colorsChanged || focusChanged) {
+      markLegend(state);
+      renderDetail(state);
+    }
     if (repoChanged && !state.selection) side.scrollTop = 0;
   };
   store.subscribe(render);

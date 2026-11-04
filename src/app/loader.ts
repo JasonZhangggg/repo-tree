@@ -1,5 +1,7 @@
 import { loadInWorker, type LoadSource } from '../load/load-in-worker';
 import type { RepoRef } from '../repo/ref';
+import { PALETTES } from '../render/palette';
+import { leafCategories } from '../render/tree-view';
 import { debug } from './debug';
 import { sampleFor } from './samples';
 import { qualityOf, type Repo, type Store } from './state';
@@ -10,7 +12,8 @@ const KEEP = 4;
 /**
  * Runs one load at a time: a new load aborts the one in flight. Grown repos stay in memory
  * (keyed by source, hidden folders and quality) so switching back is instant; `fresh` skips
- * that cache, the snapshot cache and the bundled samples.
+ * that cache, the snapshot cache and the bundled samples. `select` pins a folder by path and
+ * `highlight` a legend entry by label, each once the repo is ready and only if it has one.
  */
 export function createLoader(store: Store) {
   const memory = new Map<string, Repo>();
@@ -19,7 +22,11 @@ export function createLoader(store: Store) {
 
   async function load(
     ref: RepoRef,
-    { fresh = false, select }: { fresh?: boolean; select?: string } = {},
+    {
+      fresh = false,
+      select,
+      highlight,
+    }: { fresh?: boolean; select?: string; highlight?: string } = {},
   ) {
     inFlight?.abort();
     const abort = (inFlight = new AbortController());
@@ -60,11 +67,14 @@ export function createLoader(store: Store) {
     memory.set(key, repo);
     if (memory.size > KEEP) memory.delete(memory.keys().next().value!);
     const folder = select === undefined ? undefined : repo.folderIds.get(select);
+    const { colorBy, palette } = store.get().settings;
+    const { legend } = leafCategories(repo.tree, colorBy, PALETTES[palette]);
     store.dispatch({
       type: 'loaded',
       id,
       repo,
       selection: folder === undefined ? null : { folder },
+      highlight: legend.some((e) => e.label === highlight) ? highlight : undefined,
     });
   }
 

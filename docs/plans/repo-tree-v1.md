@@ -107,7 +107,7 @@ interface TreeView {
   setPalette(id: PaletteId): void; // recolors without regrowing
   setColorBy(by: ColorBy): void; // language, or top-level folder
   legend(): LegendEntry[];
-  setHighlight(range: [number, number] | null): void; // fades nodes outside the id range
+  setHighlight(h: { range: [number, number] } | { category: string } | null): void; // fades nodes outside the id range, or bark and every leaf outside the legend entry with that label (a per-leaf slot test in the shader)
   frameFolder(folder: number): void; // eases the camera onto the folder's leaves, never nearer than half the whole tree's distance; 0 frames the whole tree
   setInsets(insets: { top: number; right: number; bottom: number; left: number }): void; // CSS px the panels cover; the tree frames into the rest
   pickAt(x: number, y: number): { folder: number; rock?: number } | null; // folder or rock under a CSS pixel of the container; a rock's folder is 0
@@ -130,15 +130,16 @@ type LoadState =
   | { phase: 'idle' } | { phase: 'loading'; id: number; ref: RepoRef; step: LoadStep }
   | { phase: 'error'; ref: RepoRef; error: AppError };
 type Selection = { folder: number; file?: number }; // indices into the shown repo
-type AppState = { load: LoadState; repo: Repo | null; selection: Selection | null; notice: 'truncated' | null; settings: Settings; autoQuality: Quality };
+type AppState = { load: LoadState; repo: Repo | null; selection: Selection | null; highlight: string | null; notice: 'truncated' | null; settings: Settings; autoQuality: Quality };
+// highlight is a legend label. A pin and a highlight never coexist: picking one drops the other, and switching colorBy drops the highlight.
 
 // app/settings.ts  (localStorage 'repo-tree:settings'; each malformed field falls back to its default)
 type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Quality; spin: boolean; labels: boolean; growAnim: boolean; ground: boolean; hidden: string[]; token: string };
 // 'auto' starts from devicePixelRatio and hardwareConcurrency, then steps down once if the first 2 s after growth render under 30 fps.
 // The token is sent only by fetchSnapshot, which only calls api.github.com.
 
-// app/link.ts  (URL hash: #/owner/repo?branch=&palette=&colorBy=&sel=<folder path>)
-type ViewLink = { ref: RepoRef; palette?: PaletteId; colorBy?: ColorBy; sel?: string };
+// app/link.ts  (URL hash: #/owner/repo?branch=&palette=&colorBy=&sel=<folder path>&hl=<legend label>)
+type ViewLink = { ref: RepoRef; palette?: PaletteId; colorBy?: ColorBy; sel?: string; hl?: string };
 function parseLink(hash: string): ViewLink | null;
 function formatLink(link: ViewLink): string;
 // A ref naming a bundled sample on its branch (or with no branch) loads the sample; Reload fetches it live.

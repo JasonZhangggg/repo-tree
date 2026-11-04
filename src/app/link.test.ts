@@ -29,8 +29,19 @@ describe('share links', () => {
     { ref: ref('vitejs/vite') },
     { ref: ref('vitejs/vite'), colorBy: 'folder' },
     { ref: ref('github.com/a-b/c.d/tree/release/1.0'), palette: 'summer', sel: 'pkg/x&y=z' },
+    { ref: ref('vitejs/vite'), colorBy: 'folder', hl: '12 more' },
   ])('round-trips %j', (link) => {
     expect(parseLink(formatLink(link))).toEqual(link);
+  });
+
+  test('reads and writes a highlighted legend entry by its label', () => {
+    const link: ViewLink = { ref: ref('torvalds/linux'), colorBy: 'language', hl: 'C++' };
+    expect(formatLink(link)).toBe('#/torvalds/linux?colorBy=language&hl=C%2B%2B');
+    expect(parseLink('#/torvalds/linux?colorBy=language&hl=C')).toEqual({
+      ref: ref('torvalds/linux'),
+      colorBy: 'language',
+      hl: 'C',
+    });
   });
 
   test('ignores unknown values and rejects a hash without a repo', () => {

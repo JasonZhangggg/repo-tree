@@ -20,6 +20,11 @@ export type AppState = {
   load: LoadState;
   repo: Repo | null;
   selection: Selection | null;
+  /**
+   * The legend entry whose leaves stand out, by its label. A pinned folder and a highlight never
+   * coexist: each is a different place to look, and picking one drops the other.
+   */
+  highlight: string | null;
   /** Shown once per repo when GitHub truncated its tree. */
   notice: 'truncated' | null;
   settings: Settings;
@@ -30,12 +35,13 @@ export type AppState = {
 export type Action =
   | { type: 'load'; id: number; ref: RepoRef }
   | { type: 'step'; id: number; step: LoadStep }
-  | { type: 'loaded'; id: number; repo: Repo; selection: Selection | null }
+  | { type: 'loaded'; id: number; repo: Repo; selection: Selection | null; highlight?: string }
   | { type: 'failed'; id: number; error: AppError }
   | { type: 'cancel' }
   | { type: 'dismiss-error' }
   | { type: 'dismiss-notice' }
   | { type: 'select'; selection: Selection | null }
+  | { type: 'highlight'; label: string | null }
   | { type: 'settings'; patch: Partial<Settings> }
   | { type: 'auto-quality'; quality: Quality };
 
@@ -59,6 +65,7 @@ export function reduce(state: AppState, action: Action): AppState {
         load: IDLE,
         repo: action.repo,
         selection: action.selection,
+        highlight: action.selection ? null : (action.highlight ?? null),
         notice: action.repo.info.truncated ? 'truncated' : null,
       };
     case 'failed':
@@ -71,9 +78,16 @@ export function reduce(state: AppState, action: Action): AppState {
     case 'dismiss-notice':
       return { ...state, notice: null };
     case 'select':
-      return { ...state, selection: action.selection };
-    case 'settings':
-      return { ...state, settings: { ...state.settings, ...action.patch } };
+      return { ...state, selection: action.selection, highlight: null };
+    case 'highlight':
+      return action.label === null
+        ? { ...state, highlight: null }
+        : { ...state, highlight: action.label, selection: null };
+    case 'settings': {
+      const settings = { ...state.settings, ...action.patch };
+      const recolored = settings.colorBy !== state.settings.colorBy;
+      return { ...state, settings, highlight: recolored ? null : state.highlight };
+    }
     case 'auto-quality':
       return { ...state, autoQuality: action.quality };
   }

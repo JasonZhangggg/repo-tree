@@ -16,6 +16,7 @@ const INITIAL: AppState = {
   ci: {},
   preview: null,
   timeline: null,
+  history: null,
 };
 const repo = (name: string, truncated = false) =>
   ({

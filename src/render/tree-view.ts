@@ -39,9 +39,13 @@ import {
   stage,
   VIEW_DIRECTION,
 } from './framing';
-import { LIGHT } from './color';
+import { LIGHT, litColor } from './color';
+import { AGES, ageBand, DEAD, type Facts } from '../timeline/facts';
+import { ownerCategories } from '../timeline/owners';
 import { createGround } from './ground';
 import {
+  AGE_COLORS,
+  DEAD_BARK,
   leafMapping,
   PALETTES,
   type ColorBy,
@@ -112,7 +116,13 @@ export interface TreeView {
   /** Moves the timeline's cursor: what was born by then shows, and nothing after. */
   setTime(cursor: number): void;
   setPalette(id: PaletteId): void;
+  /** Leaf colors by language, top-level folder or, once `setFacts` gave the history, activity or owner. */
   setColorBy(by: ColorBy): void;
+  /**
+   * What the repo's history says about the tree on show (timeline/facts.ts), or null; a new
+   * tree clears it. Activity colors need it; without it they fall back to language.
+   */
+  setFacts(facts: Facts | null): void;
   /** What each leaf color stands for under the current palette and color-by. */
   legend(): LegendEntry[];
   /**
@@ -183,6 +193,8 @@ const INSET_RATE = 16;
 const MIN_FREE = 0.2;
 /** The ramp every palette shares, plus the slot for the rest. */
 const SLOTS = PALETTES.autumn.leaves.length + 1;
+/** A birth past any cursor: the element never shows. */
+const NEVER = ALWAYS * 4;
 
 type Shown = {
   model: TreeModel;
@@ -202,6 +214,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   let quality = options.quality;
   let palette = PALETTES[options.palette];
   let colorBy = options.colorBy;
+  let facts: Facts | null = null;
   let reducedMotion = options.reducedMotion;
   let highlight: Highlight | null = null;
 
@@ -570,12 +583,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
   const applyPalette = () => {
     applyWeather();
-    const slots: number[] = [];
-    for (const hex of [...palette.leaves, palette.rest]) {
-      const c = new Color(hex);
-      slots.push(c.r, c.g, c.b);
-    }
-    treeUniforms.uSlots.value = slots;
+    applySlots();
     barkMaterial.color.set(palette.bark);
     hemi.color.set(palette.light.sky);
     hemi.groundColor.set(palette.light.ground);
@@ -605,10 +613,17 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     hemi.intensity = LIGHT.sky * weatherLight(weatherShown?.sky ?? null).sky * (1 + flash * 0.6);
   };
 
-  const categories = () => leafCategories(shown!.model, colorBy, palette);
+  const categories = () => leafCategories(shown!.model, colorBy, palette, facts);
+  /** Activity colors show only once the history is in; until then leaves keep their language. */
+  const byActivity = () => colorBy === 'activity' && facts !== null;
+  /** Dead wood drops its leaves, unless its legend entry is highlighted to show which they were. */
+  const bare = () =>
+    byActivity() &&
+    !(highlight && 'category' in highlight && highlight.category === AGES[DEAD]!.label);
 
   const showHighlight = () => {
     const h = highlight;
+    if (shown && bare() !== barren) applyBirths(timelineBirths);
     treeUniforms.uSel.value = h && 'range' in h ? [h.range[0], h.range[1]] : [-1, -1];
     treeUniforms.uCategory.value =
       h && 'category' in h && shown
@@ -617,16 +632,43 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     requestRender();
   };
 
+  /** The colors behind the slots: the palette's ramp, or the activity bands. */
+  const applySlots = () => {
+    const slots: number[] = [];
+    const ramp = byActivity() ? AGE_COLORS : [...palette.leaves, palette.rest];
+    for (let i = 0; i < SLOTS; i++) {
+      const c = new Color(ramp[Math.min(i, ramp.length - 1)]);
+      slots.push(c.r, c.g, c.b);
+    }
+    treeUniforms.uSlots.value = slots;
+    treeUniforms.uDeadBark.value = new Color(DEAD_BARK).toArray() as [number, number, number];
+  };
+
   const applyColorBy = () => {
     if (!shown) return;
-    const { lang, nodeId } = shown.model.leaves;
-    const { slotOf, nodeCategory } = categories();
+    const { model } = shown;
+    const { lang, nodeId } = model.leaves;
     const slot = new Float32Array(lang.length);
-    for (let v = 0; v < slot.length; v++) {
-      slot[v] = slotOf[nodeCategory ? nodeCategory[nodeId[v]!]! : lang[v]!]!;
+    const dead = new Float32Array(model.bark.nodeId.length);
+    if (byActivity()) {
+      const { vertex } = model.sprigs;
+      for (let s = 0; s + 1 < vertex.length; s++) {
+        slot.fill(facts!.sprigBand[s]!, vertex[s]!, vertex[s + 1]!);
+      }
+      const barkNode = model.bark.nodeId;
+      for (let v = 0; v < dead.length; v++) {
+        dead[v] = ageBand(facts!.asOf, facts!.nodeChanged[barkNode[v]!]!) === DEAD ? 1 : 0;
+      }
+    } else {
+      const { slotOf, nodeCategory } = categories();
+      for (let v = 0; v < slot.length; v++) {
+        slot[v] = slotOf[nodeCategory ? nodeCategory[nodeId[v]!]! : lang[v]!]!;
+      }
     }
     shown.leaves.geometry.setAttribute('aSlot', new BufferAttribute(slot, 1));
-    renderer.shadowMap.needsUpdate = true;
+    shown.bark.geometry.setAttribute('aDead', new BufferAttribute(dead, 1));
+    applySlots();
+    applyBirths(timelineBirths);
     showHighlight();
   };
 
@@ -665,17 +707,26 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     requestRender();
   };
 
-  /** Writes each vertex's birth: its node's for bark, its sprig's for leaves. */
+  /**
+   * Writes each vertex's birth: its node's for bark, its sprig's for leaves. Dropped dead-wood
+   * leaves are born never, so no pass (color, shadow, pick) draws them.
+   */
+  let timelineBirths: { nodes: Float32Array; sprigs: Float32Array } | null = null;
+  let barren = false;
   const applyBirths = (next: { nodes: Float32Array; sprigs: Float32Array } | null) => {
     if (!shown) return;
+    timelineBirths = next;
+    barren = bare();
     const { bark, leaves, sprigs } = shown.model;
     const barkBorn = new Float32Array(bark.nodeId.length);
     const leafBorn = new Float32Array(leaves.nodeId.length);
     if (next) {
       for (let v = 0; v < barkBorn.length; v++) barkBorn[v] = next.nodes[bark.nodeId[v]!]!;
-      for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
-        leafBorn.fill(next.sprigs[s]!, sprigs.vertex[s]!, sprigs.vertex[s + 1]!);
-      }
+    }
+    for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
+      const dropped = barren && facts!.sprigBand[s] === DEAD;
+      const born = dropped ? NEVER : next ? next.sprigs[s]! : 0;
+      if (born) leafBorn.fill(born, sprigs.vertex[s]!, sprigs.vertex[s + 1]!);
     }
     shown.bark.geometry.setAttribute('aBorn', new BufferAttribute(barkBorn, 1));
     shown.leaves.geometry.setAttribute('aBorn', new BufferAttribute(leafBorn, 1));
@@ -741,6 +792,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         groundBounds: terrain.setTree(model, quality),
       };
       highlight = null;
+      facts = null;
       applyBirths(null);
       applyColorBy();
       placeScene();
@@ -787,6 +839,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
     setColorBy(by) {
       colorBy = by;
+      applyColorBy();
+    },
+
+    setFacts(next) {
+      facts = next;
       applyColorBy();
     },
 
@@ -952,15 +1009,30 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 }
 
 /**
- * What each leaf color stands for: languages, or top-level folders plus the files at the root.
- * `nodeCategory` (folder colors only) is each node's category; a leaf takes its language's.
+ * What each leaf color stands for: languages, top-level folders plus the files at the root,
+ * activity bands, or the owners of those folders (timeline/owners.ts) once the facts are in.
+ * `nodeCategory` (folder and owner colors) is each node's category; a leaf takes its language's.
  */
 export function leafCategories(
   model: TreeModel,
   colorBy: ColorBy,
   palette: Palette,
+  facts: Facts | null = null,
 ): { slotOf: number[]; legend: LegendEntry[]; nodeCategory?: Int32Array } {
-  if (colorBy === 'language') {
+  if (colorBy === 'activity' && facts) {
+    // Bands keep their order and their slot, so legend index, slot and band agree.
+    const files = AGES.map(() => 0);
+    for (const ms of facts.fileChanged) files[ageBand(facts.asOf, ms)]! += 1;
+    return {
+      slotOf: AGES.map((_, i) => i),
+      legend: AGES.map((a, i) => ({
+        color: litColor(AGE_COLORS[i]!, palette),
+        label: a.label,
+        files: files[i]!,
+      })),
+    };
+  }
+  if (colorBy !== 'folder' && !(colorBy === 'owner' && facts)) {
     return leafMapping(
       model.langs.map((l) => ({ label: l.lang, files: l.files })),
       palette,
@@ -981,6 +1053,15 @@ export function leafCategories(
       model.folders.range[2 * folder + 1]! + 1,
     );
   });
+  if (colorBy === 'owner' && facts) {
+    // Each top-level folder (the root's own files last) takes its owner's category.
+    const { categories, categoryOf } = ownerCategories(
+      withRoot.map((t, i) => ({ folder: i < tops.length ? t.label : '', files: t.files })),
+      facts.owners,
+    );
+    for (let n = 0; n < nodeCategory.length; n++) nodeCategory[n] = categoryOf[nodeCategory[n]!]!;
+    return { ...leafMapping(categories, palette), nodeCategory };
+  }
   return { ...leafMapping(withRoot, palette), nodeCategory };
 }
 

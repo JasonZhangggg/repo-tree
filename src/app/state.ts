@@ -3,6 +3,7 @@ import type { Loaded, LoadStep } from '../load/load-in-worker';
 import { ciHealth, ciKey, type CiHealth, type CiRun, type Sky } from '../repo/ci';
 import type { LoadError } from '../repo/github';
 import type { RepoRef } from '../repo/ref';
+import type { Facts } from '../timeline/facts';
 import type { Settings } from './settings';
 
 /** A loaded repo, a lookup from folder path to its index in the tree, and the bundled sample it came from. */
@@ -14,6 +15,14 @@ export type LoadState =
   | { phase: 'idle' }
   | { phase: 'loading'; id: number; ref: RepoRef; step: LoadStep }
   | { phase: 'error'; ref: RepoRef; error: AppError };
+/**
+ * The history behind the colors that need one, for the repo it was asked for: loading, laid over
+ * that repo's tree as Facts, `missing` (nobody computed it yet) or `unavailable`.
+ */
+export type HistoryFacts =
+  | { repo: Repo; status: 'loading' }
+  | { repo: Repo; status: 'ready'; facts: Facts }
+  | { repo: Repo; status: 'missing' | 'unavailable' };
 /** A pinned folder, and optionally one of its own files (an index into RepoIndex.files). */
 export type Selection = { folder: number; file?: number };
 
@@ -43,6 +52,8 @@ export type AppState = {
    * view directly and settle here when they stop, so the link follows without churning history.
    */
   timeline: number | null;
+  /** Loaded only once something on show needs it (activity or owner colors); null until then. */
+  history: HistoryFacts | null;
 };
 
 export type Action =
@@ -66,7 +77,8 @@ export type Action =
   | { type: 'auto-quality'; quality: Quality }
   | { type: 'ci'; key: string; runs: readonly CiRun[] | null }
   | { type: 'preview'; sky: Sky | null }
-  | { type: 'timeline'; at: number | null };
+  | { type: 'timeline'; at: number | null }
+  | { type: 'history'; history: HistoryFacts };
 
 const IDLE: LoadState = { phase: 'idle' };
 
@@ -91,6 +103,7 @@ export function reduce(state: AppState, action: Action): AppState {
         highlight: action.selection ? null : (action.highlight ?? null),
         notice: action.repo.info.truncated ? 'truncated' : null,
         timeline: action.timeline ?? null,
+        history: null,
       };
     case 'failed':
       if (!current || load.phase !== 'loading') return state;
@@ -120,6 +133,8 @@ export function reduce(state: AppState, action: Action): AppState {
       return action.sky === state.preview ? state : { ...state, preview: action.sky };
     case 'timeline':
       return action.at === state.timeline ? state : { ...state, timeline: action.at };
+    case 'history':
+      return action.history.repo === state.repo ? { ...state, history: action.history } : state;
   }
 }
 
@@ -136,6 +151,16 @@ export function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null 
   const health = ciHealth(runs);
   return { sky: health.sky, health };
 }
+
+/** Whether what is on show needs the repo's history. */
+export const needsHistory = (state: AppState): boolean =>
+  state.settings.colorBy === 'activity' || state.settings.colorBy === 'owner';
+
+/** The history's facts for the repo on show, once loaded. */
+export const factsOf = (state: AppState): Facts | null =>
+  state.history?.repo === state.repo && state.history?.status === 'ready'
+    ? state.history.facts
+    : null;
 
 export const qualityOf = (state: AppState): Quality =>
   state.settings.quality === 'auto' ? state.autoQuality : state.settings.quality;

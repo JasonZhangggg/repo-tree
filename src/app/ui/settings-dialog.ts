@@ -5,7 +5,12 @@ import { byId, h, icon, ICONS } from '../dom';
 import { COLOR_BYS, PALETTE_IDS, QUALITIES, type Settings } from '../settings';
 import type { AppState } from '../state';
 
-const COLOR_BY_LABEL = { language: 'Language', folder: 'Top-level folder' };
+const COLOR_BY_LABEL = {
+  language: 'Language',
+  folder: 'Top-level folder',
+  activity: 'Activity',
+  owner: 'Owner',
+};
 const QUALITY_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' };
 const FOLDER_NAME = /^[^/\\]{1,100}$/;
 
@@ -196,6 +201,18 @@ export function mountSettings(app: App): {
           (v) => COLOR_BY_LABEL[v],
           (colorBy) => set({ colorBy }),
         ),
+        settings.colorBy === 'activity' &&
+          h(
+            'p',
+            { class: 'note' },
+            'From commit history: green changed this month, orange this year, brown older. Branches untouched for 3 years drop their leaves.',
+          ),
+        settings.colorBy === 'owner' &&
+          h(
+            'p',
+            { class: 'note' },
+            'Each top-level folder takes its owner: the first CODEOWNERS entry, else its busiest recent commit author. Shows who to ask.',
+          ),
       ),
       h(
         'div',

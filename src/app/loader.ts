@@ -1,3 +1,4 @@
+import { AGES } from '../timeline/facts';
 import { cachedRuns, cacheRuns } from '../load/cache';
 import { loadInWorker, type LoadSource } from '../load/load-in-worker';
 import { ciKey, fetchRuns, loadSampleRuns } from '../repo/ci';
@@ -122,7 +123,14 @@ export function createLoader(store: Store) {
       id,
       repo,
       selection: folder === undefined ? null : { folder },
-      highlight: legend.some((e) => e.label === highlight) ? highlight : undefined,
+      // Activity bands are known before the history that fills them arrives; owners are not, so
+      // a link's owner is kept until the history says.
+      highlight:
+        legend.some((e) => e.label === highlight) ||
+        (colorBy === 'activity' && AGES.some((a) => a.label === highlight)) ||
+        colorBy === 'owner'
+          ? highlight
+          : undefined,
       timeline,
     });
   }

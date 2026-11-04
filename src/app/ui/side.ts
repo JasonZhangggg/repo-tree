@@ -325,7 +325,7 @@ export function mountSide(app: App): void {
         ? 'Leaf colors by folder'
         : ownersOf(state)
           ? 'Leaf colors by owner'
-          : factsOf(state)
+          : state.settings.colorBy === 'activity' && factsOf(state)
             ? 'Leaf colors by activity'
             : 'Leaf colors by language';
     legend.replaceChildren(

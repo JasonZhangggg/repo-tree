@@ -513,3 +513,12 @@ test('a tapped suggestion loads its repo even when tapping does not focus button
   await ready(page, 'torvalds/linux');
   await expect(page.locator('#suggest')).toBeHidden();
 });
+
+test('Grow with an empty field offers the list instead of an error', async ({ page }) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await page.getByRole('button', { name: 'Grow', exact: true }).click();
+  await expect(page.locator('#suggest')).toBeVisible();
+  await expect(page.getByLabel('GitHub repository')).toBeFocused();
+  await expect(page.locator('#repo-error')).toBeEmpty();
+});

@@ -39,3 +39,4 @@ Preconditions:
 - The scrubber's thumb is `--thumb` wide on `#scrubber` (18 px on desktop, 22 px on a phone), so a fraction of the track maps to `thumb / 2 + at * (width - thumb)` px. The journey and `e2e/timeline.spec.ts` read the variable.
 - Linux's history keeps only the last 5,000 deletions (to 2025-02), so its earlier counts read `at least N files`.
 - Early frames still show the rocks: root files sit on the island for the whole timeline.
+- A sample reloaded live (Reload from GitHub) keeps its timeline: with no history shared, the bundled one stands in. A branch link (every shared link names its branch) is offered to compute like a plain one, and told the default branch's name if it names another.

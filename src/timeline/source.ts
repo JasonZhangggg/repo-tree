@@ -14,6 +14,7 @@ import {
   type UploadResult,
 } from '../repo/history';
 import type { RepoRef } from '../repo/ref';
+import { sampleFor } from '../app/samples';
 import { withUpload, type TraceSummary } from '../../server/src/core/trace';
 
 /** GitHub's API, for the engine that runs in the visitor's browser (a fake in e2e runs). */
@@ -61,8 +62,11 @@ export const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
  * Where a repo's history comes from: the file bundled beside a sample, or the history server
  * when this build names one, which a signed-in visitor fills by computing it in their browser.
  * The server keeps one history per repo, its default branch: a repo opened on a branch named
- * in the link (`ref.ref`) reads what is there but is not offered a compute. Null means none
- * can: the timeline shows as unavailable. The timeline reads only what this returns.
+ * in the link (`ref.ref`) that turns out not to be the default is told so when it computes. A
+ * sample's repo
+ * reloaded live on the sample's branch falls back to the bundled history when none is shared.
+ * Null means none can: the timeline shows as unavailable. The timeline reads only what this
+ * returns.
  */
 export function historySource(
   repo: { sample?: string; info: { ref: RepoRef; branch: string } },
@@ -73,21 +77,44 @@ export function historySource(
     spawn,
   }: { base?: string; server?: string; api?: string; spawn?: ComputeOptions['spawn'] } = {},
 ): HistorySource | null {
-  const { sample } = repo;
-  if (sample) {
-    return {
-      load: async () => {
-        const history = await loadSampleHistory(sample, base);
-        return history ? { status: 'ready', history } : null;
-      },
-      compute: null,
-      outdated: null,
-    };
+  const { ref, branch } = repo.info;
+  // A sample's bundled history, also for its repo reloaded live on the same branch.
+  const bundled = repo.sample ?? sampleFor({ ...ref, ref: branch })?.id;
+  const loadBundled = async (): Promise<HistoryLoad> => {
+    const history = bundled ? await loadSampleHistory(bundled, base) : null;
+    return history ? { status: 'ready', history } : null;
+  };
+  if (repo.sample || (bundled && !server)) {
+    return { load: loadBundled, compute: null, outdated: null };
   }
   if (!server) return null;
-  const { ref, branch } = repo.info;
-  const load = (signal: AbortSignal) => loadHistory(ref, branch, { base: server, signal });
-  if (ref.ref !== undefined) return { load, compute: null, outdated: null };
+  const load = async (signal: AbortSignal): Promise<HistoryLoad> => {
+    const shared = await loadHistory(ref, branch, { base: server, signal });
+    if (shared?.status === 'ready' || !bundled) return shared;
+    // None shared yet, or the server is unreachable: the bundled one, which `outdated` may offer
+    // a signed-in visitor to bring up to date.
+    return (await loadBundled()) ?? shared;
+  };
+  /**
+   * A branch link (every shared link names its branch) may name the default branch or another:
+   * the server keeps only the default, so ask GitHub which it is before an expensive run.
+   */
+  const notDefault = async (token: string, signal: AbortSignal): Promise<string | null> => {
+    if (ref.ref === undefined) return null;
+    try {
+      const res = await fetch(`${api}/repos/${ref.owner}/${ref.repo}`, {
+        headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` },
+        signal,
+      });
+      const body: unknown = res.ok ? await res.json() : null;
+      const name = (body as { default_branch?: unknown } | null)?.default_branch;
+      return typeof name === 'string' && name !== branch ? name : null;
+    } catch (error) {
+      if (signal.aborted) throw error;
+      // Unknown: the run goes ahead, and the server checks the branch before storing it.
+      return null;
+    }
+  };
   return {
     load,
     outdated: async (history, token, signal) => {
@@ -105,6 +132,10 @@ export function historySource(
       }
     },
     compute: async ({ token, signal, onProgress, base }) => {
+      const defaultBranch = await notDefault(token, signal);
+      if (defaultBranch !== null) {
+        return { status: 'error', error: { kind: 'not-default-branch', defaultBranch } };
+      }
       const started = performance.now();
       const result = await computeHistoryInWorker(ref, branch, {
         token,

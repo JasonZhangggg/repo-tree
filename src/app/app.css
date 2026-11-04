@@ -172,13 +172,23 @@ kbd {
   }
 }
 .field-error {
+  /* Floats over whatever sits below the field, so it reads as a callout, not loose text. */
   position: absolute;
   top: calc(100% + 8px);
-  left: 4px;
+  left: 0;
+  z-index: 4;
   margin: 0;
+  padding: 7px 12px;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow:
+    0 0 0 1px rgba(163, 52, 27, 0.25),
+    var(--shadow-lift);
   font-size: 12.5px;
   color: var(--danger);
-  font-weight: 500;
+  font-weight: 550;
+  animation: pop 0.18s var(--ease);
+  transform-origin: top left;
 }
 .field-error:empty {
   display: none;
@@ -1667,6 +1677,10 @@ h1 a[aria-disabled] {
 .toast {
   position: fixed;
   left: 50%;
+  /* Centred with translate, so its box would otherwise shrink to half the screen and wrap. */
+  width: max-content;
+  max-width: calc(100% - 32px);
+  text-align: center;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
   translate: -50% 12px;
   z-index: 9;
@@ -1954,12 +1968,27 @@ body:has(.scrubber:not([hidden])) .toast {
     width: 36px;
     height: 36px;
   }
+  /* The load status and notices take their own row under the name and the weather chip. */
   #status {
+    order: 3;
     flex-basis: 100%;
     margin-bottom: 6px;
   }
   .status {
     width: 100%;
+    gap: 8px;
+    padding: 9px 10px;
+  }
+  .status strong {
+    font-size: 13.5px;
+  }
+  .status p {
+    font-size: 12.5px;
+    line-height: 1.4;
+  }
+  .status .badge {
+    width: 22px;
+    height: 22px;
   }
   .side {
     top: auto;

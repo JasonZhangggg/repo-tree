@@ -30,6 +30,51 @@ describe('historySource', () => {
     expect(source.compute).toBeNull();
   });
 
+  test("a sample's repo reloaded live falls back to the bundled history when none is shared", async () => {
+    const body = readFileSync('public/samples/torvalds-linux.history.json.gz');
+    vi.stubGlobal('indexedDB', undefined);
+    const fetch = vi.fn(async (url: string) =>
+      url.startsWith(SERVER)
+        ? Response.json({ status: 'missing' }, { status: 404 })
+        : new Response(body),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const linux = parseRepoRef('torvalds/linux') as RepoRef;
+    const source = historySource(
+      { info: { ref: linux, branch: 'master' } },
+      { base: '/app/', server: SERVER },
+    )!;
+    const loaded = await source.load(signal);
+    expect(fetch.mock.calls.map((c) => c[0])).toEqual([
+      `${SERVER}/v1/history/torvalds/linux?branch=master`,
+      '/app/samples/torvalds-linux.history.json.gz',
+    ]);
+    expect(loaded?.status === 'ready' && loaded.history.repo).toBe('torvalds/linux');
+    // A signed-in visitor can still bring it up to date.
+    expect(source.compute).not.toBeNull();
+    expect(source.outdated).not.toBeNull();
+  });
+
+  test("a sample's repo on another branch does not use the bundled history", async () => {
+    vi.stubGlobal('indexedDB', undefined);
+    const fetch = vi.fn(async () => Response.json({ status: 'missing' }, { status: 404 }));
+    vi.stubGlobal('fetch', fetch);
+    const linux = parseRepoRef('torvalds/linux') as RepoRef;
+    const source = historySource(
+      { info: { ref: linux, branch: 'next' } },
+      { base: '/app/', server: SERVER },
+    )!;
+    expect(await source.load(signal)).toEqual({ status: 'missing' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test("without a server, a sample's repo reloaded live still has the bundled history", () => {
+    const linux = parseRepoRef('torvalds/linux') as RepoRef;
+    const source = historySource({ info: { ref: linux, branch: 'master' } }, { server: undefined });
+    expect(source).not.toBeNull();
+    expect(source!.compute).toBeNull();
+  });
+
   test('a branch nobody computed is missing, with no token sent', async () => {
     const fetch = vi.fn(async () => Response.json({ status: 'missing' }, { status: 404 }));
     vi.stubGlobal('fetch', fetch);
@@ -116,12 +161,55 @@ describe('historySource', () => {
     expect(sent[0]!.base).toBe(stored);
   });
 
-  test('a branch named in the link is read, but not offered to compute', () => {
+  test('a branch link to a branch that is not the default is told so, before any run', async () => {
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      asked.push(url);
+      return Response.json({ default_branch: 'main' });
+    });
+    const spawn = vi.fn();
     const dev = { ...ref, ref: 'dev' };
-    const source = historySource({ info: { ref: dev, branch: 'dev' } }, { server: SERVER })!;
-    expect(source.load).toBeTypeOf('function');
-    expect(source.compute).toBeNull();
-    expect(source.outdated).toBeNull();
+    const source = historySource(
+      { info: { ref: dev, branch: 'dev' } },
+      { server: SERVER, api: 'https://github.test', spawn },
+    )!;
+    expect(await source.compute!({ token: 'gho_visitor', signal })).toEqual({
+      status: 'error',
+      error: { kind: 'not-default-branch', defaultBranch: 'main' },
+    });
+    expect(asked).toEqual(['https://github.test/repos/acme/widgets']);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  test('a branch link to the default branch computes as usual', async () => {
+    const history = { v: 1, repo: 'acme/widgets', branch: 'main' } as History;
+    const worker = {
+      onmessage: null as ((e: MessageEvent<ComputeMessage>) => void) | null,
+      onerror: null,
+      terminate: () => {},
+      postMessage: ({ run }: ComputeRequest) =>
+        queueMicrotask(() =>
+          worker.onmessage?.({
+            data: { run, history, snapshots: [] },
+          } as unknown as MessageEvent<ComputeMessage>),
+        ),
+    };
+    vi.stubGlobal('fetch', async (url: string) =>
+      url === 'https://github.test/repos/acme/widgets'
+        ? Response.json({ default_branch: 'main' })
+        : Response.json({ status: 'stored' }, { status: 201 }),
+    );
+    vi.stubGlobal('indexedDB', undefined);
+    const main = { ...ref, ref: 'main' };
+    const source = historySource(
+      { info: { ref: main, branch: 'main' } },
+      { server: SERVER, api: 'https://github.test', spawn: () => worker },
+    )!;
+    expect(await source.compute!({ token: 'gho_visitor', signal })).toEqual({
+      status: 'ready',
+      history,
+      shared: 'stored',
+    });
   });
 
   test('a stored history over a day old is outdated when GitHub names another head', async () => {

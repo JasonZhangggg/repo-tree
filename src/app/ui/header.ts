@@ -44,6 +44,7 @@ export function mountHeader(app: App): void {
     const ref = parseRepoRef(name);
     if ('kind' in ref) return;
     input.value = '';
+    setInvalid('');
     closeSuggest();
     input.blur();
     app.load(ref);
@@ -73,7 +74,11 @@ export function mountHeader(app: App): void {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const text = input.value.trim();
-    if (!text) return setInvalid('Enter a repository, like vitejs/vite.');
+    // An empty Grow is a request to pick one, so offer the list instead of scolding.
+    if (!text) {
+      input.focus();
+      return openSuggest();
+    }
     const ref = parseRepoRef(text);
     if ('kind' in ref)
       return setInvalid('Use owner/repo, like vitejs/vite, or paste a GitHub URL.');
@@ -83,6 +88,10 @@ export function mountHeader(app: App): void {
     app.load(ref);
   });
   input.addEventListener('input', () => setInvalid(''));
+  // The hint is about what was typed, so it goes when the field does.
+  input.addEventListener('blur', () => {
+    if (!input.value.trim()) setInvalid('');
+  });
   input.addEventListener('focus', openSuggest);
   input.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowDown' && !suggest.hidden) {
@@ -313,10 +322,9 @@ export function mountHeader(app: App): void {
           class: 'icon-btn',
           'aria-label': 'Reload from GitHub',
           title: 'Reload from GitHub, skipping the cache',
-          onclick: () =>
-            app.load({ ...repo.info.ref, ref: repo.info.branch } as typeof repo.info.ref, {
-              fresh: true,
-            }),
+          // The ref as it was asked for: pinning the branch here would make the reload a
+          // branch link, which reads history but is never offered to compute one.
+          onclick: () => app.load(repo.info.ref, { fresh: true }),
         },
         icon(...ICONS.reload),
       ),

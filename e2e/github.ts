@@ -44,6 +44,32 @@ export async function quietSettings(page: Page) {
   await page.route('https://api.github.com/**', (route) => route.abort('internetdisconnected'));
 }
 
+/**
+ * Answers every Actions runs request with a sample's bundled runs, so a spec that opens samples
+ * knows its sky (a sample reads its live CI first) and logs no failed request.
+ */
+export async function serveSampleRuns(page: Page) {
+  const SAMPLE_RUNS: Record<string, string> = {
+    'mathiasbynens/dotfiles': 'mathiasbynens-dotfiles',
+    'vitejs/vite': 'vitejs-vite',
+    'torvalds/linux': 'torvalds-linux',
+  };
+  await page.route(
+    (url) => url.host === 'api.github.com' && url.pathname.endsWith('/actions/runs'),
+    (route) => {
+      const [, , owner, repo] = new URL(route.request().url()).pathname.split('/');
+      const id = SAMPLE_RUNS[`${owner}/${repo}`.toLowerCase()];
+      return id
+        ? route.fulfill({
+            headers: { 'access-control-allow-origin': '*' },
+            body: readFileSync(`public/samples/${id}.runs.json`),
+            contentType: 'application/json',
+          })
+        : route.abort('internetdisconnected');
+    },
+  );
+}
+
 export const ready = (page: Page, repo: string) =>
   page.waitForSelector(`body[data-ready="${repo}"]`, { state: 'attached', timeout: 60_000 });
 

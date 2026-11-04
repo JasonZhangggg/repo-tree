@@ -27,7 +27,9 @@ export type ComputeRequest = {
 export type ComputeCommand = ComputeRequest | { cancel: number };
 export type ComputeError =
   | { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' }
-  | { kind: 'rate-limited'; resetAt: number };
+  | { kind: 'rate-limited'; resetAt: number }
+  /** A branch link to a branch that is not the default, which is the only one kept. */
+  | { kind: 'not-default-branch'; defaultBranch: string };
 /** A snapshot of the History with its root tree, for the upload's manifest. */
 export type Snapshot = { sha: string; at: number; tree: string };
 export type ComputeMessage = { run: number } & (

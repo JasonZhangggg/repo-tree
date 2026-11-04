@@ -30,6 +30,8 @@ const browser = await chromium.launch({
 });
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  // Samples read their live CI for the weather; keep it to the bundled runs so runs compare.
+  await page.route('https://api.github.com/**', (route) => route.abort('internetdisconnected'));
   await page.addInitScript(([q, hotspots]) => {
     localStorage.setItem('repo-tree:settings', JSON.stringify({ quality: q, hotspots }));
     /** @type {{ start: number; duration: number }[]} */

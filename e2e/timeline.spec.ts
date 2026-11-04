@@ -169,6 +169,21 @@ test('a folder that does not exist yet has no label and cannot be hovered', asyn
   expect(await hoversNear(await pointAt('playground'))).toBeNull();
 });
 
+test('a sample reloaded live from GitHub keeps its timeline', async ({ page }) => {
+  await serveRepo(page, 'vitejs/vite', 'vitejs-vite');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await expect(page.locator('#repo-meta [title^="Bundled with the app"]')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Reload from GitHub' }).click();
+  // The live tree has no "snapshot" tag; with no history shared, the bundled one stands in.
+  await expect(page.locator('#repo-meta [title^="Bundled with the app"]')).toHaveCount(0);
+  await ready(page, 'vitejs/vite');
+  await expect(timelineButton(page)).toHaveAttribute('aria-disabled', 'false');
+  await timelineButton(page).click();
+  await expect(scrubber(page)).toBeVisible();
+  await expect(date(page)).toHaveText(/^Nov 2026$/);
+});
+
 test('a repo with no history source shows the timeline as unavailable', async ({ page }) => {
   await serveRepo(page, 'acme/widgets');
   await page.goto('./#/acme/widgets');
@@ -177,6 +192,9 @@ test('a repo with no history source shows the timeline as unavailable', async ({
   // Still focusable and clickable, so a tap says why rather than doing nothing.
   await timelineButton(page).click({ force: true });
   await expect(page.locator('#toast')).toHaveText('History unavailable for this repo');
+  // One line, even on a phone, so it covers as little of the tree as it can.
+  const toast = (await page.locator('#toast').boundingBox())!;
+  expect(toast.height).toBeLessThan(48);
   await expect(scrubber(page)).toBeHidden();
   await expect(timelineButton(page)).toHaveAttribute('aria-pressed', 'false');
 });

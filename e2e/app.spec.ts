@@ -351,6 +351,13 @@ async function treeShare(page: Page) {
 }
 
 test('a legend color highlights only its leaves until clicked again', async ({ page }) => {
+  // Without the island, which never fades, the share counts only bark and leaves.
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      'repo-tree:settings',
+      JSON.stringify({ quality: 'low', spin: false, ground: false }),
+    ),
+  );
   await page.goto('./#/vitejs/vite?colorBy=language');
   await ready(page, 'vitejs/vite');
   await openLegend(page);

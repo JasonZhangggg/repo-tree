@@ -107,7 +107,7 @@ interface TreeView {
   setPalette(id: PaletteId): void; // recolors without regrowing
   setColorBy(by: ColorBy): void; // language, or top-level folder
   legend(): LegendEntry[];
-  setHighlight(h: { range: [number, number] } | { category: string } | null): void; // fades nodes outside the id range, or bark and every leaf outside the legend entry with that label (a per-leaf slot test in the shader)
+  setHighlight(h: { range: [number, number] } | { category: string } | null): void; // fades nodes outside the id range, or bark and every leaf outside the legend entry with that label, drained to grey while that entry's own leaves deepen (a per-leaf slot test in the shader)
   frameFolder(folder: number): void; // eases the camera onto the folder's leaves, never nearer than half the whole tree's distance; 0 frames the whole tree
   setInsets(insets: { top: number; right: number; bottom: number; left: number }): void; // CSS px the panels cover; the tree frames into the rest
   pickAt(x: number, y: number): { folder: number; rock?: number } | null; // folder or rock under a CSS pixel of the container; a rock's folder is 0

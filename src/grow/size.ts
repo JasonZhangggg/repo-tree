@@ -22,7 +22,7 @@ export function treeHeight(files: number): number {
  * How many twigs a crown may open: TWIGS.least up to TWIGS.from files, climbing with log10 of the
  * files to TWIGS.most at FILES_AT_TALLEST, so a bigger repo shows more detail as well as size.
  */
-const TWIGS = { least: 200, most: 340, from: 3000 };
+const TWIGS = { least: 200, most: 260, from: 3000 };
 export function twigBudget(files: number): number {
   const t = Math.log10(Math.max(1, files) / TWIGS.from) / Math.log10(FILES_AT_TALLEST / TWIGS.from);
   return Math.round(TWIGS.least + (TWIGS.most - TWIGS.least) * Math.min(1, Math.max(0, t)));

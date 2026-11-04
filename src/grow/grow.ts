@@ -368,6 +368,8 @@ function growSkeleton(
     roll: number,
     depth: number,
     path: number,
+    az0: number,
+    az1: number,
   ): void => {
     const side = rotate(perp(dir), dir, random() * 6.28);
     const end = addScaled(start, dir, len);
@@ -395,12 +397,25 @@ function growSkeleton(
     if (!b) {
       const jitter: Vec3 = [(random() - 0.5) * 0.25, 0, (random() - 0.5) * 0.25];
       const d = normalize(lerp(add(dir, jitter), UP, SHAPE.tropism));
-      return grow(a, end, d, lenOf(a.w), rChild(a), roll + GOLDEN_ANGLE, depth + 1, path + len);
+      return grow(
+        a,
+        end,
+        d,
+        lenOf(a.w),
+        rChild(a),
+        roll + GOLDEN_ANGLE,
+        depth + 1,
+        path + len,
+        az0,
+        az1,
+      );
     }
+    // Each fork shares its slice of the compass between its kids (see ORDER).
+    const cutAt = az0 + ((az1 - az0) * a.w ** ORDER.exp) / (a.w ** ORDER.exp + b.w ** ORDER.exp);
     const theta = SHAPE.spread * (0.85 + 0.3 * random());
     const angA = (theta * b.w) / (a.w + b.w);
     const angB = Math.max(0.42, (theta * a.w) / (a.w + b.w));
-    const axis = rotate(perp(dir), dir, roll);
+    const axis = forkAxis(dir, roll, az0, cutAt, az1, random);
     grow(
       a,
       end,
@@ -410,6 +425,8 @@ function growSkeleton(
       roll + GOLDEN_ANGLE,
       depth + 1,
       path + len,
+      az0,
+      cutAt,
     );
     grow(
       b,
@@ -420,10 +437,51 @@ function growSkeleton(
       roll + GOLDEN_ANGLE,
       depth + 1,
       path + len,
+      cutAt,
+      az1,
     );
   };
-  grow(top, [0, -0.06, 0], normalize([0.05, 1, 0.02]), SHAPE.trunkLen, trunkR, 0, 0, 0);
+  grow(
+    top,
+    [0, -0.06, 0],
+    normalize([0.05, 1, 0.02]),
+    SHAPE.trunkLen,
+    trunkR,
+    0,
+    0,
+    0,
+    0,
+    Math.PI * 2,
+  );
   return s;
+}
+
+/**
+ * Folders keep to their own side of the crown by how each fork turns, not by bending branches:
+ * every fork shares its slice of the compass between its kids (by files to the power `exp`, so
+ * small folders still get room) and turns about its limb so each kid sets off toward its own
+ * share, give or take `wobble` radians. A slice narrower than `least` radians no longer steers,
+ * and its forks turn by the golden angle as before, so twigs spread naturally.
+ */
+const ORDER = { exp: 0.5, least: 0.35, wobble: 0.25 };
+
+/** The axis a fork turns its kids about: `a` turns toward [az0, cut], `b` toward [cut, az1]. */
+function forkAxis(
+  dir: Vec3,
+  roll: number,
+  az0: number,
+  cut: number,
+  az1: number,
+  random: () => number,
+): Vec3 {
+  const free = rotate(perp(dir), dir, roll);
+  if (Math.min(cut - az0, az1 - cut) < ORDER.least) return free;
+  const toward = (az: number): Vec3 => [Math.cos(az), 0, Math.sin(az)];
+  const apart = sub(toward((az0 + cut) / 2), toward((cut + az1) / 2));
+  const m = addScaled(apart, dir, -dot(apart, dir));
+  if (length(m) < 1e-3) return free;
+  const axis = normalize(cross(dir, normalize(m)));
+  return rotate(axis, dir, (random() - 0.5) * 2 * ORDER.wobble);
 }
 
 /** Draws every point in toward the trunk by `k`, keeping heights and thicknesses. */

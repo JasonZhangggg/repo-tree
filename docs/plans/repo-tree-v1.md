@@ -175,7 +175,7 @@ function growTree(root: Dir, params: GrowParams): TreeModel; // throws RangeErro
 // grow/size.ts  (world size, the same for every repo)
 const ISLAND_RADIUS: number; // every island is this wide
 function treeHeight(files: number): number; // highest twig tip: 3.8 * (files / 100k) ** 0.18, at least 0.9, 3.8 from 100k files
-function twigBudget(files: number): number; // twigs a crown may open: 200 up to 3k files, linear in log10(files) to 340 at 100k
+function twigBudget(files: number): number; // twigs a crown may open: 200 up to 3k files, linear in log10(files) to 260 at 100k
 const TALLEST: Box; // the room the tallest tree can fill; framing fits it, not the tree on show
 
 // grow/ground.ts  (pure, deterministic; the view calls it on the main thread, about 10 to 35 ms at high)
@@ -298,7 +298,8 @@ Palettes are a table (`render/palette.ts` above). Autumn is the approved default
 
 ## Rendering decisions
 
-- The crown is capped at `twigBudget` twigs (`grow/size.ts`): 200 up to 3k files, rising to 340 at 100k, so a bigger repo shows more detail as well as more height. A crown that spreads wider than its height allows is drawn in toward the trunk, keeping its height. The heaviest branches open first; each branch left closed folds into one twig owned by the deepest folder that still owns a node. Forks between top-level folders always open. This keeps large repos as open as the approved tree and bounds geometry at any repo size.
+- The crown is capped at `twigBudget` twigs (`grow/size.ts`): 200 up to 3k files, rising to 260 at 100k, so a bigger repo shows more detail as well as more height. A crown that spreads wider than its height allows is drawn in toward the trunk, keeping its height. The heaviest branches open first; each branch left closed folds into one twig owned by the deepest folder that still owns a node. Forks between top-level folders always open. This keeps large repos as open as the approved tree and bounds geometry at any repo size.
+- Each top-level folder gathers on its own side of the crown by how its forks turn, not by bending branches (`ORDER` and `forkAxis` in `grow.ts`). Every fork shares its slice of the compass between its two kids by the square root of their files, and turns about its limb so each kid sets off toward its own share, with a little wobble. Fork angles, lengths and thicknesses stay as they were, and slices under 0.35 rad turn by the golden angle as before, so the tree keeps its natural shape.
 - Labels (`app/labels.ts`) go on top-level folders holding at least 2% of the tree's files, at least three and at most seven; those over 15% are larger. Pinning a folder adds smaller labels on its biggest subfolders and fades the other sections' labels. Each label sits out from its anchor, away from the crown's middle on screen, joined by a stem, and labels on the far side of the crown fade and give way to those in front.
 - One merged `BufferGeometry` for bark and one for leaves, so the whole tree is two draw calls. The mock's `onBeforeCompile` patch does grow animation and highlight on the GPU. Keep that approach.
 - Picking by a GPU id pass that renders one pixel under the pointer into a 1x1 target, not a CPU raycast. Raycasting 100k-file geometry on every pointer move is too slow.

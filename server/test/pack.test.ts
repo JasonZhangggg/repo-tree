@@ -114,10 +114,18 @@ const COMMITS: Commit[] = Array.from({ length: 24 }, (_, i) => ({
 
 let repo: ReturnType<typeof makeRepo>;
 const git = (args: string[], input?: string | Uint8Array) =>
-  execFileSync('git', ['-C', repo.dir, ...args], {
+  execFileSync('git', ['-c', 'commit.gpgsign=false', '-C', repo.dir, ...args], {
     ...(input !== undefined ? { input } : {}),
     maxBuffer: 1 << 28,
-    env: { ...process.env, GIT_PROTOCOL: 'version=2' },
+    // A fixed identity, so commit-tree works where git has no user configured (CI).
+    env: {
+      ...process.env,
+      GIT_PROTOCOL: 'version=2',
+      GIT_AUTHOR_NAME: 'ada',
+      GIT_AUTHOR_EMAIL: 'ada@example.com',
+      GIT_COMMITTER_NAME: 'ada',
+      GIT_COMMITTER_EMAIL: 'ada@example.com',
+    },
   });
 
 beforeAll(() => {

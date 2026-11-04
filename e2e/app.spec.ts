@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { failRepo, quietSettings, ready, serveRepo } from './github';
 import { treePixels } from './pixels';
-import { chooseAction, settle } from './view';
+import { chooseAction, openRepoField, settle } from './view';
 
 test.use({ reducedMotion: 'reduce' });
 
@@ -14,6 +14,7 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(() => expect(errors).toEqual([]));
 
 async function enterRepo(page: Page, text: string) {
+  await openRepoField(page);
   await page.getByLabel('GitHub repository').fill(text);
   await page.getByLabel('GitHub repository').press('Enter');
 }
@@ -46,6 +47,7 @@ test('the repo suggestions show small icons beside readable names', async ({ pag
   );
   await page.goto('./');
   await ready(page, 'vitejs/vite');
+  await openRepoField(page);
   await page.getByLabel('GitHub repository').focus();
   const rows = page.locator('.suggest button');
   await expect(rows).toHaveCount(4);
@@ -166,7 +168,8 @@ test("labels the big top-level folders, then a pinned folder's own subfolders", 
   await expect(pills.locator('span')).toHaveText(['playground/', 'packages/', 'docs/']);
   await expect(page.locator('#labels .pill.major')).toHaveCount(2);
 
-  await page.locator('#labels .pill', { hasText: 'packages' }).click();
+  // Forced: on a touch screen a label lets gestures through to the tree, which picks the tap.
+  await page.locator('#labels .pill', { hasText: 'packages' }).click({ force: true });
   await expectPinned(page, 'vite/packages');
   const subs = page.locator('#labels .pill.sub span');
   await expect(subs.first()).toHaveText('vite/');
@@ -505,6 +508,7 @@ test('a tapped suggestion loads its repo even when tapping does not focus button
   );
   await page.goto('./');
   await ready(page, 'vitejs/vite');
+  await openRepoField(page);
   const input = page.getByLabel('GitHub repository');
   await input.click();
   const row = page.locator('#suggest button', { hasText: 'torvalds/linux' });
@@ -517,8 +521,71 @@ test('a tapped suggestion loads its repo even when tapping does not focus button
 test('Grow with an empty field offers the list instead of an error', async ({ page }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
+  await openRepoField(page);
   await page.getByRole('button', { name: 'Grow', exact: true }).click();
   await expect(page.locator('#suggest')).toBeVisible();
   await expect(page.getByLabel('GitHub repository')).toBeFocused();
   await expect(page.locator('#repo-error')).toBeEmpty();
+});
+
+test('on a phone the repo field folds into the repo row', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'the desktop keeps the field and the title apart');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const input = page.getByLabel('GitHub repository');
+  await expect(input).toBeHidden();
+  const row = (await page.locator('#title').boundingBox())!;
+  expect(row.height, 'one row').toBeLessThan(60);
+  await page.getByRole('button', { name: 'Change repository' }).click();
+  await expect(input).toBeFocused();
+  await expect(page.locator('#suggest')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(input).toBeHidden();
+  await expect(page.locator('#title')).toBeVisible();
+});
+
+test('on a phone a drag that starts on a label turns the tree', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'labels take the pointer on desktop, for hover');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const pill = page.locator('#labels .pill', { hasText: 'playground' });
+  const box = (await pill.boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  const before = await page.evaluate(() =>
+    JSON.stringify((window as unknown as { __repoTree: { labels: unknown } }).__repoTree.labels),
+  );
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  for (let i = 1; i <= 8; i++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: x + i * 15, y }],
+    });
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        JSON.stringify(
+          (window as unknown as { __repoTree: { labels: unknown } }).__repoTree.labels,
+        ),
+      ),
+    )
+    .not.toBe(before);
+  // A drag, not a tap: nothing is pinned.
+  await expect(page.locator('#sheet-toggle')).toContainText('Folders and leaf colors');
+  // Nor does a touch screen select text or zoom the page.
+  const style = await page.evaluate(() => {
+    const s = getComputedStyle(document.body);
+    return [s.userSelect || s.webkitUserSelect, s.touchAction];
+  });
+  expect(style).toEqual(['none', 'pan-x pan-y']);
+});
+
+test('the history button is dark, like the other primary action', async ({ page }) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const bg = await page.locator('#timeline').evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(bg).toBe('rgb(37, 34, 30)');
 });

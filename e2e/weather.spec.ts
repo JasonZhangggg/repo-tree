@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { quietSettings, ready, serveRepo, serveRuns } from './github';
-import { settle } from './view';
+import { openRepoField, settle } from './view';
 
 test.use({ reducedMotion: 'reduce' });
 
@@ -15,6 +15,7 @@ test.afterEach(() => expect(errors).toEqual([]));
 const chip = (page: Page) => page.locator('#weather');
 
 async function enterRepo(page: Page, text: string) {
+  await openRepoField(page);
   await page.getByLabel('GitHub repository').fill(text);
   await page.getByLabel('GitHub repository').press('Enter');
 }

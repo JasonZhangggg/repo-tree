@@ -265,6 +265,11 @@ const toggleSpin = () =>
 spinButton.addEventListener('click', toggleSpin);
 byId('grow').addEventListener('click', () => view.grow());
 mountHint();
+// iOS Safari ignores user-scalable=no; its own gesture events are the way to keep a pinch
+// from zooming the page, so it zooms the tree alone.
+for (const type of ['gesturestart', 'gesturechange']) {
+  document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
+}
 
 let measured = false;
 view.onFrame(({ growth }) => {

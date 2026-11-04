@@ -28,6 +28,17 @@ export function mountHeader(app: App): void {
   const status = byId('status');
   const samples = byId('samples');
   const weatherChip = byId<HTMLAnchorElement>('weather');
+  const switcher = byId<HTMLButtonElement>('repo-switch');
+
+  /** On a phone the repo field folds into the repo row, and this button opens it there. */
+  const setOpen = (open: boolean) => {
+    document.body.toggleAttribute('data-repo-open', open);
+    switcher.setAttribute('aria-expanded', String(open));
+  };
+  switcher.addEventListener('click', () => {
+    setOpen(true);
+    input.focus();
+  });
 
   const setInvalid = (message: string) => {
     error.textContent = message;
@@ -130,14 +141,18 @@ export function mountHeader(app: App): void {
     // iOS sends the click after pointerup and touchend, so check a moment later whether
     // focus really left before closing.
     setTimeout(() => {
-      if (!form.contains(document.activeElement)) closeSuggest();
+      if (form.contains(document.activeElement)) return;
+      closeSuggest();
+      setOpen(false);
     }, 400);
   };
   addEventListener('pointerup', release);
   addEventListener('pointercancel', release);
   form.addEventListener('focusout', (event) => {
     if (pressing) return;
-    if (!form.contains(event.relatedTarget as Node | null)) closeSuggest();
+    if (form.contains(event.relatedTarget as Node | null)) return;
+    closeSuggest();
+    setOpen(false);
   });
 
   samples.replaceChildren(

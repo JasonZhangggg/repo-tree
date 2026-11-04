@@ -171,6 +171,10 @@ async function doctor() {
 }
 
 const enter = async (page, text) => {
+  // On a phone the repo field folds into the repo row until its GitHub button opens it.
+  if (await page.getByLabel('GitHub repository').isHidden()) {
+    await page.getByRole('button', { name: 'Change repository' }).click();
+  }
   await page.getByLabel('GitHub repository').fill(text);
   await page.getByLabel('GitHub repository').press('Enter');
 };

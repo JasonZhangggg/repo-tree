@@ -39,6 +39,13 @@ export async function settle(page: Page): Promise<Stats> {
   return statsOf(page);
 }
 
+/** On a phone the repo field folds into the repo row; this opens it there, if it is folded. */
+export async function openRepoField(page: Page) {
+  if (await page.getByLabel('GitHub repository').isHidden()) {
+    await page.getByRole('button', { name: 'Change repository' }).click();
+  }
+}
+
 /** Chooses a tree action, opening `More actions` first on a phone, where the action lives. */
 export async function chooseAction(page: Page, name: string | RegExp) {
   const more = page.getByRole('button', { name: 'More actions' });

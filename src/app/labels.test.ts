@@ -43,6 +43,13 @@ describe('relaxLabels', () => {
   });
 });
 
+test('moves labels off the panels', () => {
+  const panel = { x: 0, y: 0, width: 540, height: 260 };
+  const [label] = relaxLabels([pill(520, 240)], { x: 700, y: 300 }, [panel]);
+  const clear = label!.x - 45 >= 540 || label!.y - 14 >= 260;
+  expect(clear).toBe(true);
+});
+
 describe('pickLabels', () => {
   const tops = [
     { folder: 1, files: 600 },

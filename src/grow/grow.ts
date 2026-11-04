@@ -1,7 +1,7 @@
 import type { FileEntry } from '../repo/github';
 import type { Dir } from '../repo/hierarchy';
 import { langOf, type Lang } from '../repo/languages';
-import { crownReach, treeHeight, twigBudget } from './size';
+import { treeHeight, twigBudget } from './size';
 
 /**
  * Sets leaves per sprig, sprigs per twig and tube facets (see QUALITY). The branch skeleton,
@@ -84,8 +84,6 @@ const MIN_TWIG_FILES = 4;
 const LEAF_LENGTH = 0.16;
 const APPROVED_TWIGS = 150;
 const LEAF_UNFOLD = 0.12;
-/** The share of a crown's allowed reach its twigs may fill, leaving room for leaves and wobble. */
-const CROWN_FILL = 0.92;
 /** Past this many root files, the smallest share the last rock. */
 const ROCKS = 12;
 
@@ -157,9 +155,6 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
   const skeleton = growSkeleton(top, nodeCount, trunkR, mulberry32(params.seed));
   const height = treeHeight(root.fileCount);
   scaleSkeleton(skeleton, height / tipHeight(skeleton));
-  // A crown with many twigs can spread wider than its height allows; draw it in to fit.
-  const reach = (skeletonReach(skeleton) + LEAF_LENGTH * 1.4) / CROWN_FILL;
-  if (reach > crownReach(height)) narrowSkeleton(skeleton, crownReach(height) / reach);
 
   const treeLangs = new Map(root.langs);
   if (rocks.length > 0) {
@@ -482,23 +477,6 @@ function forkAxis(
   if (length(m) < 1e-3) return free;
   const axis = normalize(cross(dir, normalize(m)));
   return rotate(axis, dir, (random() - 0.5) * 2 * ORDER.wobble);
-}
-
-/** Draws every point in toward the trunk by `k`, keeping heights and thicknesses. */
-function narrowSkeleton(s: Skeleton, k: number) {
-  for (const buffer of [s.start, s.mid, s.end]) {
-    for (let i = 0; i < buffer.length; i += 3) {
-      buffer[i]! *= k;
-      buffer[i + 2]! *= k;
-    }
-  }
-}
-
-function skeletonReach(s: Skeleton): number {
-  let reach = 0;
-  for (let i = 0; i < s.end.length; i += 3)
-    reach = Math.max(reach, Math.hypot(s.end[i]!, s.end[i + 2]!));
-  return reach;
 }
 
 function tipHeight(s: Skeleton): number {

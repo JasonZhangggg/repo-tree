@@ -6,6 +6,8 @@ const ROUNDS = 40;
 /** A label on the far side of the crown gives way this much more than one in front. */
 const BACK_YIELD = 4;
 
+export type Box = { x: number; y: number; width: number; height: number };
+
 export type LabelAnchor = {
   x: number;
   y: number;
@@ -18,12 +20,13 @@ export type LabelAnchor = {
 /**
  * Places each label out from its anchor, away from the crown's middle at `center`, so labels
  * ring the crown like callouts instead of piling over it. Overlapping pairs are then pushed
- * apart along the axis they overlap least on, labels behind the crown giving way first.
- * Returns each label's center.
+ * apart along the axis they overlap least on, labels behind the crown giving way first, and
+ * moved off any of `panels` the short way. Returns each label's center.
  */
 export function relaxLabels(
   anchors: ReadonlyArray<LabelAnchor>,
   center: { x: number; y: number },
+  panels: ReadonlyArray<Box> = [],
 ): { x: number; y: number }[] {
   const placed = anchors.map((a) => {
     const dx = a.x - center.x;
@@ -38,30 +41,51 @@ export function relaxLabels(
       give: a.front ? 1 : BACK_YIELD,
     };
   });
-  for (let round = 0; round < ROUNDS; round++) {
-    let moved = false;
-    for (let i = 0; i < placed.length; i++) {
-      for (let j = i + 1; j < placed.length; j++) {
-        const a = placed[i]!;
-        const b = placed[j]!;
-        const overlapX = (a.w + b.w) / 2 + GAP - Math.abs(a.x - b.x);
-        const overlapY = (a.h + b.h) / 2 + GAP - Math.abs(a.y - b.y);
-        if (overlapX <= 0 || overlapY <= 0) continue;
-        moved = true;
-        const shareA = a.give / (a.give + b.give);
-        // Labels are much wider than tall, so moving apart vertically is usually the short way.
-        if (overlapY < overlapX * 1.6) {
-          const away = a.y < b.y || (a.y === b.y && i < j) ? -1 : 1;
-          a.y += away * overlapY * shareA;
-          b.y -= away * overlapY * (1 - shareA);
-        } else {
-          const away = a.x < b.x ? -1 : 1;
-          a.x += away * overlapX * shareA;
-          b.x -= away * overlapX * (1 - shareA);
+  const relax = () => {
+    for (let round = 0; round < ROUNDS; round++) {
+      let moved = false;
+      for (let i = 0; i < placed.length; i++) {
+        for (let j = i + 1; j < placed.length; j++) {
+          const a = placed[i]!;
+          const b = placed[j]!;
+          const overlapX = (a.w + b.w) / 2 + GAP - Math.abs(a.x - b.x);
+          const overlapY = (a.h + b.h) / 2 + GAP - Math.abs(a.y - b.y);
+          if (overlapX <= 0 || overlapY <= 0) continue;
+          moved = true;
+          const shareA = a.give / (a.give + b.give);
+          // Labels are much wider than tall, so moving apart vertically is usually the short way.
+          if (overlapY < overlapX * 1.6) {
+            const away = a.y < b.y || (a.y === b.y && i < j) ? -1 : 1;
+            a.y += away * overlapY * shareA;
+            b.y -= away * overlapY * (1 - shareA);
+          } else {
+            const away = a.x < b.x ? -1 : 1;
+            a.x += away * overlapX * shareA;
+            b.x -= away * overlapX * (1 - shareA);
+          }
         }
       }
+      if (!moved) break;
     }
-    if (!moved) break;
+  };
+  relax();
+  // Then off any panel, the short way out, and apart again from what that moved them into.
+  for (let pass = 0; pass < 2 && panels.length > 0; pass++) {
+    for (const p of placed) {
+      for (const panel of panels) {
+        const left = p.x + p.w / 2 + GAP - panel.x;
+        const right = panel.x + panel.width + GAP - (p.x - p.w / 2);
+        const up = p.y + p.h / 2 + GAP - panel.y;
+        const down = panel.y + panel.height + GAP - (p.y - p.h / 2);
+        if (left <= 0 || right <= 0 || up <= 0 || down <= 0) continue;
+        const least = Math.min(left, right, up, down);
+        if (least === left) p.x -= left;
+        else if (least === right) p.x += right;
+        else if (least === up) p.y -= up;
+        else p.y += down;
+      }
+    }
+    if (pass === 0) relax();
   }
   return placed.map(({ x, y }) => ({ x, y }));
 }

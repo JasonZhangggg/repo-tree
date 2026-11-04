@@ -8,6 +8,8 @@ import type { AppState, Repo, Selection } from '../state';
 import type { Picked } from '../../render/tree-view';
 
 const TAP_SLOP = 6;
+/** Panels over the canvas that labels keep off. */
+const PANELS = '.bar, .title, .side, .controls';
 
 /** The root folder's own files a rock lies for, as indices into RepoIndex.files. */
 const rockFiles = (repo: Repo, rock: number) =>
@@ -239,7 +241,14 @@ export function mountCanvas(app: App): {
       const { x, y, front } = at.get(p.folder)!;
       return { x, y, front, width: p.width, height: p.height };
     });
-    const placed = relaxLabels(anchors, center);
+    const origin = layer.getBoundingClientRect();
+    const panels = [...document.querySelectorAll<HTMLElement>(PANELS)]
+      .filter((el) => el.offsetParent !== null)
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.x - origin.x, y: r.y - origin.y, width: r.width, height: r.height };
+      });
+    const placed = relaxLabels(anchors, center, panels);
     shown.forEach((pill, i) => {
       const { x, y } = placed[i]!;
       const a = anchors[i]!;

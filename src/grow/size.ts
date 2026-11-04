@@ -37,8 +37,5 @@ export function roundBox(radius: number, bottom: number, top: number): { min: Ve
   return { min: [-half, bottom, -half], max: [half, top, half] };
 }
 
-/** How far a tree of this height may reach from its trunk, its leaves included. */
-export const crownReach = (height: number) => height * CROWN.reach;
-
 /** The room the tallest tree any repo grows can fill; the camera frames it, not the tree on show. */
 export const TALLEST = roundBox(HEIGHT.most * CROWN.reach, -0.06, HEIGHT.most * (1 + CROWN.leaves));

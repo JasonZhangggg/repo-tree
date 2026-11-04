@@ -60,7 +60,7 @@ describe('ledger', () => {
   });
 
   it('keeps the stored bytes under the budget, counting a replaced entry once', async () => {
-    const l = await book({ maxBytes: 250 });
+    const l = await book({ maxBytes: 250, evictPerUpload: 0 });
     expect(l.run(reserve('a', 'h1', 'ada', T0, 100)).ok).toBe(true);
     expect(l.run(reserve('b', 'h1', 'ada', T0, 100)).ok).toBe(true);
     expect(l.run(reserve('c', 'h1', 'ada', T0, 100))).toEqual({ ok: false, error: 'full' });
@@ -68,8 +68,52 @@ describe('ledger', () => {
     expect(l.totals(T0).bytes).toBe(250);
   });
 
+  it('evicts the oldest entries to make room, bad ones first, at most evictPerUpload', async () => {
+    const l = await book({ maxBytes: 300, evictPerUpload: 2 });
+    expect(l.run(reserve('a', 'h1', 'ada', T0, 100))).toEqual({ ok: true });
+    expect(l.run(reserve('b', 'h1', 'ada', T0 + 1, 100))).toEqual({ ok: true });
+    expect(l.run(reserve('c', 'h1', 'ada', T0 + 2, 100))).toEqual({ ok: true });
+    // Full: the oldest goes.
+    expect(l.run(reserve('d', 'h1', 'ada', T0 + 3, 100))).toEqual({ ok: true, evict: ['a'] });
+    // A reported entry goes before older good ones.
+    l.run({ op: 'bad', key: 'c', head: 'h1', now: T0 + 4 });
+    expect(l.run(reserve('e', 'h1', 'ada', T0 + 5, 150))).toEqual({ ok: true, evict: ['c', 'b'] });
+    expect(l.totals(T0 + 5)).toMatchObject({ entries: 2, bytes: 250 });
+    // A body bigger than the whole budget never fits, and nothing is evicted for it.
+    expect(l.run(reserve('f', 'h1', 'ada', T0 + 6, 301))).toEqual({ ok: false, error: 'full' });
+    expect(l.totals(T0 + 6)).toMatchObject({ entries: 2 });
+  });
+
+  it('refuses when the evictions needed pass evictPerUpload', async () => {
+    const l = await book({ maxBytes: 300, evictPerUpload: 1 });
+    for (const k of ['a', 'b', 'c']) expect(l.run(reserve(k, 'h1', 'ada', T0, 100)).ok).toBe(true);
+    expect(l.run(reserve('d', 'h1', 'ada', T0, 200))).toEqual({ ok: false, error: 'full' });
+    expect(l.totals(T0)).toMatchObject({ entries: 3 });
+  });
+
+  it("counts puts and eviction deletes against the day's KV writes", async () => {
+    const l = await book({ maxBytes: 200, writesPerDay: 4 });
+    expect(l.run(reserve('a', 'h1', 'ada', T0, 100)).ok).toBe(true);
+    expect(l.run(reserve('b', 'h1', 'ada', T0, 100)).ok).toBe(true);
+    expect(l.run(reserve('c', 'h1', 'ada', T0, 100))).toEqual({ ok: true, evict: ['a'] });
+    expect(l.totals(T0)).toMatchObject({ writes: 4 });
+    // No writes left today: refused before GitHub is asked.
+    expect(l.run({ op: 'check', key: 'd', head: 'h1', now: T0 })).toMatchObject({
+      error: 'rate-limited',
+    });
+    expect(l.run(reserve('d', 'h1', 'ada', T0 + DAY, 100))).toEqual({ ok: true, evict: ['b'] });
+  });
+
+  it("refuses an upload whose evictions would pass the day's KV writes", async () => {
+    const l = await book({ maxBytes: 200, writesPerDay: 3 });
+    expect(l.run(reserve('a', 'h1', 'ada', T0, 100)).ok).toBe(true);
+    expect(l.run(reserve('b', 'h1', 'ada', T0, 100)).ok).toBe(true);
+    expect(l.run(reserve('c', 'h1', 'ada', T0, 100))).toMatchObject({ error: 'rate-limited' });
+    expect(l.totals(T0)).toMatchObject({ entries: 2, writes: 2 });
+  });
+
   it('forgets entries when KV does, and on release', async () => {
-    const l = await book({ ttlMs: 10 * DAY, maxBytes: 150 });
+    const l = await book({ ttlMs: 10 * DAY, maxBytes: 150, evictPerUpload: 0 });
     expect(l.run(reserve('a', 'h1', 'ada', T0, 100)).ok).toBe(true);
     expect(l.run(reserve('b', 'h1', 'ada', T0, 100)).ok).toBe(false);
     expect(l.run(reserve('b', 'h1', 'ada', T0 + 10 * DAY, 100)).ok).toBe(true);

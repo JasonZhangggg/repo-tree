@@ -10,7 +10,7 @@ describe('describeStep', () => {
   test('offers to sign in, saying it runs in this browser, how much, and that it is shared', () => {
     const v = describeStep({ kind: 'offer' }, ctx);
     expect(v.title).toBe('No timeline yet for acme/widgets');
-    expect(v.lines[0]!.text).toContain('your own GitHub requests, about 3 MB to download');
+    expect(v.lines[0]!.text).toContain('your own GitHub requests, about 2 MB to download');
     expect(v.lines[0]!.text).toContain('shared, so everyone who opens acme/widgets gets it');
     expect(v.lines.some((l) => l.kind === 'warn')).toBe(false);
     expect(v.buttons).toEqual([
@@ -26,7 +26,7 @@ describe('describeStep', () => {
     const big = describeStep({ kind: 'offer' }, { ...ctx, estimate: linux, warn: true });
     const warn = big.lines.find((l) => l.kind === 'warn')!.text;
     expect(warn).toMatch(
-      /^This is a big repo\. It downloads about 85 MB and the tab may use about \d+ MB of memory/,
+      /^This is a big repo\. It downloads about 50 MB and the tab may use about \d+ MB of memory/,
     );
     expect(big.buttons.map((b) => b.label)).toEqual(['Sign in and compute anyway', 'Not now']);
     const phone = describeStep({ kind: 'offer' }, { ...ctx, warn: true, phone: true });
@@ -57,7 +57,7 @@ describe('describeStep', () => {
   test('shows progress with megabytes and a cancel', () => {
     const v = describeStep({ kind: 'computing', progress: 0.42 }, { ...ctx, estimate: linux });
     expect(v.progress).toBe(0.42);
-    expect(v.lines[0]).toEqual({ kind: 'progress', text: '42% · 35 MB of about 85 MB' });
+    expect(v.lines[0]).toEqual({ kind: 'progress', text: '42% · 22 MB of about 50 MB' });
     expect(v.buttons).toEqual([{ label: 'Cancel', act: 'cancel' }]);
     const tiny = describeStep(
       { kind: 'computing', progress: 0.5 },

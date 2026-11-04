@@ -169,6 +169,12 @@ async function doctor() {
   if (Object.values(checks).includes(false)) process.exitCode = 1;
 }
 
+/** Chooses a tree action; on a phone it sits behind `More actions`, so that opens first. */
+const action = async (page, name) => {
+  const more = page.getByRole('button', { name: 'More actions' });
+  if (await more.isVisible()) await more.click();
+  await page.getByRole('button', { name }).click();
+};
 const enter = async (page, text) => {
   await page.getByLabel('GitHub repository').fill(text);
   await page.getByLabel('GitHub repository').press('Enter');
@@ -445,7 +451,7 @@ const JOURNEYS = {
     let link = '';
     await step('copy-link', async () => {
       await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-      await page.getByRole('button', { name: 'Copy link to this view' }).click();
+      await action(page, 'Copy link to this view');
       await expect(page.locator('#toast')).toHaveText('Link copied');
       link = await page.evaluate(() => navigator.clipboard.readText());
       expect(link).toMatch(
@@ -461,7 +467,7 @@ const JOURNEYS = {
     await step('export-png', async () => {
       const [download] = await Promise.all([
         page.waitForEvent('download'),
-        page.getByRole('button', { name: 'Export PNG' }).click(),
+        action(page, 'Export PNG'),
       ]);
       expect(download.suggestedFilename()).toBe('vitejs-vite-tree.png');
       await download.saveAs(`${out}/vitejs-vite-tree.png`);
@@ -519,7 +525,11 @@ const JOURNEYS = {
     const range = page.getByRole('slider', { name: 'Timeline position' });
     const scrubTo = async (at) => {
       const box = await range.boundingBox();
-      await range.click({ position: { x: 9 + at * (box.width - 18), y: box.height / 2 } });
+      const thumb = await page
+        .locator('#scrubber')
+        .evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue('--thumb')));
+      const x = thumb / 2 + at * (box.width - thumb);
+      await range.click({ position: { x, y: box.height / 2 } });
     };
     await step('open', async () => {
       await page.goto(base);
@@ -558,7 +568,7 @@ const JOURNEYS = {
     await step('export-png', async () => {
       const [download] = await Promise.all([
         page.waitForEvent('download'),
-        page.getByRole('button', { name: 'Export PNG' }).click(),
+        action(page, 'Export PNG'),
       ]);
       expect(download.suggestedFilename()).toBe('vitejs-vite-tree-2022-06-15.png');
       await download.saveAs(`${out}/vitejs-vite-tree-2022-06-15.png`);
@@ -831,6 +841,8 @@ const JOURNEYS = {
         body: JSON.stringify({ repo: 'acme/widgets', sha: null }),
       });
       await page.addInitScript(() => {
+        // The debug flag: the refresh's breakdown shows in a toast.
+        localStorage.setItem('repo-tree:debug', '1');
         const now = Date.now;
         Date.now = () => now() + 2 * 24 * 60 * 60 * 1000;
       });
@@ -844,6 +856,7 @@ const JOURNEYS = {
       await page.getByRole('button', { name: /^Refresh/ }).click();
       await expect(scrubber).toBeVisible({ timeout: 60_000 });
       expect(await storedHead()).not.toBe(before);
+      await expect(page.locator('#toast')).toContainText(/^history acme\/widgets: .*upload/);
       await settle(page);
     });
   },

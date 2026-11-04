@@ -78,7 +78,7 @@ export type ReadStats = {
 
 type Flat = { path: string; mode: Mode; sha: string };
 
-function modeOf(text: unknown, type: unknown): Mode | null {
+export function modeOf(text: unknown, type: unknown): Mode | null {
   switch (text) {
     case '100644':
     case 0o100644:
@@ -400,6 +400,9 @@ export type GraphQLLoader = {
   readonly stats: LoaderStats;
 };
 
+/** Trees queued that make a query worth sending while others are in flight. */
+const SEND_AT = 100;
+
 export type GraphQLOptions = {
   /** Trees per query to start with; halves after a failed query, grows back after successes. */
   batch: number;
@@ -424,10 +427,16 @@ export function graphqlLoader(
   repo: { owner: string; name: string },
   store: TreeStore,
   partial: Partial<GraphQLOptions> = {},
+  events: {
+    /** A query went (ok) or failed, with its batch size. */
+    sent?: (size: number, ok: boolean) => void;
+    /** A reply's trees are in the store. */
+    replied?: () => void;
+  } = {},
 ): GraphQLLoader {
   const options: GraphQLOptions = {
-    batch: 50,
-    maxBatch: 100,
+    batch: 100,
+    maxBatch: 400,
     concurrency: 4,
     giveUpAfter: 3,
     ...partial,
@@ -459,13 +468,14 @@ export function graphqlLoader(
   }
 
   function pump() {
-    // A part batch goes only when nothing else is in flight: replies queue the next level, so
-    // waiting for them fills batches (a level of every snapshot's trees at once).
+    // A part batch goes once it holds SEND_AT trees, or when nothing else is in flight: replies
+    // queue the next level, so waiting for them fills batches (a level of every snapshot's
+    // trees at once), but a small repo's levels would otherwise go one query at a time.
     while (
       !gaveUp &&
       inFlight < options.concurrency &&
       queue.length > 0 &&
-      (queue.length >= batch || inFlight === 0)
+      (queue.length >= Math.min(batch, SEND_AT) || inFlight === 0)
     ) {
       const take = queue.splice(0, batch);
       inFlight++;
@@ -500,6 +510,7 @@ export function graphqlLoader(
         return;
       }
       stats.failed++;
+      events.sent?.(shas.length, false);
       streak = 0;
       if (shas.length === 1) {
         // Alone and still failing: REST reads it; GraphQL is given up after a few of these.
@@ -519,6 +530,7 @@ export function graphqlLoader(
       return;
     }
     failedAlone = 0;
+    events.sent?.(shas.length, true);
     stats.batch = Math.max(stats.batch, shas.length);
     if (++streak >= 3 && batch < options.maxBatch) {
       batch = Math.min(options.maxBatch, Math.ceil(batch * 1.5));
@@ -548,6 +560,7 @@ export function graphqlLoader(
       stats.entries += entries.length;
       for (const e of entries) if (e.mode === MODE.tree) add(e.oid);
     });
+    events.replied?.();
   }
 
   return {

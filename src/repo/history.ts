@@ -19,6 +19,8 @@ export type HistoryOptions = {
   /** Defaults to HISTORY_URL. */
   base?: string;
   signal?: AbortSignal;
+  /** uploadHistory: told the gzipped body's size before it goes. */
+  onBody?: (bytes: number) => void;
 };
 
 /**
@@ -145,6 +147,7 @@ export async function uploadHistory(
   if (!base || 'kind' in ref) return 'invalid';
   try {
     const body = await gzip(JSON.stringify(history));
+    options.onBody?.(body.byteLength);
     const manifest: UploadManifest = {
       v: HISTORY_VERSION,
       repo: history.repo,

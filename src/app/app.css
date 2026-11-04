@@ -15,6 +15,8 @@
   --sans: 'Hanken Grotesk Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --edge: 20px;
+  /* The repo field and the title card below it share one column, so their edges line up. */
+  --col: min(520px, 42vw);
   /* Motion: a strong ease-out for anything entering or answering a press, and a
      drawer curve for sheets. Interactions stay under 300 ms. */
   --ease: cubic-bezier(0.23, 1, 0.32, 1);
@@ -96,7 +98,7 @@ kbd {
   outline: none;
 }
 
-/* Top bar: wordmark, repo input, tools. */
+/* Top bar: repo input and tools. */
 .bar {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 16px);
@@ -111,33 +113,12 @@ kbd {
 .bar > * {
   pointer-events: auto;
 }
-.mark {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--ink);
-  text-decoration: none;
-  font-weight: 650;
-  font-size: 15px;
-  letter-spacing: -0.01em;
-  padding: 6px 8px 6px 4px;
-  border-radius: 10px;
-}
-.mark svg {
-  width: 22px;
-  height: 22px;
-  stroke-width: 1.6;
-}
-.mark .leaf {
-  fill: #e0663f;
-  stroke: #b8401f;
-}
 .repo {
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  width: min(440px, 42vw);
+  width: var(--col);
   height: 46px;
   padding: 0 5px 0 13px;
   background: var(--card-solid);
@@ -302,13 +283,18 @@ kbd {
   padding: 0;
   width: 40px;
 }
+/* The More button and its menu exist only on a phone, where the menu holds the actions that
+   don't fit the bottom row. */
+#more {
+  display: none;
+}
 
 /* Title block: repo name, meta, load status, samples. */
 .title {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 84px);
   left: max(var(--edge), env(safe-area-inset-left, 0px));
-  max-width: min(540px, calc(100% - 360px));
+  width: var(--col);
   display: grid;
   gap: 10px;
   justify-items: start;
@@ -1005,8 +991,11 @@ h1 a[aria-disabled] {
 
 /* Timeline: the button among the controls and the scrubber above them. */
 #timeline[aria-pressed='true'] {
-  background: var(--ink);
-  color: #fff;
+  background: #fbeee9;
+  color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(184, 64, 31, 0.35),
+    var(--shadow);
 }
 #timeline[aria-disabled='true'] {
   color: var(--faint);
@@ -1032,6 +1021,7 @@ h1 a[aria-disabled] {
   border-radius: 999px;
   box-shadow: var(--shadow-lift);
   --thumb: 18px;
+  animation: rise 0.24s var(--ease);
 }
 .scrub-play,
 .scrub-close {
@@ -1098,13 +1088,13 @@ h1 a[aria-disabled] {
 }
 .scrub-ticks i {
   position: absolute;
-  top: 11px;
+  top: 20px;
   width: 1px;
-  height: 8px;
+  height: 4px;
   background: rgba(37, 34, 30, 0.2);
   font: 500 10.5px/1 var(--sans);
   font-style: normal;
-  color: var(--faint);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .scrub-ticks i[data-y] {
@@ -1113,7 +1103,7 @@ h1 a[aria-disabled] {
 .scrub-ticks i[data-y]::after {
   content: attr(data-y);
   position: absolute;
-  top: 13px;
+  top: 7px;
   left: 0;
   transform: translateX(-50%);
 }
@@ -1157,6 +1147,29 @@ h1 a[aria-disabled] {
   background: #fff;
   border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
+  transition:
+    transform 0.16s var(--ease),
+    box-shadow 0.16s var(--ease);
+}
+#timeline-range:active::-webkit-slider-thumb {
+  transform: scale(1.2);
+  box-shadow:
+    0 0 0 6px rgba(184, 64, 31, 0.14),
+    0 2px 6px rgba(60, 40, 20, 0.3);
+}
+#timeline-range:active::-moz-range-thumb {
+  transform: scale(1.2);
+  box-shadow:
+    0 0 0 6px rgba(184, 64, 31, 0.14),
+    0 2px 6px rgba(60, 40, 20, 0.3);
+}
+@media (hover: hover) and (pointer: fine) {
+  #timeline-range:hover::-webkit-slider-thumb {
+    transform: scale(1.1);
+  }
+  #timeline-range:hover::-moz-range-thumb {
+    transform: scale(1.1);
+  }
 }
 #timeline-range::-moz-range-thumb {
   width: var(--thumb);
@@ -1165,6 +1178,9 @@ h1 a[aria-disabled] {
   background: #fff;
   border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
+  transition:
+    transform 0.16s var(--ease),
+    box-shadow 0.16s var(--ease);
 }
 #timeline-range:focus-visible {
   outline: none;
@@ -1559,7 +1575,7 @@ h1 a[aria-disabled] {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
   translate: -50% 12px;
   z-index: 9;
   padding: 10px 16px;
@@ -1578,6 +1594,19 @@ h1 a[aria-disabled] {
 .toast.on {
   opacity: 1;
   translate: -50% 0;
+}
+body:has(.scrubber:not([hidden])) .toast {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 140px);
+}
+
+/* A long message (the debug flag's history breakdown) wraps in a box and stays a while. */
+.toast.long {
+  width: min(720px, calc(100vw - 32px));
+  border-radius: 12px;
+  font-weight: 450;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 /* Press feedback. Every button answers a press by settling slightly, so a tap
@@ -1771,9 +1800,6 @@ h1 a[aria-disabled] {
   .bar {
     top: calc(env(safe-area-inset-top, 0px) + 12px);
   }
-  .mark {
-    display: none;
-  }
   .repo {
     flex: 1;
     width: auto;
@@ -1783,7 +1809,7 @@ h1 a[aria-disabled] {
     top: calc(env(safe-area-inset-top, 0px) + 68px);
     left: max(12px, env(safe-area-inset-left, 0px));
     right: max(12px, env(safe-area-inset-right, 0px));
-    max-width: none;
+    width: auto;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -1992,6 +2018,55 @@ h1 a[aria-disabled] {
   .controls #settings-open {
     width: 44px;
   }
+  .controls #more {
+    display: flex;
+  }
+  .controls #more[aria-expanded='true'] {
+    background: var(--ink);
+    color: #fff;
+  }
+  .controls .tools {
+    position: relative;
+  }
+  .more-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 10px);
+    z-index: 4;
+    display: grid;
+    gap: 2px;
+    min-width: 210px;
+    padding: 6px;
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: var(--shadow-lift);
+    transform-origin: bottom right;
+    animation: pop 0.2s var(--ease);
+  }
+  .controls .more-menu :is(.pill-btn, .tool) {
+    width: 100%;
+    height: 48px;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 14px;
+    border-radius: 12px;
+    background: none;
+    color: var(--ink);
+    box-shadow: none;
+    font-weight: 550;
+    font-size: 15px;
+  }
+  .controls .more-menu :is(.pill-btn, .tool):active {
+    background: rgba(37, 34, 30, 0.07);
+  }
+  .controls .more-menu :is(.pill-btn span, .tool .label) {
+    display: inline;
+  }
+  .controls .more-menu svg {
+    width: 19px;
+    height: 19px;
+    color: var(--muted);
+  }
   .controls :is(.pill-btn, .tool) {
     flex: none;
   }
@@ -2004,6 +2079,7 @@ h1 a[aria-disabled] {
   }
   .scrubber {
     gap: 8px;
+    --thumb: 22px;
   }
   .scrub-when {
     min-width: 78px;
@@ -2011,9 +2087,14 @@ h1 a[aria-disabled] {
   .scrub-when strong {
     font-size: 14px;
   }
+  .scrub-play {
+    width: 44px;
+    height: 44px;
+  }
   .scrub-close {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
+    margin-left: -6px;
   }
   .help {
     display: none;
@@ -2043,6 +2124,12 @@ h1 a[aria-disabled] {
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
     animation: sheet 0.36s var(--ease-drawer);
   }
+  /* iOS zooms the page into any focused field whose text is under 16px. */
+  .repo input,
+  .search-field input,
+  .inline-form input {
+    font-size: 16px;
+  }
   .settings .seg button,
   .swatches button,
   .switch,
@@ -2057,6 +2144,9 @@ h1 a[aria-disabled] {
   }
   .toast {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 124px);
+  }
+  body:has(.scrubber:not([hidden])) .toast {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 196px);
   }
 }
 @media (max-width: 380px) {

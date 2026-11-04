@@ -38,3 +38,10 @@ export async function settle(page: Page): Promise<Stats> {
     .toBe(true);
   return statsOf(page);
 }
+
+/** Chooses a tree action, opening `More actions` first on a phone, where the action lives. */
+export async function chooseAction(page: Page, name: string | RegExp) {
+  const more = page.getByRole('button', { name: 'More actions' });
+  if (await more.isVisible()) await more.click();
+  await page.getByRole('button', { name }).click();
+}

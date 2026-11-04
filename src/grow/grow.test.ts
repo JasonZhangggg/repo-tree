@@ -3,7 +3,7 @@ import { buildHierarchy, DEFAULT_FILTERS, type Dir } from '../repo/hierarchy';
 import { langOf, type Lang } from '../repo/languages';
 import { sample, type SampleId } from '../test/samples';
 import { growTree, type GrowParams, type MeshData, type TreeModel } from './grow';
-import { TALLEST } from './size';
+import { TALLEST, twigBudget } from './size';
 import { indexRepo } from '../load/repo-index';
 
 const HIGH: GrowParams = { seed: 42, quality: 'high' };
@@ -189,9 +189,9 @@ describe.each(SAMPLES)('growTree on %s', (id) => {
     expect(tree.labels.map((l) => [tree.folders.path[l.folder], l.files])).toEqual(top);
   });
 
-  test('keeps the crown open with at most 200 twigs', () => {
+  test('keeps the crown open with at most its twig budget', () => {
     const twigs = tree.nodes.files.filter((n) => n > 0).length;
-    expect(twigs).toBeLessThanOrEqual(200);
+    expect(twigs).toBeLessThanOrEqual(twigBudget(dirOf(id).fileCount));
   });
 
   test('anchors every folder that holds twigs, top-level labels on the same anchors', () => {
@@ -341,6 +341,11 @@ test('grows a taller, wider, thicker tree for more files, never past the tallest
     expect(height(tree)).toBeLessThanOrEqual(TALLEST.max[1]);
     expect(reach(tree)).toBeLessThanOrEqual(Math.hypot(TALLEST.max[0], TALLEST.max[2]));
   }
+});
+
+test('opens more twigs for a bigger repo', () => {
+  const twigs = (id: SampleId) => growTree(dirOf(id), HIGH).nodes.files.filter((n) => n > 0).length;
+  expect(twigs('torvalds-linux')).toBeGreaterThan(twigs('vitejs-vite') * 1.4);
 });
 
 test('grows the linux tree from its snapshot within the budget', async () => {

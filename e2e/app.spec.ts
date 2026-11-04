@@ -336,7 +336,8 @@ test('on a phone the tree stays in view as folders are pinned', async ({ page, i
     width,
     height: controls.y - header.y - header.height,
   };
-  expect(await treeUnder(page, band), 'tree between header and peek').toBeGreaterThan(0.05);
+  // vite grows to about half the tallest tree's height, so it fills only a few of the samples.
+  expect(await treeUnder(page, band), 'tree between header and peek').toBeGreaterThan(0.03);
 
   await sheet.tap();
   await expect(sheet).toHaveAttribute('aria-expanded', 'true');

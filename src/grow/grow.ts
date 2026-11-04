@@ -1,7 +1,7 @@
 import type { FileEntry } from '../repo/github';
 import type { Dir } from '../repo/hierarchy';
 import { langOf, type Lang } from '../repo/languages';
-import { treeHeight } from './size';
+import { crownReach, treeHeight, twigBudget } from './size';
 
 /**
  * Sets leaves per sprig, sprigs per twig and tube facets (see QUALITY). The branch skeleton,
@@ -79,11 +79,6 @@ const SHAPE = { trunkLen: 1, spread: 1.25, lenExp: 0.3, lenK: 0.7, tropism: 0.08
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const UP: Vec3 = [0, 1, 0];
 const GROW_END = 0.86;
-/**
- * The crown stays open at any repo size because the twig count is capped: past this many
- * twigs, the lightest branches fold into one twig each instead of forking further.
- */
-const TWIG_BUDGET = 200;
 const MIN_TWIG_FILES = 4;
 /** Leaf length on the approved tree, which had about APPROVED_TWIGS twigs. */
 const LEAF_LENGTH = 0.16;
@@ -129,7 +124,7 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
     return n;
   };
   const top = build(root);
-  const twigs = cut(top);
+  const twigs = cut(top, twigBudget(root.fileCount));
 
   const order: Node[] = [];
   const parentOf: number[] = [];
@@ -158,7 +153,11 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
 
   const trunkR = Math.min(0.24, Math.max(0.09, 0.2 * (top.w / 527) ** 0.2));
   const skeleton = growSkeleton(top, nodeCount, trunkR, mulberry32(params.seed));
-  scaleSkeleton(skeleton, treeHeight(root.fileCount) / tipHeight(skeleton));
+  const height = treeHeight(root.fileCount);
+  scaleSkeleton(skeleton, height / tipHeight(skeleton));
+  // A crown with many twigs can spread wider than its height allows; draw it in to fit.
+  const reach = skeletonReach(skeleton) + LEAF_LENGTH * 1.4;
+  if (reach > crownReach(height)) narrowSkeleton(skeleton, crownReach(height) / reach);
 
   const treeLangs = new Map(root.langs);
   if (rocks.length > 0) {
@@ -269,12 +268,12 @@ function binarize(n: Node) {
 }
 
 /**
- * Turns the full tree into at most TWIG_BUDGET twigs. It opens the heaviest branches first
- * and folds each branch left closed into one twig that carries all its files and belongs to
+ * Turns the full tree into at most `budget` twigs (see twigBudget), so the crown stays open.
+ * It opens the heaviest branches first and folds each branch left closed into one twig that carries all its files and belongs to
  * the deepest folder that still owns a node. The forks between top-level folders open even
  * past the budget, so every top-level folder keeps its own limb. Returns the twig count.
  */
-function cut(top: Node): number {
+function cut(top: Node, budget: number): number {
   const opened = new Set<Node>();
   let twigs = 1;
   const open = (n: Node) => {
@@ -302,7 +301,7 @@ function cut(top: Node): number {
   for (const n of candidates) for (const k of n.kids) parent.set(k, n);
   const ranked = candidates.map((n, i) => ({ n, i })).sort((a, b) => b.n.w - a.n.w || a.i - b.i);
   for (const { n } of ranked) {
-    if (twigs >= TWIG_BUDGET) break;
+    if (twigs >= budget) break;
     if (!opened.has(n) && opened.has(parent.get(n)!)) open(n);
   }
 
@@ -475,6 +474,23 @@ function wedge(d: Vec3, az0: number, az1: number): Vec3 {
   off -= Math.round(off / (Math.PI * 2)) * Math.PI * 2;
   const az = mid + Math.max(-half, Math.min(half, off * (1 - WEDGE.pull)));
   return [Math.cos(az) * horizontal, d[1], Math.sin(az) * horizontal];
+}
+
+/** Draws every point in toward the trunk by `k`, keeping heights and thicknesses. */
+function narrowSkeleton(s: Skeleton, k: number) {
+  for (const buffer of [s.start, s.mid, s.end]) {
+    for (let i = 0; i < buffer.length; i += 3) {
+      buffer[i]! *= k;
+      buffer[i + 2]! *= k;
+    }
+  }
+}
+
+function skeletonReach(s: Skeleton): number {
+  let reach = 0;
+  for (let i = 0; i < s.end.length; i += 3)
+    reach = Math.max(reach, Math.hypot(s.end[i]!, s.end[i + 2]!));
+  return reach;
 }
 
 function tipHeight(s: Skeleton): number {

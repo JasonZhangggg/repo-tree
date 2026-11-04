@@ -304,26 +304,38 @@ test('pinning a deep folder frames it in context', async ({ page, isMobile }) =>
 
 test('on a phone the tree stays in view as folders are pinned', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'phone layout');
-  await page.goto('./');
-  await ready(page, 'vitejs/vite');
+  // linux grows the tallest tree, so this checks framing, not how big a smaller repo grows.
+  await page.goto('./#/torvalds/linux');
+  await ready(page, 'torvalds/linux');
   await settle(page);
   const sheet = page.locator('#sheet-toggle');
   await expect(sheet).toHaveAttribute('aria-expanded', 'false');
 
-  const label = (await labelsOf(page)).find((l) => l.path === 'playground')!;
-  const playground = await page.evaluate(({ x, y }) => {
+  const label = (await labelsOf(page)).find((l) => l.path === 'drivers')!;
+  const drivers = await page.evaluate(({ x, y }) => {
     const { view, tree } = (window as unknown as Debug).__repoTree;
-    for (let r = 0; r < 16; r++)
+    for (let r = 0; r < 80; r += 2)
       for (let dx = -r; dx <= r; dx++)
         for (const dy of [-r, r]) {
-          const picked = view.pickAt(x + dx, y + dy);
-          if (picked && tree.folders.path[picked.folder]!.startsWith('playground'))
-            return { x: x + dx, y: y + dy };
+          // A point with drivers all around it, on bare canvas, so the tap cannot slip a
+          // pixel onto a neighbouring limb or land on a label pill.
+          const isDrivers = (px: number, py: number) => {
+            const picked = view.pickAt(px, py);
+            return !!picked && tree.folders.path[picked.folder]!.startsWith('drivers');
+          };
+          const [px, py] = [x + dx, y + dy];
+          const rect = document.querySelector('#view canvas')!.getBoundingClientRect();
+          const onCanvas =
+            document.elementFromPoint(rect.left + px, rect.top + py)?.tagName === 'CANVAS';
+          const solid = [-3, 0, 3].every((ox) =>
+            [-3, 0, 3].every((oy) => isDrivers(px + ox, py + oy)),
+          );
+          if (onCanvas && solid) return { x: px, y: py };
         }
     return { x, y };
   }, label);
-  await page.touchscreen.tap(playground.x, playground.y);
-  await expect(sheet, 'the peek names the pinned folder').toContainText('playground');
+  await page.touchscreen.tap(drivers.x, drivers.y);
+  await expect(sheet, 'the peek names the pinned folder').toContainText('drivers');
   await expect(sheet).toHaveAttribute('aria-expanded', 'false');
   await expect(detail(page)).toBeHidden();
 
@@ -336,13 +348,12 @@ test('on a phone the tree stays in view as folders are pinned', async ({ page, i
     width,
     height: controls.y - header.y - header.height,
   };
-  // vite grows to about half the tallest tree's height, so it fills only a few of the samples.
-  expect(await treeUnder(page, band), 'tree between header and peek').toBeGreaterThan(0.03);
+  expect(await treeUnder(page, band), 'tree between header and peek').toBeGreaterThan(0.05);
 
   await sheet.tap();
   await expect(sheet).toHaveAttribute('aria-expanded', 'true');
   await expect(detail(page).getByRole('navigation', { name: 'Folder path' })).toContainText(
-    'playground',
+    'drivers',
   );
   const height = await page
     .locator('#folders button')

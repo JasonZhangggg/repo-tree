@@ -84,6 +84,8 @@ const MIN_TWIG_FILES = 4;
 const LEAF_LENGTH = 0.16;
 const APPROVED_TWIGS = 150;
 const LEAF_UNFOLD = 0.12;
+/** The share of a crown's allowed reach its twigs may fill, leaving room for leaves and wobble. */
+const CROWN_FILL = 0.92;
 /** Past this many root files, the smallest share the last rock. */
 const ROCKS = 12;
 
@@ -156,7 +158,7 @@ export function growTree(root: Dir, params: GrowParams): TreeModel {
   const height = treeHeight(root.fileCount);
   scaleSkeleton(skeleton, height / tipHeight(skeleton));
   // A crown with many twigs can spread wider than its height allows; draw it in to fit.
-  const reach = skeletonReach(skeleton) + LEAF_LENGTH * 1.4;
+  const reach = (skeletonReach(skeleton) + LEAF_LENGTH * 1.4) / CROWN_FILL;
   if (reach > crownReach(height)) narrowSkeleton(skeleton, crownReach(height) / reach);
 
   const treeLangs = new Map(root.langs);
@@ -412,7 +414,11 @@ function growSkeleton(
     // Each fork splits its wedge of the compass between its two kids, by the square root of their
     // files so small folders still get room, and steers each kid's limb into its own share.
     const span = az1 - az0;
-    const cutAt = az0 + (span * a.w ** WEDGE.exp) / (a.w ** WEDGE.exp + b.w ** WEDGE.exp);
+    const share = a.w ** WEDGE.exp / (a.w ** WEDGE.exp + b.w ** WEDGE.exp);
+    // Below the top-level forks, a slice narrower than `least` is not split further: both kids fan
+    // out across all of it, so a small folder's twigs spread into a tuft, not one thin plane.
+    const split = n.folder === 0 || span * Math.min(share, 1 - share) >= WEDGE.least;
+    const [aTo, bFrom] = split ? [az0 + span * share, az0 + span * share] : [az1, az0];
     const theta = SHAPE.spread * (0.85 + 0.3 * random());
     const angA = (theta * b.w) / (a.w + b.w);
     const angB = Math.max(0.42, (theta * a.w) / (a.w + b.w));
@@ -420,25 +426,25 @@ function growSkeleton(
     grow(
       a,
       end,
-      wedge(tropism(rotate(dir, axis, angA), a.w), az0, cutAt),
+      wedge(tropism(rotate(dir, axis, angA), a.w), az0, aTo),
       lenOf(a.w),
       rChild(a),
       roll + GOLDEN_ANGLE,
       depth + 1,
       path + len,
       az0,
-      cutAt,
+      aTo,
     );
     grow(
       b,
       end,
-      wedge(tropism(rotate(dir, axis, -angB), b.w), cutAt, az1),
+      wedge(tropism(rotate(dir, axis, -angB), b.w), bFrom, az1),
       lenOf(b.w),
       rChild(b),
       roll + GOLDEN_ANGLE,
       depth + 1,
       path + len,
-      cutAt,
+      bFrom,
       az1,
     );
   };
@@ -460,9 +466,10 @@ function growSkeleton(
 /**
  * Wedges keep each folder's limbs inside its own slice of the compass, so a folder reads as one
  * section of the crown. `exp` shares a fork's slice by files to this power; `pull` is how far a
- * limb's heading turns toward the middle of its slice, and `keep` how much of the slice it may use.
+ * limb's heading turns toward the middle of its slice, `keep` how much of the slice it may use,
+ * and `least` the narrowest share, in radians, a fork still splits off.
  */
-const WEDGE = { exp: 0.5, pull: 0, keep: 0.8 };
+const WEDGE = { exp: 0.5, pull: 0, keep: 0.8, least: 0.7 };
 
 /** Turns a heading about the vertical so its compass bearing falls inside [az0, az1]. */
 function wedge(d: Vec3, az0: number, az1: number): Vec3 {

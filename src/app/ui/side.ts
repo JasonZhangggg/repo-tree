@@ -298,7 +298,7 @@ export function mountSide(app: App): void {
     legendTitle.textContent =
       state.settings.colorBy === 'folder'
         ? 'Leaf colors by folder'
-        : factsOf(state)
+        : state.settings.colorBy === 'activity' && factsOf(state)
           ? 'Leaf colors by activity'
           : 'Leaf colors by language';
     legend.replaceChildren(

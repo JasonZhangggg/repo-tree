@@ -33,8 +33,13 @@ beforeAll(() => {
 });
 afterAll(() => repo.remove());
 
+const TOKEN = 'gho_visitorvisitorvisitor';
+
 function setup(options: { maxEntries?: number; remaining?: number; deps?: Partial<Deps> } = {}) {
-  const fetch = gitHubFetch({ 'acme/app': { dir: repo.dir } }, options);
+  const fetch = gitHubFetch(
+    { 'acme/app': { dir: repo.dir }, 'acme/secret': { dir: repo.dir, private: true } },
+    { ...options, tokens: [TOKEN] },
+  );
   const store = memoryStore();
   const clock = { now: HEAD + DAY };
   const deps: Deps = {
@@ -42,6 +47,7 @@ function setup(options: { maxEntries?: number; remaining?: number; deps?: Partia
     fetch: fetch as unknown as typeof globalThis.fetch,
     api: 'https://api.github.test',
     now: () => clock.now,
+    token: TOKEN,
     limits: { stepRequests: 5, recentCommits: 2 },
     ...options.deps,
   };
@@ -123,6 +129,32 @@ describe('history', () => {
     expect(byFolder['']!.authors[0]).toMatchObject({ name: 'ada', commits: 1 });
   });
 
+  it('answers probes from the kept listing without ending the step', async () => {
+    const { ask } = setup({ deps: { limits: { stepRequests: 40, recentCommits: 2 } } });
+    const { replies } = await untilReady(ask);
+    expect(replies).toHaveLength(1);
+  });
+
+  it('leaves bots out of the owners', async () => {
+    const bots = makeRepo([
+      { at: HEAD - 9 * DAY, author: 'ada', files: { 'lib/a.ts': '1' } },
+      { at: HEAD - 2 * DAY, author: 'renovate[bot]', files: { 'lib/a.ts': '2' } },
+      { at: HEAD - DAY, author: 'renovate[bot]', files: { 'lib/a.ts': '3' } },
+    ]);
+    const deps: Deps = {
+      store: memoryStore(),
+      fetch: gitHubFetch({ 'acme/bots': { dir: bots.dir } }) as unknown as typeof fetch,
+      api: 'https://api.github.test',
+      now: () => HEAD,
+      token: TOKEN,
+    };
+    const { history } = await untilReady(() => serveHistory({ owner: 'acme', repo: 'bots' }, deps));
+    expect(history.owners).toEqual([
+      { folder: 'lib', authors: [{ name: 'ada', commits: 1, weight: 0 }], codeowners: [] },
+    ]);
+    bots.remove();
+  });
+
   it('serves a ready history from the cache with no GitHub request', async () => {
     const { ask, fetch } = setup();
     await untilReady(ask);
@@ -159,30 +191,57 @@ describe('history', () => {
     expect({ ...split, computedAt: 0 }).toEqual({ ...whole, computedAt: 0 });
   });
 
-  it('caches a missing repo', async () => {
-    const { ask, fetch } = setup();
+  it('reports a repo GitHub does not know', async () => {
+    const { ask } = setup();
     expect((await ask({ owner: 'acme', repo: 'nope' })).reply).toEqual({
       status: 'error',
       error: 'not-found',
     });
+  });
+
+  it('waits for the token budget to reset instead of failing, then resumes', async () => {
+    const { ask, deps, store } = setup({ remaining: 6 });
+    let reply: HistoryReply | undefined;
+    for (let i = 0; i < 5 && !(reply?.status === 'pending' && reply.retryAfter > 2); i++) {
+      reply = (await ask()).reply;
+    }
+    expect(reply).toMatchObject({ status: 'pending' });
+    expect(reply?.status === 'pending' && reply.retryAfter).toBeGreaterThan(60);
+    expect([...store.data.keys()].some((k) => k.startsWith('job:'))).toBe(true);
+    deps.fetch = gitHubFetch(
+      { 'acme/app': { dir: repo.dir } },
+      { tokens: [TOKEN] },
+    ) as unknown as typeof fetch;
+    expect((await untilReady(ask)).history.head).toBe(repo.shas[5]);
+  });
+
+  it('asks a signed-out visitor to sign in for an uncached repo, and serves cached ones to anyone', async () => {
+    const { ask, deps, fetch } = setup();
+    deps.token = undefined;
+    expect((await ask()).reply).toEqual({ status: 'needs-auth' });
+    expect(fetch.state.requests).toBe(0);
+    deps.token = TOKEN;
+    await untilReady(ask);
+    deps.token = undefined;
     const before = fetch.state.requests;
-    expect((await ask({ owner: 'acme', repo: 'nope' })).reply).toEqual({
-      status: 'error',
-      error: 'not-found',
-    });
+    expect((await ask()).reply).toMatchObject({ status: 'ready', stale: false });
     expect(fetch.state.requests).toBe(before);
   });
 
-  it('waits for the GitHub budget to reset instead of failing, then resumes', async () => {
-    const { ask, fetch } = setup({ remaining: 6 });
-    let reply: HistoryReply | undefined;
-    for (let i = 0; i < 5 && reply?.status !== 'pending'; i++) reply = (await ask()).reply;
-    while (reply?.status === 'pending' && reply.retryAfter <= 2) reply = (await ask()).reply;
-    expect(reply).toMatchObject({ status: 'pending' });
-    expect(reply?.status === 'pending' && reply.retryAfter).toBeGreaterThan(60);
-    const spent = fetch.state.requests;
-    expect((await ask()).reply).toMatchObject({ status: 'pending' });
-    expect(fetch.state.requests).toBe(spent);
+  it('refuses a token GitHub refuses, and stores nothing', async () => {
+    const { ask, deps, store } = setup();
+    deps.token = 'gho_revokedrevokedrevoked';
+    expect((await ask()).reply).toEqual({ status: 'error', error: 'unauthorized' });
+    expect(store.data.size).toBe(0);
+  });
+
+  it('never computes or stores a private repo', async () => {
+    const { ask, store } = setup();
+    expect((await ask({ owner: 'acme', repo: 'secret' })).reply).toEqual({
+      status: 'error',
+      error: 'private',
+    });
+    expect(store.data.size).toBe(0);
   });
 
   it('turns away a new repo when the host says no, but not a cached one', async () => {

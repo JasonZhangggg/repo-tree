@@ -9,14 +9,17 @@ import { createServer } from 'node:http';
 const FIELDS = ['%H', '%T', '%P', '%an', '%cI', '%aI'].join('%x00');
 
 /**
- * @typedef {{ dir: string, branch?: string, head?: string }} FakeRepo
- * @typedef {{ maxEntries?: number, remaining?: number, log?: (line: string) => void }} FakeOptions
+ * @typedef {{ dir: string, branch?: string, head?: string, private?: boolean }} FakeRepo
+ * @typedef {{ maxEntries?: number, remaining?: number, tokens?: string[], log?: (line: string) => void }} FakeOptions
  */
 
 /**
  * A fetch function that answers GitHub API paths from git repositories.
  * @param {Record<string, FakeRepo>} repos keyed by owner/repo
- * @param {FakeOptions} [options] maxEntries: recursive trees truncate past it (GitHub: 100k)
+ * @param {FakeOptions} [options] maxEntries: recursive trees truncate past it (GitHub: 100k);
+ *   tokens: when given, API calls need `Authorization: Bearer <one of them>` (else 401).
+ *   It also plays github.com's OAuth endpoints: any authorize request comes back with code
+ *   `fake-code`, which trades for the token `gho_fakefakefakefakefake`.
  */
 export function gitHubFetch(repos, options = {}) {
   const maxEntries = options.maxEntries ?? 100_000;
@@ -29,10 +32,29 @@ export function gitHubFetch(repos, options = {}) {
     );
     state.requests++;
     const headers = new Headers(/** @type {HeadersInit} */ (init.headers ?? {}));
-    const res = answer(url, headers);
-    options.log?.(`${res.status} ${url.pathname}${url.search}`);
+    const res = url.pathname.startsWith('/login/oauth/')
+      ? oauth(url, String(init.body ?? ''))
+      : answer(url, headers);
+    options.log?.(`${res.status} ${url.pathname}${url.search.replace(/code=[^&]*/, 'code=…')}`);
     return res;
   };
+
+  /** @param {URL} url @param {string} body */
+  function oauth(url, body) {
+    if (url.pathname === '/login/oauth/authorize') {
+      const back = new URL(url.searchParams.get('redirect_uri') ?? '');
+      back.searchParams.set('code', 'fake-code');
+      back.searchParams.set('state', url.searchParams.get('state') ?? '');
+      return new Response(null, { status: 302, headers: { location: back.href } });
+    }
+    const { code } = JSON.parse(body || '{}');
+    return json(
+      code === 'fake-code'
+        ? { access_token: 'gho_fakefakefakefakefake', token_type: 'bearer', scope: '' }
+        : { error: 'bad_verification_code' },
+      200,
+    );
+  }
 
   /** @param {unknown} body @param {number} status */
   const json = (body, status) =>
@@ -43,6 +65,10 @@ export function gitHubFetch(repos, options = {}) {
 
   /** @param {URL} url @param {Headers} headers */
   function answer(url, headers) {
+    const auth = headers.get('authorization') ?? '';
+    if (options.tokens && !options.tokens.some((t) => auth === `Bearer ${t}`)) {
+      return json({ message: 'Bad credentials' }, 401);
+    }
     if (state.remaining <= 0) return json({ message: 'API rate limit exceeded' }, 403);
     state.remaining--;
     const m = /^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/.exec(url.pathname);
@@ -56,7 +82,12 @@ export function gitHubFetch(repos, options = {}) {
     const rest = m[3] ?? '';
     const q = url.searchParams;
     try {
-      if (rest === '') return json({ full_name: fullName, default_branch: branch }, 200);
+      if (rest === '') {
+        return json(
+          { full_name: fullName, default_branch: branch, private: config.private ?? false },
+          200,
+        );
+      }
       const ref = /^\/commits\/(.+)$/.exec(rest);
       if (ref && headers.get('accept') === 'application/vnd.github.sha') {
         const name = decodeURIComponent(ref[1] ?? '');
@@ -219,8 +250,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   const handle = gitHubFetch(repos, { log: (line) => console.error(line) });
   createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
     const reply = await handle(`http://localhost${req.url}`, {
+      method: req.method,
       headers: /** @type {Record<string, string>} */ (req.headers),
+      body: Buffer.concat(chunks).toString(),
     });
     res.writeHead(reply.status, Object.fromEntries(reply.headers));
     res.end(Buffer.from(await reply.arrayBuffer()));

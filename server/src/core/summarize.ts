@@ -8,6 +8,9 @@ import {
 import { ownersOf } from './codeowners';
 import type { Job } from './job';
 
+/** Bots (dependabot[bot], renovate[bot]) touch everything and own nothing. */
+const BOT = /\[bot\]$/;
+
 /** Turns a finished job into the history the app reads. Pure. */
 export function summarize(job: Job, now: number): History {
   const at = (j: number) => job.samples[j]!.at;
@@ -55,6 +58,7 @@ export function summarize(job: Job, now: number): History {
     const exact = job.commitsBy[folder] ?? {};
     const rough = job.weights[folder] ?? {};
     const authors = [...new Set([...Object.keys(exact), ...Object.keys(rough)])]
+      .filter((name) => !BOT.test(name))
       .map((name) => ({ name, commits: exact[name] ?? 0, weight: rough[name] ?? 0 }))
       .sort((a, b) => b.commits - a.commits || b.weight - a.weight || (a.name < b.name ? -1 : 1))
       .slice(0, AUTHORS_PER_FOLDER);

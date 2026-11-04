@@ -5,3 +5,4 @@ reference
 docs
 public/samples
 package-lock.json
+server/.wrangler

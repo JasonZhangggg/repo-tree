@@ -1,6 +1,6 @@
 /** A minimal GitHub REST client that counts its requests against a per-invocation limit. */
 
-export type UpstreamKind = 'not-found' | 'empty' | 'rate-limited' | 'upstream';
+export type UpstreamKind = 'not-found' | 'empty' | 'unauthorized' | 'rate-limited' | 'upstream';
 
 export class UpstreamError extends Error {
   constructor(
@@ -63,6 +63,7 @@ export function gitHub(options: GitHubOptions): GitHub {
     const reset = res.headers.get('x-ratelimit-reset');
     if (reset !== null) resetAt = Number(reset) * 1000;
     if (res.ok) return res;
+    if (res.status === 401) throw new UpstreamError('unauthorized');
     if (res.status === 404) throw new UpstreamError('not-found');
     if (res.status === 409) throw new UpstreamError('empty');
     if ((res.status === 403 || res.status === 429) && remaining === 0) {

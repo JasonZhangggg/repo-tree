@@ -58,7 +58,7 @@ export type History = {
   folders: PathTable;
   /** Files deleted since they were born, most recently deleted first, at most GONE_CAP. `gone` is the first snapshot without it (exact when inside `recent`). */
   gone: { path: string; born: number; gone: number }[];
-  /** One per top-level folder of the head tree, plus '' for files at the root. */
+  /** One per top-level folder of the head tree, plus '' for files at the root. Bot accounts are left out. */
   owners: { folder: string; authors: Author[]; codeowners: string[] }[];
 };
 
@@ -67,11 +67,24 @@ export const GONE_CAP = 5000;
 export const AUTHORS_PER_FOLDER = 5;
 
 export type HistoryError =
-  'invalid' | 'not-found' | 'empty' | 'rate-limited' | 'busy' | 'upstream' | 'forbidden';
+  | 'invalid'
+  | 'not-found'
+  | 'empty'
+  /** The token was refused by GitHub (expired or revoked): sign in again. */
+  | 'unauthorized'
+  /** Private repos are not computed by the server, so their history is never shared. */
+  | 'private'
+  | 'rate-limited'
+  /** This client started too many new repos this hour. */
+  | 'busy'
+  | 'upstream'
+  | 'forbidden';
 
 export type HistoryReply =
   /** `stale`: an older head's history, served while the new head's is computed. */
   | { status: 'ready'; history: History; stale: boolean }
   /** `progress` runs 0 to 1. Ask again after `retryAfter` seconds. */
   | { status: 'pending'; progress: number; retryAfter: number }
+  /** Not cached, and computing it takes a signed-in visitor's GitHub token. */
+  | { status: 'needs-auth' }
   | { status: 'error'; error: HistoryError; retryAfter?: number };

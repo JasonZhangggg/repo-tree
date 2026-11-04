@@ -161,11 +161,9 @@ export async function step(job: Job, gh: GitHub, limits: Limits): Promise<Job> {
   const ctx = { job, gh, limits, entries: 0 };
   try {
     while (job.phase !== 'done' && gh.left > 0 && ctx.entries < limits.stepEntries) {
-      const before = { phase: job.phase, used: gh.used, entries: ctx.entries };
+      const before = mark(ctx);
       await PHASES[job.phase](ctx);
-      if (job.phase === before.phase && gh.used === before.used && ctx.entries === before.entries) {
-        break;
-      }
+      if (mark(ctx) === before) break;
     }
   } catch (error) {
     if (!(error instanceof OutOfRequests)) throw error;
@@ -174,6 +172,10 @@ export async function step(job: Job, gh: GitHub, limits: Limits): Promise<Job> {
 }
 
 type Ctx = { job: Job; gh: GitHub; limits: Limits; entries: number };
+
+/** Changes whenever a phase does any work, a probe answered from the kept listing included. */
+const mark = ({ job, gh, entries }: Ctx) =>
+  [job.phase, job.targets.length, job.next, job.recentNext, gh.used, entries].join(':');
 
 const PHASES: Record<Exclude<Phase, 'done'>, (ctx: Ctx) => Promise<void>> = {
   start,

@@ -1,4 +1,6 @@
 import type { Vec3 } from '../grow/grow';
+import { ISLAND } from '../grow/ground';
+import { TALLEST } from '../grow/size';
 
 export const FOV = 30;
 const TAN_HALF_FOV = Math.tan(((FOV / 2) * Math.PI) / 180);
@@ -7,6 +9,18 @@ export const VIEW_DIRECTION: Vec3 = [0.3, 0.12, 0.95];
 
 export type Box = { min: Vec3; max: Vec3 };
 export type Framing = { target: Vec3; position: Vec3; minDistance: number; maxDistance: number };
+
+/**
+ * What the whole view frames: the tallest tree any repo grows, on the island while it shows.
+ * It is the same for every repo, so a bigger repo shows as a bigger tree.
+ */
+export function stage(ground: boolean): Box {
+  if (!ground) return TALLEST;
+  return {
+    min: [0, 1, 2].map((i) => Math.min(TALLEST.min[i]!, ISLAND.min[i]!)) as Vec3,
+    max: [0, 1, 2].map((i) => Math.max(TALLEST.max[i]!, ISLAND.max[i]!)) as Vec3,
+  };
+}
 
 /**
  * The approved mock's framing, made aspect-aware: fit the crown's bounding sphere vertically
@@ -33,23 +47,35 @@ export function frameTree({ min, max }: Box, aspect: number): Framing {
 /** A pinned folder's bounding sphere, padded by this much, fills the view. */
 const FOLDER_PADDING = 1.7;
 /**
- * A pinned folder never brings the camera closer than this share of the whole tree's distance,
- * so a small folder is seen on its branch, with the faded rest of the crown around it.
+ * A pinned folder never brings the camera closer than this share of the distance that frames
+ * the tree on show, so a small folder is seen on its branch, with the faded rest of the crown
+ * around it.
  */
 export const FOLDER_MIN_SHARE = 0.5;
 
-/** Where the camera looks and how far it stands to frame a folder's bounding sphere. */
+/**
+ * Where the camera looks and how far it stands to frame a folder's bounding sphere. The zoom
+ * floor follows the tree on show, so a sapling's folder comes as close as a big tree's; the
+ * camera never stands further back than the whole `room` (the stage) or nearer than its orbit
+ * limit.
+ */
 export function frameFolder(
   folder: { center: Vec3; radius: number },
   tree: Box,
   aspect: number,
+  room: Box = tree,
 ): { target: Vec3; distance: number } {
-  const whole = frameTree(tree, aspect);
+  const whole = frameTree(room, aspect);
   const wholeDistance = distanceOf(whole.position, whole.target);
+  const own = frameTree(tree, aspect);
+  const floor = Math.max(
+    Math.min(distanceOf(own.position, own.target), wholeDistance) * FOLDER_MIN_SHARE,
+    whole.minDistance,
+  );
   const fit = (folder.radius * FOLDER_PADDING) / (TAN_HALF_FOV * Math.min(1, aspect));
   return {
     target: folder.center,
-    distance: Math.min(wholeDistance, Math.max(fit, wholeDistance * FOLDER_MIN_SHARE)),
+    distance: Math.min(wholeDistance, Math.max(fit, floor)),
   };
 }
 

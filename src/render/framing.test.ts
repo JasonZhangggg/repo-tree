@@ -84,6 +84,27 @@ describe('frameFolder', () => {
     expect(limb.distance).toBeGreaterThan(twig.distance);
   });
 
+  test("zooms a small tree's folder in by its own size, not the stage's", () => {
+    const sapling = TREES['tall sapling']!;
+    const own = (() => {
+      const { position, target } = frameTree(sapling, 1.6);
+      return distanceOf(position, target);
+    })();
+    const room = { min: [-2, -1, -2], max: [2, 4, 2] } as Box;
+    const roomDistance = (() => {
+      const { position, target } = frameTree(room, 1.6);
+      return distanceOf(position, target);
+    })();
+    const twig = frameFolder({ center: [0.3, 1.8, 0.2], radius: 0.05 }, sapling, 1.6, room);
+    expect(twig.distance).toBeLessThan(roomDistance * FOLDER_MIN_SHARE);
+    expect(twig.distance).toBeGreaterThanOrEqual(
+      Math.max(Math.min(own, roomDistance) * FOLDER_MIN_SHARE, frameTree(room, 1.6).minDistance) -
+        1e-9,
+    );
+    const crown = frameFolder({ center: [0, 1.1, 0], radius: 3 }, sapling, 1.6, room);
+    expect(crown.distance).toBeCloseTo(roomDistance);
+  });
+
   test('never stands further back than the whole tree', () => {
     const crown = frameFolder({ center: [0, 1.1, 0], radius: 3 }, tree, 1.6);
     expect(crown.distance).toBeCloseTo(whole(1.6));

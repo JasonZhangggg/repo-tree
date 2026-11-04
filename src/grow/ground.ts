@@ -1,4 +1,5 @@
 import type { Quality, Vec3 } from './grow';
+import { ISLAND_RADIUS, roundBox } from './size';
 
 /**
  * What each ground face is, so a palette colors it without regrowing. `cap` is a rock face
@@ -44,8 +45,6 @@ export type GroundModel = {
 export type GroundSite = {
   /** Radius of the trunk's flare where it meets the ground. */
   trunk: number;
-  /** The tree's bounds; the ground sizes itself to the crown. */
-  bounds: { min: Vec3; max: Vec3 };
   /** Direction of the default view in the ground plane, in radians from +x toward +z. */
   front: number;
   /** Bytes on each rock, largest first; an empty list leaves a few bare pebbles. */
@@ -61,8 +60,14 @@ const DETAIL: Record<
   high: { rings: 11, sectors: 44, blades: 150, flowers: 110, litter: 90 },
 };
 
-/** The island's radius as a share of the crown's span, and its rim drop and depth by radius. */
-const SHAPE = { radius: 0.44, drop: 0.12, depth: 0.34 };
+/** The island's rim drop, its depth, and how far its rim wobbles out, by its radius. */
+const SHAPE = { drop: 0.12, depth: 0.34, wobble: 0.11 };
+const R = ISLAND_RADIUS;
+const H = R * SHAPE.drop;
+const D = R * SHAPE.depth;
+
+/** Room the island and its grass can take, the same for every repo. */
+export const ISLAND = roundBox(R * (1 + SHAPE.wobble), -H - D * 1.15, R * 0.1);
 
 export function growGround(
   site: GroundSite,
@@ -70,11 +75,6 @@ export function growGround(
 ): GroundModel {
   const random = mulberry32(params.seed);
   const detail = DETAIL[params.quality];
-  const { min, max } = site.bounds;
-  const span = Math.max(max[0] - min[0], max[2] - min[2]);
-  const R = Math.max(site.trunk * 6, span * SHAPE.radius);
-  const H = R * SHAPE.drop;
-  const D = R * SHAPE.depth;
   const phase = Array.from({ length: 6 }, () => random() * Math.PI * 2);
 
   const warp = (a: number) =>

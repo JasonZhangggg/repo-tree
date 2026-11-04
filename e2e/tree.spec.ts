@@ -45,7 +45,10 @@ async function open(page: Page, sample: Sample, errors: string[]) {
   await settle(page);
 }
 
-/** Shares of the frame that are tree (dark bark or saturated leaves) and vivid leaves. */
+/**
+ * Shares of the frame that are tree (dark bark or saturated leaves) and vivid leaves, and the
+ * first and last rows that hold any of it: the crown's top and the island's underside.
+ */
 async function measure(page: Page) {
   const png = await page.screenshot();
   return page.evaluate(async (base64) => {
@@ -58,6 +61,8 @@ async function measure(page: Page) {
     let tree = 0;
     let vivid = 0;
     let atSides = 0;
+    let top = height;
+    let bottom = 0;
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i]! / 255;
       const g = data[i + 1]! / 255;
@@ -71,9 +76,12 @@ async function measure(page: Page) {
       if (isVivid) vivid++;
       const x = (i / 4) % width;
       if (x < width * 0.01 || x >= width * 0.99) atSides++;
+      const y = Math.floor(i / 4 / width);
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
     }
     const pixels = width * height;
-    return { tree: tree / pixels, vivid: vivid / pixels, atSides };
+    return { tree: tree / pixels, vivid: vivid / pixels, atSides, top, bottom };
   }, png.toString('base64'));
 }
 
@@ -144,6 +152,24 @@ test('hovering a limb reports a real folder of the sample', async ({ page }) => 
 
   await page.mouse.move(2, 2);
   await expect.poll(() => hovered(page)).toBeNull();
+  expect(errors).toEqual([]);
+});
+
+test('a repo with more files grows a taller tree on the same island', async ({ page }) => {
+  // Two samples load in turn, one WebGL page at a time; a busy software GL needs the room.
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  const shown = async (sample: Sample) => {
+    await open(page, sample, errors);
+    return measure(page);
+  };
+  const small = await shown('dotfiles');
+  const big = await shown('linux');
+  const height = page.viewportSize()!.height;
+  expect(Math.abs(big.bottom - small.bottom), 'the island stays put').toBeLessThan(height * 0.02);
+  expect(big.bottom - big.top, 'linux stands taller than dotfiles').toBeGreaterThan(
+    (small.bottom - small.top) * 1.2,
+  );
   expect(errors).toEqual([]);
 });
 

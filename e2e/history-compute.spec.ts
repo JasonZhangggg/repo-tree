@@ -55,6 +55,8 @@ test('signs in, computes in the browser, shares it, and opens the timeline', asy
   context.on('request', (req) => {
     if (req.headers()['authorization']) authorized.push(new URL(req.url()).origin);
   });
+  const logged: string[] = [];
+  page.on('console', (m) => void (m.type() === 'info' && logged.push(m.text())));
   await open(page);
   await page.locator('#timeline').click();
   const popup = page.waitForEvent('popup');
@@ -72,6 +74,20 @@ test('signs in, computes in the browser, shares it, and opens the timeline', asy
   // The token went to GitHub (the fake) and the Worker, nowhere else.
   expect(new Set(authorized)).toEqual(new Set([FAKE, WORKER]));
   expect(await page.evaluate(() => localStorage.getItem('repo-tree:github-signin'))).toBeNull();
+
+  // The run says where its time went, the upload included, on one console line.
+  const line = logged.find((l) => l.startsWith('history acme/widgets: '));
+  expect(line).toMatch(/listings [\d.]+ s, probes/);
+  expect(line).toMatch(/upload [\d.]+ s/);
+  // Every tree came in one git fetch through the Worker.
+  expect(line).toMatch(/pack 1 req/);
+  expect(line).toContain('fell back: no');
+  const trace = await page.evaluate(
+    () =>
+      (window as unknown as { __repoTree: { computeTrace: { requests: number } | null } })
+        .__repoTree.computeTrace,
+  );
+  expect(trace?.requests).toBeGreaterThan(0);
 });
 
 test('a signed-out visitor then gets the shared history with no prompt', async ({ page }) => {
@@ -98,6 +114,8 @@ test('a signed-in visitor is offered to bring an out-of-date history up to date'
   });
   await page.addInitScript((token) => {
     sessionStorage.setItem('repo-tree:github-signin', token);
+    // The debug flag: the run's breakdown shows in a toast too.
+    localStorage.setItem('repo-tree:debug', '1');
     const now = Date.now;
     Date.now = () => now() + 2 * 24 * 60 * 60 * 1000;
   }, 'gho_fakefakefakefakefake');
@@ -107,6 +125,10 @@ test('a signed-in visitor is offered to bring an out-of-date history up to date'
   await expect(dialog(page)).toContainText('the branch has moved since');
   await page.getByRole('button', { name: 'Refresh history' }).click();
   await expect(page.getByRole('group', { name: 'Timeline' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('#toast')).toContainText(
+    /^history acme\/widgets: [\d.]+ s, \d+ requests/,
+  );
+  await expect(page.locator('#toast')).toContainText('upload');
   const after = await manifest();
   expect(after.head).not.toBe(before.head);
   expect(after.computedAt).toBeGreaterThan(before.computedAt);

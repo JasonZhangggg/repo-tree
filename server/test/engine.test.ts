@@ -1,8 +1,9 @@
+import { tracer } from '../src/core/trace';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { gitHubFetch } from '../scripts/fake-github.mjs';
 import {
   computeHistory,
@@ -16,6 +17,7 @@ import { gitHub, type CommitSummary } from '../src/core/github';
 import { blobKey } from '../src/core/store';
 import { MODE, TreeStore, graphqlLoader, restReader, type TreeFetch } from '../src/core/trees';
 import type { History } from '../src/shape';
+import worker, { type Env } from '../src/worker';
 import { DAY, makeRepo, type Commit } from './repo';
 
 const HEAD = Date.UTC(2026, 9, 1);
@@ -339,8 +341,8 @@ describe('browser engine', () => {
 const QUICK = { attempts: 4, maxWaitMs: 90_000, sleep: async () => undefined };
 
 describe('graphql reader', () => {
-  it('yields the same history as the server job did', async () => {
-    for (const recentCommits of [0, 2]) {
+  it('yields the same history as the server job did, the recent commits from tree diffs', async () => {
+    for (const recentCommits of [0, 2, 100]) {
       const expected = jobHistory(fake(), recentCommits);
       let stats: EngineStats | undefined;
       const h = await engine(fake(), {
@@ -351,7 +353,55 @@ describe('graphql reader', () => {
       expect(h).toEqual(expected);
       expect(stats!.requests.graphql).toBeGreaterThan(0);
       expect(stats!.requests.trees).toBe(0);
+      // Every recent commit's parent is listed (or it is the root): no /commits/{sha} at all.
+      expect(stats!.requests.commits).toBe(0);
     }
+  });
+
+  it('fills a trace: phases, requests by kind, batches', async () => {
+    const trace = tracer();
+    await engine(fake(), { recentCommits: 2, token: 't', trace });
+    const s = trace.summary();
+    expect(s.phases.map((p) => p.name)).toEqual([
+      'listings',
+      'probes',
+      'head tree',
+      'graphql',
+      'rest',
+      'recent',
+    ]);
+    const kinds = Object.fromEntries(s.kinds.map((k) => [k.kind, k.requests]));
+    // The newest page, and the branch's length beside it (the root lookup's, unused here).
+    expect(kinds.listing).toBe(2);
+    expect(kinds.graphql).toBeGreaterThan(0);
+    expect(kinds.commit).toBeUndefined();
+    expect(Object.values(s.batches).reduce((a, b) => a + b, 0)).toBe(kinds.graphql);
+    expect(s.fellBack).toBe(false);
+    expect(s.bytes).toBeGreaterThan(0);
+  });
+
+  it('reads a recent commit by REST when GraphQL left its trees unread', async () => {
+    const expected = jobHistory(fake(), 2);
+    let queries = 0;
+    const f = gitHubFetch(
+      { 'acme/app': { dir: repo.dir } },
+      {
+        // GraphQL works for the first query (the head's root) and then keeps failing.
+        inject: (url) =>
+          url.pathname === '/graphql' && queries++ > 0
+            ? Promise.resolve({ status: 502, body: '', kind: 'graphql', extra: {} })
+            : undefined,
+      },
+    );
+    let stats: EngineStats | undefined;
+    const h = await engine(f, {
+      recentCommits: 2,
+      token: 't',
+      retry: QUICK,
+      onStats: (s) => (stats = s),
+    });
+    expect(h).toEqual(expected);
+    expect(stats!.requests.commits).toBe(2);
   });
 
   it('falls back to REST when GraphQL keeps failing', async () => {
@@ -375,6 +425,139 @@ describe('graphql reader', () => {
     expect(h).toEqual(expected);
     expect(stats!.graphql!.gaveUp).toBe(true);
     expect(stats!.requests.trees).toBeGreaterThan(0);
+  });
+});
+
+describe('pack reader', () => {
+  const TOKEN = 'gho_fakefakefakefakefake';
+  const packUrl = 'https://history.test/v1/git/acme/app/git-upload-pack';
+  /**
+   * GitHub (the fake) with the history Worker in front of its git endpoint, as the page sees
+   * them; `answer` may spoil the Worker's reply.
+   */
+  function viaWorker(
+    f: ReturnType<typeof fake>,
+    answer?: (res: Response) => Response | Promise<Response>,
+  ): typeof fetch {
+    return (async (input: string, init?: RequestInit) => {
+      if (!input.startsWith('https://history.test/')) return f(input, init);
+      vi.stubGlobal('fetch', f);
+      try {
+        const env = { GITHUB_API: API, GITHUB_WEB: 'https://github.test' } as unknown as Env;
+        const headers = new Headers(init?.headers);
+        headers.set('Origin', 'https://jasonzhangggg.github.io');
+        const res = await worker.fetch(new Request(input, { ...init, headers }), env);
+        return answer ? await answer(res) : res;
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }) as unknown as typeof fetch;
+  }
+  const run = (fetchFn: typeof fetch, extra: Partial<EngineOptions> = {}) =>
+    computeHistory({
+      fetch: fetchFn,
+      api: API,
+      repo: 'acme/app',
+      branch: 'main',
+      now: () => 0,
+      token: TOKEN,
+      packUrl,
+      retry: QUICK,
+      ...extra,
+    });
+
+  it('yields the same history as the server job did, every tree from one pack', async () => {
+    for (const recentCommits of [0, 2, 100]) {
+      let stats: EngineStats | undefined;
+      const trace = tracer();
+      const h = await run(viaWorker(fake()), { recentCommits, trace, onStats: (s) => (stats = s) });
+      expect(h).toEqual(jobHistory(fake(), recentCommits));
+      expect(stats!.requests).toMatchObject({ graphql: 0, trees: 0, commits: 0 });
+      expect(stats!.pack).toMatchObject({ shallow: stats!.pack!.wants });
+      expect('error' in stats!.pack!).toBe(false);
+      const s = trace.summary();
+      expect(s.phases.map((p) => p.name)).toContain('pack');
+      expect(s.phases.map((p) => p.name)).not.toContain('graphql');
+      expect(s.kinds.find((k) => k.kind === 'pack')?.requests).toBe(1);
+      expect(s.fellBack).toBe(false);
+    }
+  });
+
+  it('reports rising progress that ends at 1', async () => {
+    const seen: number[] = [];
+    await run(viaWorker(fake()), { onProgress: (p) => seen.push(p) });
+    expect([...seen].sort((a, b) => a - b)).toEqual(seen);
+    expect(seen[seen.length - 1]).toBe(1);
+  });
+
+  it('falls back to GraphQL when the Worker refuses the pack', async () => {
+    let stats: EngineStats | undefined;
+    const trace = tracer();
+    const refuse = () => new Response('{"status":"error","error":"upstream"}', { status: 502 });
+    const h = await run(viaWorker(fake(), refuse), {
+      recentCommits: 2,
+      trace,
+      onStats: (s) => (stats = s),
+    });
+    expect(h).toEqual(jobHistory(fake(), 2));
+    expect(stats!.pack).toMatchObject({ error: 'upload-pack 502' });
+    expect(stats!.requests.graphql).toBeGreaterThan(0);
+    expect(trace.summary().fellBack).toBe(true);
+  });
+
+  it('reads only what a pack cut short left unread', async () => {
+    let stats: EngineStats | undefined;
+    const half = async (res: Response) => {
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      return new Response(bytes.subarray(0, Math.floor(bytes.length * 0.6)), {
+        headers: res.headers,
+      });
+    };
+    const h = await run(viaWorker(fake(), half), { recentCommits: 2, onStats: (s) => (stats = s) });
+    expect(h).toEqual(jobHistory(fake(), 2));
+    expect(stats!.pack).toMatchObject({ error: 'truncated' });
+    expect(stats!.graphql!.trees).toBeGreaterThan(0);
+    expect(stats!.graphql!.trees).toBeLessThan(stats!.store.trees);
+  });
+
+  it('falls back to REST when the pack and GraphQL both fail', async () => {
+    let stats: EngineStats | undefined;
+    const f = gitHubFetch(
+      { 'acme/app': { dir: repo.dir } },
+      {
+        inject: (url) =>
+          url.pathname === '/graphql'
+            ? Promise.resolve({ status: 502, body: '', kind: 'graphql', extra: {} })
+            : undefined,
+      },
+    );
+    const h = await run(
+      viaWorker(f, () => new Response('', { status: 500 })),
+      {
+        recentCommits: 2,
+        onStats: (s) => (stats = s),
+      },
+    );
+    expect(h).toEqual(jobHistory(fake(), 2));
+    expect(stats!.graphql!.gaveUp).toBe(true);
+    expect(stats!.requests.trees).toBeGreaterThan(0);
+  });
+
+  it('skips the pack when a resumed run already holds every tree', async () => {
+    const checkpoint = createCheckpoint();
+    await run(viaWorker(fake()), { checkpoint });
+    let stats: EngineStats | undefined;
+    const h = await run(
+      viaWorker(fake(), () => new Response('', { status: 500 })),
+      {
+        checkpoint,
+        recentCommits: 2,
+        onStats: (s) => (stats = s),
+      },
+    );
+    expect(h).toEqual(jobHistory(fake(), 2));
+    expect(stats!.pack).toBeNull();
+    expect(stats!.requests.graphql).toBe(0);
   });
 });
 

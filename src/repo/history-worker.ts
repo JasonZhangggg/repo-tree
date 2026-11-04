@@ -6,6 +6,7 @@
  */
 import { computeHistory, createCheckpoint, type Checkpoint } from '../../server/src/core/engine';
 import { UpstreamError } from '../../server/src/core/github';
+import { tracer } from '../../server/src/core/trace';
 import type { ComputeCommand, ComputeError, ComputeMessage, Snapshot } from './compute-history';
 
 const post = (message: ComputeMessage) => self.postMessage(message);
@@ -30,15 +31,19 @@ self.onmessage = async ({ data }: MessageEvent<ComputeCommand>) => {
   const key = `${data.repo}@${data.branch}`;
   if (kept?.key !== key) kept = { key, checkpoint: createCheckpoint() };
   let snapshots: Snapshot[] = [];
+  // Where the run's time and bytes went, for the page's console (app/ui/history-compute.ts).
+  const trace = tracer();
   try {
     const history = await computeHistory({
       fetch: (input, init) => fetch(input, init),
       api: data.api,
       ...(data.token ? { token: data.token } : {}),
+      ...(data.packUrl ? { packUrl: data.packUrl } : {}),
       repo: data.repo,
       branch: data.branch,
       checkpoint: kept.checkpoint,
       signal: abort.signal,
+      trace,
       onSamples: (s) => (snapshots = s),
       onProgress: (progress) => {
         // A message per percent is plenty for a progress bar.
@@ -49,9 +54,9 @@ self.onmessage = async ({ data }: MessageEvent<ComputeCommand>) => {
       },
     });
     kept = null;
-    post({ run, history, snapshots });
+    post({ run, history, snapshots, trace: trace.summary() });
   } catch (error) {
-    if (!abort.signal.aborted) post({ run, error: toError(error) });
+    if (!abort.signal.aborted) post({ run, error: toError(error), trace: trace.summary() });
   } finally {
     finish();
   }

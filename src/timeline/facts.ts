@@ -1,6 +1,7 @@
 import type { TreeModel } from '../grow/grow';
 import type { RepoIndex } from '../load/repo-index';
 import type { History } from '../repo/history';
+import { historyOwners, type Owners } from './owners';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -48,6 +49,8 @@ export type Facts = {
   sprigHeat: Float32Array;
   /** The hotspots: RepoIndex files with heat, hottest first (then in path order), all on leaves. */
   hot: Uint32Array;
+  /** Who to ask about each top-level folder (timeline/owners.ts). */
+  owners: Owners;
 };
 
 /**
@@ -169,6 +172,7 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
     fileHeat,
     sprigHeat,
     hot,
+    owners: historyOwners(history),
   };
 }
 

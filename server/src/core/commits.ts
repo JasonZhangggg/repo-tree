@@ -42,14 +42,22 @@ export const listed = ({ sha, at, tree, author }: CommitSummary): Listed => ({
  * to the root (or 30 years when the root is unknown; probing stops at the first empty answer).
  * Leaves room for the head and the root inside `max`.
  */
-export function schedule(headAt: number, rootAt: number | null, max: number): number[] {
+export function schedule(
+  headAt: number,
+  rootAt: number | null,
+  max: number,
+  sparse = false,
+): number[] {
   const out: number[] = [];
   const floor = rootAt ?? headAt - 30 * 365 * DAY;
   const push = (t: number) => {
     if (t > floor && out.length < max - 2) out.push(t);
   };
-  for (let w = 1; w <= 26; w++) push(headAt - w * 7 * DAY);
-  for (let m = 7; m <= 24; m++) push(headAt - m * 30 * DAY);
+  // `sparse` keeps every other week past 12 and every other month past 12: a subset of the
+  // full schedule, so a history Worker that checks uploads against the full one takes it.
+  const keep = (n: number, from: number) => !sparse || n <= from || n % 2 === 0;
+  for (let w = 1; w <= 26; w++) if (keep(w, 12)) push(headAt - w * 7 * DAY);
+  for (let m = 7; m <= 24; m++) if (keep(m, 12)) push(headAt - m * 30 * DAY);
   for (let y = 3; y <= 30; y++) push(headAt - y * 365 * DAY);
   return out;
 }

@@ -1,3 +1,4 @@
+import type { TraceSummary } from '../../server/src/core/trace';
 import type { TreeModel } from '../grow/grow';
 import type { TreeView } from '../render/tree-view';
 
@@ -14,6 +15,8 @@ export const debug: {
   timeline: { s: number; date: number; files: number } | null;
   /** The history compute dialog's step while it is open. */
   compute: 'offer' | 'computing' | 'sharing' | 'failed' | null;
+  /** Where the last history computation's time and bytes went. */
+  computeTrace: TraceSummary | null;
 } = {
   repo: '',
   ready: false,
@@ -22,6 +25,20 @@ export const debug: {
   timings: {},
   timeline: null,
   compute: null,
+  computeTrace: null,
 };
+
+/**
+ * The debug flag: `?debug` in the page's address, or localStorage `repo-tree:debug` set to 1.
+ * With it, a history computation's breakdown shows in a toast as well as the console.
+ */
+export function debugEnabled(): boolean {
+  if (/[?&]debug\b/.test(location.search)) return true;
+  try {
+    return localStorage.getItem('repo-tree:debug') === '1';
+  } catch {
+    return false;
+  }
+}
 
 Object.assign(window, { __repoTree: debug });

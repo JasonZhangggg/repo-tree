@@ -73,9 +73,20 @@ function snapshotDigest(snapshots: { sha: string; at: number }[]): Promise<strin
 // GET <VITE_HISTORY_URL>/v1/history/{owner}/{repo}?branch=  200: the gzipped History JSON, its StoredManifest in X-History-Manifest; 404 missing.
 // PUT the same URL, Authorization: Bearer <visitor token>, body the gzipped History JSON, X-History-Manifest an UploadManifest. 201 stored.
 // POST <...>/{owner}/{repo}/bad?branch=&head=  202 noted: a reader could not use the stored body; the next upload for that head may replace it.
+// POST <VITE_HISTORY_URL>/v1/git/{owner}/{repo}/git-upload-pack  Origin required (none → 403 forbidden), Authorization: Bearer <visitor token>, Content-Type
+//   application/x-git-upload-pack-request, body a git protocol v2 fetch (core/pack.ts fetchRequest). 200: github.com's answer, streamed
+//   untouched (application/x-git-upload-pack-result; cut off past PACK_MAX_BYTES only if that var is set: a JS count per chunk is ~450 ms
+//   of CPU for Linux's), fetched with Basic x-access-token:<token>, Git-Protocol: version=2, redirect: 'manual'. Refused before
+//   GitHub unless checkFetchRequest(body) passes (command=fetch; caps agent=, object-format=sha1; args only want <sha> (1 to MAX_WANTS = 256),
+//   no-progress, ofs-delta, and deepen 1, filter blob:none, done, all three required; printable ASCII; at most 64 KiB) → 400 invalid / 413
+//   too-large; then GET /user beside one GraphQL query, repository(owner,name) { isPrivate w<i>: object(oid) { __typename } } per want
+//   (GitHub sends any object wanted by name, filter or not) → 401 / 403 private / 404 / 400 invalid unless every want is a Commit;
+//   PACK_LIMITER (6 a minute) keyed ip:<ipKey> before GitHub, login:<login> after. A bad % escape in a route's path → 400 invalid, with CORS.
+// worker.ts ipKey(ip): an IPv4 address as is (::ffff:-mapped too), an IPv6 address as its /64 ('2001:db8:1:2::/64'): the key of every
+//   per-IP limiter (LIMITER, UPLOAD_LIMITER, PACK_LIMITER). capped(body, max): the stream, errored past max bytes.
 // Uploads are taken for the repo's default branch only. Localhost origins only when the ALLOW_LOCALHOST var is set (local runs, e2e).
 // KV (the store): key `h1:${repo.toLowerCase()}@${branch}` (core/upload.ts historyKey), value the body untouched, metadata the StoredManifest,
-// 90-day TTL, one write per accepted upload, none per job step or sign-in. The Worker never decompresses or parses a body (10 ms CPU);
+// 90-day TTL, one write per accepted upload (plus a delete per eviction), none per job step or sign-in. The Worker never decompresses or parses a body (10 ms CPU);
 // it reads the gzip trailer's ISIZE and refuses past MAX_INFLATED_BYTES.
 // core/upload.ts: parseManifest also wants unique shas, the head last, time order, and followsSchedule(snapshots): at most one snapshot per
 //   schedule(head.at, root.at, 80) target, at or before it (as the engine picks). There is no floor: a sparse branch has few snapshots.
@@ -86,14 +97,20 @@ function snapshotDigest(snapshots: { sha: string; at: number }[]): Promise<strin
 type LedgerRequest = { op: 'check'; key: string; head: string; now: number } /* before GitHub requests */
   | { op: 'reserve'; key: string; head: string; bytes: number; login: string; now: number } /* before the KV put: counts one write */
   | { op: 'release'; key; head; now } /* the put failed */ | { op: 'bad'; key; head; now } /* a reader's report */;
-type LedgerReply = { ok: true } | { ok: false; error: 'exists' | 'rate-limited' | 'full'; retryAfter?: number /* to UTC midnight */ };
-type LedgerLimits = { perLogin: 20; perDay: 200; maxBytes: 500 MB; replaceAfterMs: 1 day; ttlMs: 90 days }; // vars UPLOADS_PER_LOGIN, UPLOADS_PER_DAY, STORED_BYTES
+type LedgerReply = { ok: true; evict?: string[] /* KV keys the Worker deletes before its put */ } | { ok: false; error: 'exists' | 'rate-limited' | 'full'; retryAfter?: number /* to UTC midnight */ };
+type LedgerLimits = { perLogin: 20; perDay: 200; maxBytes: 500 MB; writesPerDay: 400; evictPerUpload: 20; replaceAfterMs: 1 day; ttlMs: 90 days };
+// vars UPLOADS_PER_LOGIN, UPLOADS_PER_DAY, STORED_BYTES, KV_WRITES_PER_DAY. Past maxBytes a reserve evicts FIFO: entries reported bad first, then
+// the oldest by stored_at, at most evictPerUpload, else 'full'. Each eviction's KV delete counts in writesPerDay with the put. No LRU: a view
+// would cost a Durable Object request per read.
 // A stored head is refused as 'exists' unless it was reported bad or is a day old; a new head replaces it. Bytes count a replaced entry once.
 // Readers (repo/history.ts agrees) drop a body unless its repo, branch, head, snapshot count and snapshotDigest match the StoredManifest.
 
 // server/src/core/engine.ts  (pure but for the injected fetch; runs in the visitor's browser in repo/history-worker.ts, and in Node for tests and scripts)
 type EngineOptions = { fetch: typeof fetch; api: string; token?: string; repo: string /* owner/repo */; branch: string; signal?: AbortSignal;
-  onProgress?: (p: number) => void; concurrency?: number; recentCommits?: number /* 100 */; maxSnapshots?: number; reader?: 'graphql' | 'rest';
+  onProgress?: (p: number /* never falls */, bytes: number /* body bytes read so far */) => void; concurrency?: number /* 6; 12 with a pack */; recentCommits?: number /* 100 */;
+  maxSnapshots?: number; sparse?: boolean /* every other week and month past the 12th: a subset of schedule() */; reader?: 'graphql' | 'rest';
+  trace?: Trace /* core/trace.ts, filled with where the run's time and bytes went */;
+  packUrl?: string /* the Worker's git-upload-pack route: with a token (and no finite treeBudget), every tree in one git fetch */;
   checkpoint?: Checkpoint /* pass the same one again to resume after a failure */; treeBudget?: number; now?: () => number;
   onStats?: (stats: EngineStats) => void; onSamples?: (snapshots: { sha: string; at: number; tree: string }[]) => void /* the UploadManifest's snapshots */ };
 function computeHistory(options: EngineOptions): Promise<History>; // rejects with { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt }
@@ -101,9 +118,31 @@ function computeHistory(options: EngineOptions): Promise<History>; // rejects wi
 // RATE_LIMITED, a secondary limit's 403 or 200 message) waits for retry-after or the reset when it is near, else rejects rate-limited.
 // A GraphQL 5xx (a timeout) is not retried: the loader splits the batch. Partial GraphQL data comes back; its null objects are asked once more.
 // A resumed run re-reads the newest commits page (the branch may have moved); trees held by sha are kept.
+// With GraphQL the recent commits' changes are diffs of their trees and their listed parents' (treeChanges), read with the snapshots'
+// trees; only a commit whose parent is unlisted or whose trees stayed unread takes a REST /commits/{sha}. The head's trees start before
+// the root lookup; probes go first in the request pool, and a target out of the last page's reach (by twice its span) is probed ahead.
+// GraphQL batches start at 100 trees and grow to 400; a part batch goes once 100 are queued or nothing is in flight.
+// Tree readers in order: the pack (packUrl), then GraphQL, then REST; each reads only the trees still unread below the snapshots' roots
+// (engine.ts unread(store, roots)). With a pack: once the probes have picked every snapshot, one fetch wants the head, every snapshot and
+// the diffed recent commits with their first parents; nothing else is read unless it fails or is cut short. Probes look up to 24 targets
+// ahead; a mainline pick goes out when its ahead page shows it is needed; the branch's length (per_page=1) is asked beside the first page.
+// core/pack.ts: fetchRequest(wants): Uint8Array; checkFetchRequest(body): { ok: true; wants: string[] /* deduplicated */ } | { ok: false; reason };
+//   PackReader({ onObject({ oid, type: 'commit' | 'tree' | 'blob' | 'tag', data }), cacheBytes? /* 24 MiB */, segmentBytes? /* 8 MiB */ })
+//   .push(chunk) / .end(): PackStats { bytes, objects, deltas, reinflated, held, shallow, retries }: pkt-lines, side band 1 (2 ignored, 3 or ERR throw
+//   PackError), the pack kept compressed in segments, objects inflated (core/inflate.ts inflateAt) and deltas (ofs and ref) resolved against
+//   an LRU of inflated bases, each named by core/sha1.ts gitOid; a blob, an ofs delta at offset 0, or an object or delta result past 256 MiB
+//   throws; an object cut short is retried once more bytes are in, the step growing with what it has (retries: linear time for a 64 MB
+//   object). fetchPack(wants, store, { url, token, fetch, signal, maxBytes? /* MAX_PACK_BYTES = 200 MiB, then PackError: fall back */ }, onBytes?)
+//   → PackResult = PackStats & { commits: Map<sha, { tree; parents }>; trees; firstByteMs; ms }, trees via TreeStore.addRaw(t, bytes).
+// core/trace.ts: tracer() → Trace { begin/end(phase), request(kind, ms, bytes, wire?), waited, batch, cpu, summary(): TraceSummary };
+// TraceSummary = { ms; phases: { name: 'listings' | 'probes' | 'head tree' | 'pack' | 'graphql' | 'rest' | 'recent' | 'upload'; from; ms }[];
+//   kinds: { kind: 'listing' | 'probe' | 'pack' | 'tree' | 'graphql' | 'commit' | 'blob' | 'upload'; requests; bytes; wire?; meanMs; p90Ms }[];
+//   requests; bytes; waitedMs; retried; batches: Record<size, queries>; failed; fellBack /* the first reader left trees unread */; cpuMs };
+//   formatTrace(repo, s) is one line. EngineStats.pack: PackResult less commits, plus wants and commits counts, or { wants; error }, or null.
 type Checkpoint = { pages: Map<string, { commits: CommitSummary[]; link: string | null }>; store: TreeStore; changes: Map<string, { files: FileChange[]; capped: boolean }>; codeowners: Map<string, string> };
 // core/store.ts TreeStore: every distinct tree object read, once, in typed arrays (a tree id per oid; entries of name id, mode, ref sorted by name;
-// a folder's ref is its tree id, a file's the first 52 bits of its blob oid). id(oid), add(t, entries), loaded(t), length/name/mode/ref/find(t, ...), count(t).
+// a folder's ref is its tree id, a file's the first 52 bits of its blob oid). id(oid), add(t, entries), addRaw(t, gitTreeBytes) /* same rows,
+// names interned by their bytes */, loaded(t), length/name/mode/ref/find(t, ...), count(t).
 
 // repo/history.ts  (boundary: network; history features are off when VITE_HISTORY_URL is unset)
 type HistoryResult = { status: 'ready'; history: History } | { status: 'missing' /* nobody computed it yet, or the stored body is unusable */ } | null /* off or failed */;
@@ -112,16 +151,16 @@ function fetchHistory(ref: RepoRef, branch: string, options?: { base?: string; s
 // manifest is 'missing', so the compute offer shows, and is reported with POST .../bad (best effort).
 function loadHistory(ref, branch, options & { fresh?: boolean }): Promise<HistoryResult>; // behind load/cache.ts, six hours under history:owner/repo@branch
 type UploadResult = 'stored' | HistoryError | 'network';
-function uploadHistory(history: History, snapshots: Snapshot[], token: string, options?: { base?: string; signal?: AbortSignal }): Promise<UploadResult>; // gzips with CompressionStream, PUTs with its UploadManifest
+function uploadHistory(history: History, snapshots: Snapshot[], token: string, options?: { base?: string; signal?: AbortSignal; onBody?: (bytes: number) => void }): Promise<UploadResult>; // gzips with CompressionStream, PUTs with its UploadManifest
 function cacheComputed(ref, branch, history: History): Promise<void>; // a computed history, cached as if fetched
 
 // repo/compute-history.ts  (boundary: the engine in a module Worker; a failed or cancelled run's worker is kept, with its checkpoint, to resume)
-type ComputeRequest = { run: number; repo: string; branch: string; token?: string; api: string }; type ComputeCommand = ComputeRequest | { cancel: number /* run */ };
-type ComputeMessage = { run: number } & ({ progress: number } | { history: History; snapshots: Snapshot[] } | { error: ComputeError }); // another run's are ignored
+type ComputeRequest = { run: number; repo: string; branch: string; token?: string; api: string; packUrl?: string /* timeline/source.ts: <server>/v1/git/<owner>/<repo>/git-upload-pack */ }; type ComputeCommand = ComputeRequest | { cancel: number /* run */ };
+type ComputeMessage = { run: number } & ({ progress: number } | { history: History; snapshots: Snapshot[]; trace?: TraceSummary } | { error: ComputeError; trace?: TraceSummary }); // another run's are ignored
 type Snapshot = { sha: string; at: number; tree: string };
 type ComputeError = { kind: 'not-found' | 'empty' | 'unauthorized' | 'upstream' } | { kind: 'rate-limited'; resetAt: number };
-type ComputeResult = { status: 'ready'; history: History; snapshots: Snapshot[] } | { status: 'error'; error: ComputeError };
-function computeHistoryInWorker(ref, branch, options?: { token?: string | null; signal?: AbortSignal; onProgress?: (p: number) => void; api?: string; spawn?: () => WorkerLike }): Promise<ComputeResult>; // rejects only on abort
+type ComputeResult = { status: 'ready'; history: History; snapshots: Snapshot[]; trace?: TraceSummary } | { status: 'error'; error: ComputeError; trace?: TraceSummary };
+function computeHistoryInWorker(ref, branch, options?: { token?: string | null; signal?: AbortSignal; onProgress?: (p: number) => void; api?: string; packUrl?: string; spawn?: () => WorkerLike }): Promise<ComputeResult>; // rejects only on abort
 function loadSampleHistory(id: string, base?: string): Promise<History | null>; // <base>samples/<id>.history.json.gz
 function parseHistory(body: unknown): History | null; // version and column alignment checked
 
@@ -188,7 +227,7 @@ function loadInWorker(request: LoadRequest, progress: LoadProgress, signal: Abor
 
 // render/palette.ts  (table)
 type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
-type ColorBy = 'language' | 'folder' | 'activity'; // activity needs the history (timeline/facts.ts); without it leaves keep language colors
+type ColorBy = 'language' | 'folder' | 'activity' | 'owner'; // activity and owner need the history (timeline/facts.ts); without it leaves keep language colors
 const AGE_COLORS: hex[]; // one per AGES band, the same in every palette: green, orange, brown, and dead wood's legend grey
 const DEAD_BARK: hex; // bark of a branch whose every file is dead wood
 type Palette = { id: PaletteId; name: string; bark: hex; sky: { center: hex; edge: hex }; shadow: hex;
@@ -208,7 +247,7 @@ interface TreeView {
   setTimeline(births: { nodes: Float32Array; sprigs: Float32Array } | null): void; // timeline progress each node and sprig appears at (aBorn per vertex), or the whole tree
   setTime(cursor: number): void; // uTime: elements grow in as it crosses aBorn plus their aT window scaled to SPAN; labels wait for their branch
   setPalette(id: PaletteId): void; // recolors without regrowing
-  setColorBy(by: ColorBy): void; // language, top-level folder, or activity once setFacts gave the history
+  setColorBy(by: ColorBy): void; // language, top-level folder, or activity or owner once setFacts gave the history. Owner: each top-level folder's leaves take its Facts.owners owner, ranked by files through leafMapping like folders (owners shared across folders share a slot, the rest share the last)
   setFacts(facts: Facts | null): void; // the history laid over the tree on show; setTree clears it. Activity: each sprig takes its AGES band's color, dead-wood sprigs are born never (no pass draws them) unless that band is highlighted, and dead branches (newest file 3+ years old) take DEAD_BARK
   setHotspots(on: boolean): void; // once setFacts gave the history, each leaf of a sprig with sprigHeat glows (aHeat per vertex): twice as large about its stem, its color mostly an ember amber, plus uGlowColor emission by heat times uGlow; the other leaves calm (uCalm). uGlow pulses gently (frames every PULSE_FRAME_MS while only the pulse moves), steady under reduced motion
   legend(): LegendEntry[];
@@ -239,12 +278,13 @@ type Selection = { folder: number; file?: number }; // indices into the shown re
 type AppState = { load: LoadState; repo: Repo | null; selection: Selection | null; highlight: string | null; notice: 'truncated' | null; settings: Settings; autoQuality: Quality;
   ci: Record<string /* ciKey */, readonly CiRun[] | null /* could not be read */>; preview: Sky | null /* from a link's wx */;
   timeline: number | null /* the date (ms) the open timeline settled on; null while closed */;
-  history: HistoryFacts | null /* loaded once needsHistory(state) (activity colors or hotspots); a new repo clears it */ };
+  history: HistoryFacts | null /* loaded once needsHistory(state) (activity or owner colors, or hotspots); a new repo clears it */ };
 type HistoryFacts = { repo: Repo; status: 'loading' } | { repo: Repo; status: 'ready'; facts: Facts } | { repo: Repo; status: 'missing' | 'unavailable' };
 // app/history-facts.ts watchHistory(store): reads the stored history (historySource(repo).load, never a compute) a microtask after the change that asked, and dispatches { type: 'history' }.
-function needsHistory(state: AppState): boolean; // colorBy activity, or hotspots on
+function needsHistory(state: AppState): boolean; // colorBy activity or owner, or hotspots on
 function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null; // null with weather off, before runs arrive or when they failed
 // highlight is a legend label. A pin and a highlight never coexist: picking one drops the other, and switching colorBy drops the highlight.
+// A loaded link's hl must name a legend entry, except an activity band or (by owner) any name: those wait for the history.
 
 // app/settings.ts  (localStorage 'repo-tree:settings'; each malformed field falls back to its default)
 type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Quality; spin: boolean; labels: boolean; growAnim: boolean; ground: boolean; weather: boolean; hotspots: boolean /* default false */; hidden: string[]; token: string };
@@ -259,7 +299,9 @@ function formatLink(link: ViewLink): string;
 
 // timeline/source.ts  (boundary: where History comes from; swap the source here alone)
 type HistoryLoad = { status: 'ready'; history: History } | { status: 'missing' } | null;
-type ComputeOutcome = { status: 'ready'; history: History; shared: UploadResult } | { status: 'error'; error: ComputeError };
+type ComputeOutcome = { status: 'ready'; history: History; shared: UploadResult; trace?: TraceSummary /* the upload added */ } | { status: 'error'; error: ComputeError; trace?: TraceSummary };
+// app/ui/history-compute.ts logs formatTrace for every run (console.info) and keeps it in window.__repoTree.computeTrace; with the debug flag
+// (app/debug.ts debugEnabled: `?debug` in the address, or localStorage repo-tree:debug = 1) it also shows it in a toast.
 type HistorySource = { load(signal: AbortSignal): Promise<HistoryLoad>;
   compute: ((o: { token: string; signal: AbortSignal; onProgress?: (p: number) => void }) => Promise<ComputeOutcome>) | null /* samples, no server, or a ref other than the default branch */;
   outdated: ((history: History, token: string, signal: AbortSignal) => Promise<boolean>) | null /* computedAt over STALE_AFTER_MS (1 day) ago and GitHub's branch head differs */ };
@@ -285,11 +327,20 @@ function ageBand(asOf: number, changed: number): number;
 type Facts = { asOf: number /* History.computedAt */; fileChanged: Float64Array /* per RepoIndex file; files the history lacks count as asOf */;
   sprigBand: Uint8Array; folderBand: Uint8Array /* the band most files are in, the fresher on a tie */; nodeChanged: Float64Array /* newest file on the node or beyond it */;
   fileChurn: Uint32Array /* per RepoIndex file: History.files churn + commits, 0 when the history lacks it */; fileHeat: Float32Array /* 0, or HOT_FLOOR..1 for a hotspot */;
-  sprigHeat: Float32Array /* its hottest file's */; hot: Uint32Array /* hotspot files, hottest first */ };
+  sprigHeat: Float32Array /* its hottest file's */; hot: Uint32Array /* hotspot files, hottest first */;
+  owners: Owners /* historyOwners(history) */ };
 function historyFacts(history: History, tree: TreeModel, index: RepoIndex): Facts;
 const HOT_SHARE = 0.04, HOT_SPRIGS = 0.05, HOT_MIN = 6, HOT_FLOOR = 0.35;
 function hotspots(churn: Uint32Array, sprigOf: Int32Array /* -1: off the leaves (root rocks) */, sprigCount: number): { heat: Float32Array; hot: Uint32Array };
 // Takes the busiest leaf files (churn >= HOT_MIN) a whole tie at a time while within HOT_SHARE of all files and HOT_SPRIGS of the sprigs (at least one tie); heat runs linearly from HOT_FLOOR at the cut to 1 at the top.
+
+// timeline/owners.ts  (pure; consumes only History.owners, recent and gaps)
+type FolderOwner = { owner: string | null /* CODEOWNERS' first, else the author with most recent commits (then weight) */; from: 'codeowners' | 'authors' | null;
+  authors: { name: string; commits: number; weight: number }[] /* most recent commits first, then weight */; codeowners: string[] };
+type Owners = { folders: Map<string /* top-level folder, '' root files */, FolderOwner>; from: 'codeowners' | 'authors' | 'mixed' | null; since: number /* recent.since */; codeownersUnread: boolean };
+const NO_OWNER = 'No known owner'; // the label of folders the history has no owner for
+function folderOwner(row: History['owners'][number]): FolderOwner; function historyOwners(history: History): Owners;
+function ownerCategories(tops: { folder: string; files: number }[], owners: Owners): { categories: { label: string; files: number }[] /* one per distinct owner */; categoryOf: number[] /* per top */ };
 
 // app/search.ts  (pure)
 type SearchHit = { kind: 'folder' | 'file'; id: number; path: string; marks: number[] };
@@ -327,4 +378,4 @@ Each PR is landable on its own and ends in a passing CI run.
 
 ## Out of scope for v1
 
-GitLab or Bitbucket, and file contents. The growth animation shows load order, not git history. Commit history and its server were out of scope for v1 and came after it; the time-lapse timeline landed after it; seasons and dead wood landed as the Activity color mode; hotspots landed as the Hotspots setting; color by owner lands in a later PR. GIF or MP4 export of the timeline is not built.
+GitLab or Bitbucket, and file contents. The growth animation shows load order, not git history. Commit history and its server were out of scope for v1 and came after it; the time-lapse timeline landed after it; seasons and dead wood landed as the Activity color mode, color by owner as the Owner color mode, and hotspots as the Hotspots setting. GIF or MP4 export of the timeline is not built.

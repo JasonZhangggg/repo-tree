@@ -41,7 +41,7 @@ const kv = {
 };
 /** Ledger caps: the production defaults unless set (UPLOADS_PER_LOGIN, ...). */
 const vars = Object.fromEntries(
-  ['UPLOADS_PER_LOGIN', 'UPLOADS_PER_DAY', 'STORED_BYTES'].flatMap((k) =>
+  ['UPLOADS_PER_LOGIN', 'UPLOADS_PER_DAY', 'STORED_BYTES', 'KV_WRITES_PER_DAY'].flatMap((k) =>
     process.env[k] ? [[k, process.env[k]]] : [],
   ),
 );
@@ -71,6 +71,15 @@ createServer(async (req, res) => {
     /** @type {any} */ (env),
   );
   res.writeHead(reply.status, Object.fromEntries(reply.headers));
+  if (reply.ok && reply.headers.get('content-type') === 'application/x-git-upload-pack-result') {
+    // A pack streams through as it comes, as it does on Cloudflare.
+    for await (const chunk of /** @type {AsyncIterable<Uint8Array>} */ (reply.body ?? [])) {
+      res.write(chunk);
+    }
+    res.end();
+    console.error(`worker ${reply.status} ${req.method} ${req.url}`);
+    return;
+  }
   const out = Buffer.from(await reply.arrayBuffer());
   // Logged like the fake's lines; refusals with their reason.
   const why = reply.status >= 400 && out.length < 300 ? ` ${out.toString()}` : '';

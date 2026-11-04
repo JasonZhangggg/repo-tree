@@ -103,3 +103,27 @@ test('the open sheet scrolls its content, and closes from it only at the top', a
   await swipe(cdp, x, top + 40, top + 300, { ms: 30, hold: 200 });
   await expect(sheet(page)).toHaveAttribute('aria-expanded', 'false');
 });
+
+test('the phone row keeps four buttons and the rest sit behind More actions', async ({ page }) => {
+  const row = page.locator('.controls > button:visible, .controls .tools > button:visible');
+  await expect(row).toHaveCount(4);
+  const more = page.getByRole('button', { name: 'More actions' });
+  const menu = page.getByRole('group', { name: 'More actions' });
+  await expect(menu).toBeHidden();
+
+  await more.tap();
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  for (const name of ['Grow again', 'Spin', /Copy link/, 'Export PNG'])
+    await expect(menu.getByRole('button', { name })).toBeVisible();
+
+  await menu.getByRole('button', { name: 'Spin' }).tap();
+  await expect(menu).toBeHidden();
+  await expect(page.locator('#spin')).toHaveAttribute('aria-pressed', 'true');
+
+  await more.tap();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await more.tap();
+  await page.locator('#view').tap({ position: { x: 40, y: 300 } });
+  await expect(menu).toBeHidden();
+});

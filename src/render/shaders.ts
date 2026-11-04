@@ -298,7 +298,7 @@ export const haloShader = <M extends Material>(m: M) =>
 vec2 disc = gl_PointCoord * 2.0 - 1.0;
 float r2 = dot(disc, disc);
 if (r2 > 1.0) discard;
-diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.97, 0.8), 0.8 * exp(-r2 * 10.0));
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.82, 0.35), 0.6 * exp(-r2 * 10.0));
 diffuseColor.a *= vHalo * (exp(-r2 * 4.5) - exp(-4.5)) / (1.0 - exp(-4.5));
 if (${OUTSIDE} || uCategory >= 0.0) diffuseColor.a *= 0.25;
 `,

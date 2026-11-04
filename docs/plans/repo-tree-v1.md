@@ -239,7 +239,7 @@ function loadInWorker(request: LoadRequest, progress: LoadProgress, signal: Abor
 
 // render/palette.ts  (table)
 type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
-type ColorBy = 'language' | 'folder' | 'activity' | 'owner'; // activity and owner need the history (timeline/facts.ts); without it leaves keep language colors
+type ColorBy = 'language' | 'folder' | 'activity' | 'changes' | 'owner'; // activity, changes and owner need the history (timeline/facts.ts); without it leaves keep language colors
 const AGE_COLORS: hex[]; // one per AGES band, the same in every palette: green, orange, brown, and dead wood's legend grey
 const DEAD_BARK: hex; // bark of a branch whose every file is dead wood
 type Palette = { id: PaletteId; name: string; bark: hex; sky: { center: hex; edge: hex }; shadow: hex;
@@ -259,9 +259,9 @@ interface TreeView {
   setTimeline(births: { nodes: Float32Array; sprigs: Float32Array } | null): void; // timeline progress each node and sprig appears at (aBorn per vertex), or the whole tree
   setTime(cursor: number): void; // uTime: elements grow in as it crosses aBorn plus their aT window scaled to SPAN; labels wait for their branch
   setPalette(id: PaletteId): void; // recolors without regrowing
-  setColorBy(by: ColorBy): void; // language, top-level folder, or activity or owner once setFacts gave the history. Owner: each top-level folder's leaves take its Facts.owners owner, ranked by files through leafMapping like folders (owners shared across folders share a slot, the rest share the last)
-  setFacts(facts: Facts | null): void; // the history laid over the tree on show; setTree clears it. Activity: each sprig takes its AGES band's color, dead-wood sprigs are born never (no pass draws them) unless that band is highlighted, and dead branches (newest file 3+ years old) take DEAD_BARK
-  setHotspots(on: boolean): void; // once setFacts gave the history, each leaf of a sprig with sprigHeat glows (aHeat per vertex): twice as large about its stem, its color mostly an ember amber, plus uGlowColor emission by heat times uGlow; the other leaves calm (uCalm). uGlow pulses gently (frames every PULSE_FRAME_MS while only the pulse moves), steady under reduced motion
+  setColorBy(by: ColorBy): void; // language, top-level folder, or activity, changes or owner once setFacts gave the history. Changes: each sprig takes its sprigChangeBand's CHANGE_COLORS color. Owner: each top-level folder's leaves take its Facts.owners owner, ranked by files through leafMapping like folders (owners shared across folders share a slot, the rest share the last)
+  setFacts(facts: Facts | null): void; // the history laid over the tree on show; setTree clears it. Activity: each sprig takes its AGES band's color, dead-wood sprigs are born never (no pass draws them) unless that band is highlighted; when they drop, unless motion is reduced, they first fall (aFall per vertex, uFall 0..1 over FALL_MS: tumble down to uFloor and shrink away), then are born never; dead branches (newest file 3+ years old) take DEAD_BARK
+  setHotspots(on: boolean): void; // once setFacts gave the history, each leaf of a sprig with sprigHeat glows (aHeat per vertex): twice as large about its stem, its color mostly an ember amber, plus uGlowColor emission by heat times uGlow; the other leaves calm (uCalm), and a soft gold halo (Points, one per hot sprig at the heart of its leaves, aSize HALO_SPAN times its reach, drawn over the crown, grown in with its sprig's aT and aBorn) shines by aHeat times uGlow. uGlow pulses gently (frames every PULSE_FRAME_MS while only the pulse moves), steady under reduced motion
   legend(): LegendEntry[];
   setHighlight(h: { range: [number, number] } | { category: string } | null): void; // fades nodes outside the id range, or bark and every leaf outside the legend entry with that label, drained to grey while that entry's own leaves deepen (a per-leaf slot test in the shader)
   frameFolder(folder: number): void; // eases the camera onto the folder's leaves, never nearer than half the distance that frames the tree on show nor further than the stage; 0 frames the stage
@@ -294,7 +294,7 @@ type AppState = { load: LoadState; repo: Repo | null; selection: Selection | nul
   history: HistoryFacts | null /* loaded once needsHistory(state) (activity or owner colors, or hotspots); a new repo clears it */ };
 type HistoryFacts = { repo: Repo; status: 'loading' } | { repo: Repo; status: 'ready'; facts: Facts } | { repo: Repo; status: 'missing' | 'unavailable' };
 // app/history-facts.ts watchHistory(store): reads the stored history (historySource(repo).load, never a compute) a microtask after the change that asked, and dispatches { type: 'history' }.
-function needsHistory(state: AppState): boolean; // colorBy activity or owner, or hotspots on
+function needsHistory(state: AppState): boolean; // colorBy activity, changes or owner, or hotspots on
 function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null; // null with weather off, before runs arrive or when they failed
 // highlight is a legend label. A pin and a highlight never coexist: picking one drops the other, and switching colorBy drops the highlight.
 // A loaded link's hl must name a legend entry, except an activity band or (by owner) any name: those wait for the history.
@@ -337,8 +337,11 @@ function aliveAt(t: number, born: number, gone?: number): boolean;
 // timeline/facts.ts  (pure; consumes only History, TreeModel and RepoIndex)
 const AGES: { label: 'This month' | 'This year' | '1 to 3 years' | 'Dead wood'; within: number /* ms before asOf */ }[]; const DEAD: number; // the last band
 function ageBand(asOf: number, changed: number): number;
+const CHANGES: { label: 'Constantly' | 'Often' | 'Sometimes' | 'Rarely'; atLeast: 30 | 10 | 3 | 0 /* fileChurn */ }[]; // busiest first, as many bands as AGES
+function changeBand(churn: number): number;
 type Facts = { asOf: number /* History.computedAt */; fileChanged: Float64Array /* per RepoIndex file; files the history lacks count as asOf */;
   sprigBand: Uint8Array; folderBand: Uint8Array /* the band most files are in, the fresher on a tie */; nodeChanged: Float64Array /* newest file on the node or beyond it */;
+  sprigChangeBand: Uint8Array; folderChangeBand: Uint8Array /* the CHANGES band most files are in, the busier on a tie */;
   fileChurn: Uint32Array /* per RepoIndex file: History.files churn + commits, 0 when the history lacks it */; fileHeat: Float32Array /* 0, or HOT_FLOOR..1 for a hotspot */;
   sprigHeat: Float32Array /* its hottest file's */; hot: Uint32Array /* hotspot files, hottest first */;
   owners: Owners /* historyOwners(history) */ };

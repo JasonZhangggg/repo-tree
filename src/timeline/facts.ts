@@ -19,6 +19,20 @@ export const AGES: readonly { label: string; within: number }[] = [
 ];
 export const DEAD = AGES.length - 1;
 
+/**
+ * How often a file changed (`Facts.fileChurn`), in bands from the busiest down. A sprig or a
+ * folder takes the band most of its files are in, the busier on a tie, as for AGES.
+ */
+export const CHANGES: readonly { label: string; atLeast: number }[] = [
+  { label: 'Constantly', atLeast: 30 },
+  { label: 'Often', atLeast: 10 },
+  { label: 'Sometimes', atLeast: 3 },
+  { label: 'Rarely', atLeast: 0 },
+];
+
+/** The CHANGES band of a file `churn` busy. */
+export const changeBand = (churn: number): number => CHANGES.findIndex((c) => churn >= c.atLeast);
+
 /** The band of a change at `changed` seen from `asOf`. */
 export const ageBand = (asOf: number, changed: number): number => {
   const age = asOf - changed;
@@ -43,6 +57,10 @@ export type Facts = {
   nodeChanged: Float64Array;
   /** Per RepoIndex file, how busy it is: `History.files.churn` plus its recent `commits`. */
   fileChurn: Uint32Array;
+  /** Per sprig, the CHANGES band most of its files are in. */
+  sprigChangeBand: Uint8Array;
+  /** Per TreeModel folder, the CHANGES band most of the files under it are in. */
+  folderChangeBand: Uint8Array;
   /** Per RepoIndex file, its hotspot heat: 0 for most, from HOT_FLOOR to 1 for the busiest. */
   fileHeat: Float32Array;
   /** Per sprig, the heat of its hottest file. */
@@ -117,6 +135,7 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
     row === undefined ? 0 : churn[row]! + commits[row]!,
   );
   const fileBand = Uint8Array.from(fileChanged, (ms) => ageBand(asOf, ms));
+  const fileChangeBand = Uint8Array.from(fileChurn, changeBand);
   const bands = AGES.length;
 
   const { sprigs, nodes, leaves } = tree;
@@ -127,19 +146,24 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
   }
   const { heat: fileHeat, hot } = hotspots(fileChurn, sprigOf, sprigCount);
   const sprigBand = new Uint8Array(sprigCount);
+  const sprigChangeBand = new Uint8Array(sprigCount);
+  const changeTally = new Uint32Array(CHANGES.length);
   const sprigHeat = new Float32Array(sprigCount);
   const nodeChanged = new Float64Array(nodes.parent.length).fill(-Infinity);
   const tally = new Uint32Array(bands);
   for (let s = 0; s < sprigCount; s++) {
     tally.fill(0);
+    changeTally.fill(0);
     let newest = -Infinity;
     for (let k = sprigs.file[s]!; k < sprigs.file[s + 1]!; k++) {
       const file = sprigs.files[k]!;
       tally[fileBand[file]!]! += 1;
+      changeTally[fileChangeBand[file]!]! += 1;
       newest = Math.max(newest, fileChanged[file]!);
       sprigHeat[s] = Math.max(sprigHeat[s]!, fileHeat[file]!);
     }
     sprigBand[s] = most(tally, 0);
+    sprigChangeBand[s] = most(changeTally, 0);
     const twig = leaves.nodeId[sprigs.vertex[s]!]!;
     nodeChanged[twig] = Math.max(nodeChanged[twig]!, newest);
   }
@@ -149,24 +173,15 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
     nodeChanged[parent] = Math.max(nodeChanged[parent]!, nodeChanged[n]!);
   }
 
-  const { parent, own } = index.folders;
-  const folderTally = new Uint32Array(parent.length * bands);
-  for (let f = 0; f < parent.length; f++) {
-    for (let i = own[2 * f]!; i < own[2 * f]! + own[2 * f + 1]!; i++) {
-      folderTally[f * bands + fileBand[i]!]! += 1;
-    }
-  }
-  for (let f = parent.length - 1; f > 0; f--) {
-    for (let b = 0; b < bands; b++) {
-      folderTally[parent[f]! * bands + b]! += folderTally[f * bands + b]!;
-    }
-  }
-  const folderBand = Uint8Array.from(parent, (_, f) => most(folderTally, f * bands));
+  const folderBand = folderMajority(index, fileBand);
+  const folderChangeBand = folderMajority(index, fileChangeBand);
   return {
     asOf,
     fileChanged,
     sprigBand,
     folderBand,
+    sprigChangeBand,
+    folderChangeBand,
     nodeChanged,
     fileChurn,
     fileHeat,
@@ -176,7 +191,26 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
   };
 }
 
-/** The band with the most files among `AGES.length` counts from `at`, the fresher on a tie. */
+/** Per folder, the band (of four, AGES or CHANGES) most of the files under it are in. */
+function folderMajority(index: RepoIndex, fileBand: Uint8Array): Uint8Array {
+  const { parent, own } = index.folders;
+  const bands = AGES.length;
+  const tally = new Uint32Array(parent.length * bands);
+  for (let f = 0; f < parent.length; f++) {
+    for (let i = own[2 * f]!; i < own[2 * f]! + own[2 * f + 1]!; i++) {
+      tally[f * bands + fileBand[i]!]! += 1;
+    }
+  }
+  for (let f = parent.length - 1; f > 0; f--) {
+    for (let b = 0; b < bands; b++) tally[parent[f]! * bands + b]! += tally[f * bands + b]!;
+  }
+  return Uint8Array.from(parent, (_, f) => most(tally, f * bands));
+}
+
+/**
+ * The band with the most files among four counts from `at` (AGES and CHANGES both have four),
+ * the first (fresher, or busier) on a tie.
+ */
 function most(counts: Uint32Array, at: number): number {
   let best = 0;
   for (let b = 1; b < AGES.length; b++) if (counts[at + b]! > counts[at + best]!) best = b;

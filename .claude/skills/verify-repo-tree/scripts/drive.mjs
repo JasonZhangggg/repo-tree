@@ -2,7 +2,7 @@
 // Usage: node .claude/skills/verify-repo-tree/scripts/drive.mjs <command> [--port 4175]
 //          [--out dir] [--viewport desktop|phone|phone-390] [--scale 2] [--history]
 // Commands: launch, doctor, cleanup, or a journey: load-repo, explore, search, settings,
-// share-and-export, phone-layout, tree-sizes, timeline, weather, activity, hotspots,
+// share-and-export, phone-layout, tree-sizes, timeline, weather, activity, changes, hotspots,
 // history-compute.
 // `launch --history` starts e2e/history-stack.mjs instead (app, history Worker and fake GitHub
 // on port, port+1 and port+2), which the history-compute journey needs. Journeys save numbered screenshots and report.json in --out
@@ -622,6 +622,56 @@ const JOURNEYS = {
     });
   },
 
+  changes: async ({ page, step }) => {
+    const sheet = page.locator('#sheet-toggle');
+    /** On a phone the legend waits in the sheet: opens it for `check`, then closes it again. */
+    const inLegend = async (check) => {
+      const phone = await sheet.isVisible();
+      if (phone) await sheet.click();
+      await check();
+      if (phone) await sheet.click();
+    };
+    const entry = (name) => page.locator('#legend').getByRole('button', { name });
+    await step('language', async () => {
+      await page.goto(`${base}#/vitejs/vite?colorBy=language`);
+      await ready(page, 'vitejs/vite');
+      await settle(page);
+    });
+    await step('changes', async () => {
+      await page.getByRole('button', { name: 'Settings' }).click();
+      await page.getByRole('radio', { name: 'Changes' }).click();
+      await expect(page).toHaveURL(/colorBy=changes/);
+      await page.getByRole('button', { name: 'Close settings' }).click();
+      await inLegend(async () => {
+        await expect(page.locator('#legend-title')).toHaveText('Leaf colors by changes');
+        await expect(page.locator('#legend-note')).toHaveText(
+          /^How often each file changed, as of /,
+        );
+      });
+      await settle(page);
+    });
+    await step('constantly', async () => {
+      await inLegend(() => entry(/^Constantly/).click());
+      await expect(page).toHaveURL(/hl=Constantly/);
+      await settle(page);
+    });
+    await step('linux', async () => {
+      await page.goto(`${base}#/torvalds/linux?colorBy=changes`);
+      await ready(page, 'torvalds/linux');
+      await inLegend(() =>
+        expect(page.locator('#legend-title')).toHaveText('Leaf colors by changes'),
+      );
+      await settle(page);
+    });
+    await step('no-history', async () => {
+      await serveRepo(page, 'acme/widgets');
+      await enter(page, 'acme/widgets');
+      await ready(page, 'acme/widgets');
+      await inLegend(() =>
+        expect(page.locator('#legend-note')).toHaveText('History is unavailable for this repo.'),
+      );
+    });
+  },
   activity: async ({ page, step }) => {
     const sheet = page.locator('#sheet-toggle');
     /** On a phone the legend waits in the sheet: opens it for `check`, then closes it again. */

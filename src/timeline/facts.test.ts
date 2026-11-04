@@ -9,6 +9,8 @@ import { sample } from '../test/samples';
 import {
   AGES,
   ageBand,
+  CHANGES,
+  changeBand,
   DEAD,
   historyFacts,
   HOT_FLOOR,
@@ -31,6 +33,19 @@ describe('ageBand', () => {
     expect(ageBand(now, now - 4 * 365 * DAY)).toBe(DEAD);
     expect(ageBand(now, -Infinity)).toBe(DEAD);
     expect(DEAD).toBe(AGES.length - 1);
+  });
+});
+
+describe('changeBand', () => {
+  test('runs from the busiest files down to the quiet ones', () => {
+    expect(changeBand(0)).toBe(CHANGES.length - 1);
+    expect(changeBand(2)).toBe(3);
+    expect(changeBand(3)).toBe(2);
+    expect(changeBand(10)).toBe(1);
+    expect(changeBand(30)).toBe(0);
+    expect(changeBand(500)).toBe(0);
+    // Sprig and folder majorities count four bands, as for AGES.
+    expect(CHANGES.length).toBe(AGES.length);
   });
 });
 
@@ -133,6 +148,23 @@ describe('historyFacts on vitejs/vite', () => {
     const packages = tree.folders.path.indexOf('packages');
     const under = all.filter((i) => index.files.paths[i]!.startsWith('packages/'));
     expect(facts.folderBand[packages]).toBe(majority(under));
+  });
+
+  test('a sprig and a folder take the changes band most of their files are in', () => {
+    const { sprigs } = tree;
+    const majority = (files: number[]) => {
+      const counts = CHANGES.map(() => 0);
+      for (const f of files) counts[changeBand(facts.fileChurn[f]!)]! += 1;
+      return counts.indexOf(Math.max(...counts));
+    };
+    for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
+      const files = Array.from(sprigs.files.subarray(sprigs.file[s]!, sprigs.file[s + 1]!));
+      expect(facts.sprigChangeBand[s]).toBe(majority(files));
+    }
+    const all = index.files.paths.map((_, i) => i);
+    expect(facts.folderChangeBand[0]).toBe(majority(all));
+    const bands = new Set(facts.sprigChangeBand);
+    expect(bands.size, 'vite has busy and quiet twigs').toBeGreaterThan(2);
   });
 
   test('a branch is as fresh as the newest file on it or beyond it', () => {

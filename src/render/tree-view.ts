@@ -42,11 +42,12 @@ import {
   VIEW_DIRECTION,
 } from './framing';
 import { LIGHT, litColor } from './color';
-import { AGES, ageBand, DEAD, type Facts } from '../timeline/facts';
+import { AGES, ageBand, CHANGES, changeBand, DEAD, type Facts } from '../timeline/facts';
 import { ownerCategories } from '../timeline/owners';
 import { createGround } from './ground';
 import {
   AGE_COLORS,
+  CHANGE_COLORS,
   DEAD_BARK,
   leafMapping,
   PALETTES,
@@ -215,7 +216,7 @@ const FALL_MS = 2600;
 /** A hot sprig's halo spans this many times its own reach, and at least HALO_MIN. */
 const HALO_SPAN = 3.5;
 const HALO_MIN = 0.45;
-const HALO_COLOR = '#ffc23a';
+const HALO_COLOR = '#ff9d1a';
 /** A birth past any cursor: the element never shows. */
 const NEVER = ALWAYS * 4;
 
@@ -755,6 +756,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const categories = () => leafCategories(shown!.model, colorBy, palette, facts);
   /** Activity colors show only once the history is in; until then leaves keep their language. */
   const byActivity = () => colorBy === 'activity' && facts !== null;
+  /** Changes colors likewise wait for the history. */
+  const byChanges = () => colorBy === 'changes' && facts !== null;
   /** Dead wood drops its leaves, unless its legend entry is highlighted to show which they were. */
   const bare = () =>
     byActivity() &&
@@ -774,7 +777,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   /** The colors behind the slots: the palette's ramp, or the activity bands. */
   const applySlots = () => {
     const slots: number[] = [];
-    const ramp = byActivity() ? AGE_COLORS : [...palette.leaves, palette.rest];
+    const ramp = byActivity()
+      ? AGE_COLORS
+      : byChanges()
+        ? CHANGE_COLORS
+        : [...palette.leaves, palette.rest];
     for (let i = 0; i < SLOTS; i++) {
       const c = new Color(ramp[Math.min(i, ramp.length - 1)]);
       slots.push(c.r, c.g, c.b);
@@ -789,7 +796,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const { lang, nodeId } = model.leaves;
     const slot = new Float32Array(lang.length);
     const dead = new Float32Array(model.bark.nodeId.length);
-    if (byActivity()) {
+    if (byChanges()) {
+      const { vertex } = model.sprigs;
+      for (let s = 0; s + 1 < vertex.length; s++) {
+        slot.fill(facts!.sprigChangeBand[s]!, vertex[s]!, vertex[s + 1]!);
+      }
+    } else if (byActivity()) {
       const { vertex } = model.sprigs;
       for (let s = 0; s + 1 < vertex.length; s++) {
         slot.fill(facts!.sprigBand[s]!, vertex[s]!, vertex[s + 1]!);
@@ -1195,6 +1207,18 @@ export function leafCategories(
   palette: Palette,
   facts: Facts | null = null,
 ): { slotOf: number[]; legend: LegendEntry[]; nodeCategory?: Int32Array } {
+  if (colorBy === 'changes' && facts) {
+    const files = CHANGES.map(() => 0);
+    for (const churn of facts.fileChurn) files[changeBand(churn)]! += 1;
+    return {
+      slotOf: CHANGES.map((_, i) => i),
+      legend: CHANGES.map((c, i) => ({
+        color: litColor(CHANGE_COLORS[i]!, palette),
+        label: c.label,
+        files: files[i]!,
+      })),
+    };
+  }
   if (colorBy === 'activity' && facts) {
     // Bands keep their order and their slot, so legend index, slot and band agree.
     const files = AGES.map(() => 0);

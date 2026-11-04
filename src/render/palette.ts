@@ -2,10 +2,10 @@ import { litColor } from './color';
 
 export type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
 /**
- * `activity` and `owner` need the repo's history: leaves take how long ago their files changed,
- * or who owns their top-level folder.
+ * `activity`, `changes` and `owner` need the repo's history: leaves take how long ago their files
+ * changed, how often they changed, or who owns their top-level folder.
  */
-export type ColorBy = 'language' | 'folder' | 'activity' | 'owner';
+export type ColorBy = 'language' | 'folder' | 'activity' | 'changes' | 'owner';
 
 /**
  * Leaf colors for `activity`, one per timeline/facts.ts AGES band and the same in every palette:
@@ -13,6 +13,11 @@ export type ColorBy = 'language' | 'folder' | 'activity' | 'owner';
  * leaves, so its cool grey shows only in the legend and while that entry is highlighted.
  */
 export const AGE_COLORS: readonly string[] = ['#6fb43f', '#ec8a2c', '#94603a', '#98a0a8'];
+/**
+ * Leaf colors for `changes`, one per timeline/facts.ts CHANGES band and the same in every palette:
+ * a hot red for the busiest files, cooling through orange and gold to a quiet blue-grey.
+ */
+export const CHANGE_COLORS: readonly string[] = ['#d1352a', '#f08a24', '#f2c64a', '#9fb4c2'];
 /** Bark of a branch whose every leaf is dead wood: weathered silver-grey. */
 export const DEAD_BARK = '#a59f97';
 

@@ -163,13 +163,13 @@ test("labels the big top-level folders, then a pinned folder's own subfolders", 
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   const pills = page.locator('#labels .pill');
-  await expect(pills.locator('span')).toHaveText(['playground', 'packages', 'docs']);
+  await expect(pills.locator('span')).toHaveText(['playground/', 'packages/', 'docs/']);
   await expect(page.locator('#labels .pill.major')).toHaveCount(2);
 
   await page.locator('#labels .pill', { hasText: 'packages' }).click();
   await expectPinned(page, 'vite/packages');
   const subs = page.locator('#labels .pill.sub span');
-  await expect(subs.first()).toHaveText('vite');
+  await expect(subs.first()).toHaveText('vite/');
   await expect(page.locator('#labels .pill.aside', { hasText: 'playground' })).toHaveCount(1);
 
   await page.keyboard.press('Escape');

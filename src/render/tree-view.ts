@@ -72,12 +72,13 @@ export type LabelPosition = {
   visible: boolean;
   front: boolean;
 };
-/** `center` is the crown's middle on screen, which labels lean away from. */
+/** `crown` is the crown's outline on screen, as an ellipse, which labels sit outside of. */
 export type FrameInfo = {
   growth: number;
   labels: LabelPosition[];
-  center: { x: number; y: number };
+  crown: Ellipse;
 };
+export type Ellipse = { x: number; y: number; rx: number; ry: number };
 /** CSS pixels along each edge of the container that panels cover. */
 export type Insets = { top: number; right: number; bottom: number; left: number };
 /** The sky to show, and whether it must hold still (reduced motion): no drift, fall or flashes. */
@@ -166,6 +167,8 @@ const LABELS_FROM = 0.55;
  * from the camera's, unless the anchor sits within `near` of the trunk.
  */
 const BACK = { facing: 0.25, near: 0.15 };
+/** How much of the tree's reach, and from what share of its height up, the crown's outline covers. */
+const CROWN = { reach: 0.8, from: 0.4 };
 const SPIN_SPEED = 0.55;
 /** Spring rates: the camera settles in about a second, the free region in about a third. */
 const GLIDE_RATE = 6.5;
@@ -487,6 +490,27 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const anchor = new Vector3();
   const axis = new Vector3();
   let labelFolders: readonly number[] | null = null;
+  /**
+   * The crown's outline on screen: the box around a ring of points at its widest reach, at the
+   * height leaves start and at the top, shrunk because the crown is rounder than that cylinder.
+   */
+  const crownOnScreen = ({ min, max }: TreeModel['bounds']): Ellipse => {
+    const { width, height } = freeRegion();
+    const reach = Math.max(-min[0], max[0], -min[2], max[2]) * CROWN.reach;
+    const low = min[1] + (max[1] - min[1]) * CROWN.from;
+    let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity];
+    for (let k = 0; k < 16; k++) {
+      const turn = (k / 8) * Math.PI;
+      axis
+        .set(Math.cos(turn) * reach, k % 2 ? low : max[1], Math.sin(turn) * reach)
+        .project(camera);
+      const x = ((axis.x + 1) / 2) * width;
+      const y = ((1 - axis.y) / 2) * height;
+      [x0, x1, y0, y1] = [Math.min(x0, x), Math.max(x1, x), Math.min(y0, y), Math.max(y1, y)];
+    }
+    return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, rx: (x1 - x0) / 2, ry: (y1 - y0) / 2 };
+  };
+
   const emitLabels = () => {
     if (!shown || listeners.size === 0) return;
     const { width, height, x: left, y: top, w, h } = freeRegion();
@@ -521,8 +545,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         visible: growth > LABELS_FROM && z < 1 && free && born(folder),
       };
     });
-    const center = screen(axis.set(0, (bounds.min[1] + bounds.max[1]) * 0.55, 0));
-    for (const listener of listeners) listener({ growth, labels, center });
+    for (const listener of listeners) listener({ growth, labels, crown: crownOnScreen(bounds) });
   };
 
   /** The sky, the light and the weather's own objects for the palette, weather and quality. */

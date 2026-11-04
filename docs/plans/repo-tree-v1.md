@@ -192,7 +192,7 @@ type TreeModel = {
   folders: { path: string[]; range: Uint32Array /* [lo, hi] node-id range per folder, preorder, root first */ };
   sprigs: { vertex: Uint32Array; file: Uint32Array /* per sprig, first leaf vertex and first slot in files, plus the end */; files: Uint32Array /* RepoIndex.files ids */ }; // each sprig of leaves stands for a run of its twig's files
   labels: { folder: number; files: number; anchor: [number, number, number] }[]; // one per top-level folder, at its entry in anchors
-  anchors: Float32Array; // xyz label anchor per folder: the twig tip reaching farthest out, and a little up, on the side the folder's twigs lean to
+  anchors: Float32Array; // xyz label anchor per folder: the twig tip nearest the middle of the folder's twigs, leaning a little outward and up
   rocks: { files: number[] /* indices into the root folder's own files */; bytes: number }[]; // root files as rocks, largest first, at most 12 (the last holds the rest); empty when the root has no subfolders
   bounds: { min: [number, number, number]; max: [number, number, number] };
 };
@@ -259,7 +259,7 @@ interface TreeView {
   setSpin(on: boolean): void;
   setReducedMotion(on: boolean): void;
   setLabelFolders(folders: readonly number[] | null): void; // which folders' anchors onFrame reports; null (and every setTree) means the top-level folders
-  onFrame(listener: (info: { growth: number; labels: { folder: number; x: number; y: number; visible: boolean; front: boolean }[]; center: { x: number; y: number } }) => void): () => void; // visible: grown, in front of the camera, inside the free region; front: on the near side of the crown; center: the crown's middle on screen
+  onFrame(listener: (info: { growth: number; labels: { folder: number; x: number; y: number; visible: boolean; front: boolean }[]; crown: { x: number; y: number; rx: number; ry: number } }) => void): () => void; // visible: grown, in front of the camera, inside the free region; front: on the near side of the crown; crown: the crown's outline on screen, as an ellipse
   snapshotPNG(scale: number): Promise<Blob>;
   stats(): { renders: number; distance: number; calls: number; triangles: number; geometries: number; textures: number }; // distance: camera to orbit target
   dispose(): void;
@@ -326,7 +326,7 @@ Palettes are a table (`render/palette.ts` above). Autumn is the approved default
 
 - The crown is capped at `twigBudget` twigs (`grow/size.ts`): 200 up to 3k files, rising to 260 at 100k, so a bigger repo shows more detail as well as more height. The heaviest branches open first; each branch left closed folds into one twig owned by the deepest folder that still owns a node. Forks between top-level folders always open. This keeps large repos as open as the approved tree and bounds geometry at any repo size.
 - Each top-level folder gathers on its own side of the crown by how its forks turn, not by bending branches (`ORDER` and `forkAxis` in `grow.ts`). Every fork shares its slice of the compass between its two kids by the square root of their files, and turns about its limb so each kid sets off toward its own share, with a little wobble. Fork angles, lengths and thicknesses stay as they were, and slices under 0.35 rad turn by the golden angle as before, so the tree keeps its natural shape.
-- Labels (`app/labels.ts`) go on top-level folders holding at least 2% of the tree's files, at least three and at most seven; those over 15% are larger. Pinning a folder adds smaller labels on its biggest subfolders and fades the other sections' labels. Each label sits out from its anchor, away from the crown's middle on screen, joined by a stem, and keeps off the panels over the canvas, and labels on the far side of the crown fade and give way to those in front.
+- Labels (`app/labels.ts`) go on top-level folders holding at least 2% of the tree's files, at least three and at most seven; those over 15% are larger. Pinning a folder adds smaller labels on its biggest subfolders and fades the other sections' labels. Each label reads as a folder (`drivers/`) and sits just outside the crown's outline on screen, on the line from the crown's middle through its anchor, joined by a stem that ends in a dot on the branch. Labels whose stems would cross swap places. Labels keep off the panels over the canvas, and labels on the far side of the crown fade and give way to those in front.
 - One merged `BufferGeometry` for bark and one for leaves, so the whole tree is two draw calls. The mock's `onBeforeCompile` patch does grow animation and highlight on the GPU. Keep that approach.
 - Picking by a GPU id pass that renders one pixel under the pointer into a 1x1 target, not a CPU raycast. Raycasting 100k-file geometry on every pointer move is too slow.
 - Render on demand. The loop runs only while growing, spinning, damping or after input, so an idle tab costs nothing.

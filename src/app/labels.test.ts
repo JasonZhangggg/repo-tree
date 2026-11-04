@@ -9,6 +9,8 @@ const pill = (x: number, y: number, front = true): LabelAnchor => ({
   front,
 });
 
+type Point = { x: number; y: number };
+
 const overlaps = (placed: { x: number; y: number }[], sizes: LabelAnchor[]) => {
   for (let i = 0; i < placed.length; i++) {
     for (let j = i + 1; j < placed.length; j++) {
@@ -32,6 +34,17 @@ describe('relaxLabels', () => {
   test('pulls apart labels whose anchors pile up', () => {
     const anchors = [pill(400, 200), pill(405, 210), pill(398, 220), pill(402, 230)];
     expect(overlaps(relaxLabels(anchors, { x: 400, y: 300 }), anchors)).toBe(false);
+  });
+
+  test('keeps stems from crossing', () => {
+    // Left alone, pushing these two apart puts the farther anchor's label below the nearer one's.
+    const anchors = [pill(300, 220), pill(360, 270)];
+    const [p, q] = relaxLabels(anchors, { x: 400, y: 300, rx: 80, ry: 80 });
+    const side = (a: Point, b: Point, c: Point) =>
+      Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+    const [a, b] = [anchors[0]!, anchors[1]!];
+    const cross = side(a, p!, b) * side(a, p!, q!) < 0 && side(b, q!, a) * side(b, q!, p!) < 0;
+    expect(cross).toBe(false);
   });
 
   test('moves a label behind the crown more than one in front', () => {

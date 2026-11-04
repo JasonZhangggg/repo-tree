@@ -796,7 +796,7 @@ function labelAnchor(order: Node[], s: Skeleton, lo: number, hi: number): Vec3 {
   let best = tips[0]!;
   let bestScore = -Infinity;
   for (const tip of tips) {
-    const score = dot(tip, out) + ANCHOR_UP * tip[1] - ANCHOR_SPREAD * length(sub(tip, centroid));
+    const score = ANCHOR_OUT * dot(tip, out) + ANCHOR_UP * tip[1] - length(sub(tip, centroid));
     if (score > bestScore) {
       bestScore = score;
       best = tip;
@@ -805,9 +805,12 @@ function labelAnchor(order: Node[], s: Skeleton, lo: number, hi: number): Vec3 {
   return best;
 }
 
-/** How much a label anchor favors height, and stays near its folder's middle, over reaching out. */
-const ANCHOR_UP = 0.35;
-const ANCHOR_SPREAD = 0.3;
+/**
+ * A label anchor is the twig tip nearest the middle of its folder's twigs, leaning a little
+ * outward and up so it sits on the crown's surface rather than buried inside it.
+ */
+const ANCHOR_OUT = 0.3;
+const ANCHOR_UP = 0.15;
 
 function boundsOf(buffers: Float32Array[]): TreeModel['bounds'] {
   const min: Vec3 = [Infinity, Infinity, Infinity];

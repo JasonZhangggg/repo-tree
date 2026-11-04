@@ -138,6 +138,8 @@ export function mountCanvas(app: App): {
   type Pill = {
     el: HTMLButtonElement;
     stem: HTMLElement;
+    /** Marks where the stem meets the branch. */
+    dot: HTMLElement;
     folder: number;
     files: number;
     tier: LabelPick['tier'];
@@ -187,12 +189,13 @@ export function mountCanvas(app: App): {
           onpointerenter: () => setHovered({ folder }),
           onpointerleave: () => setHovered(null),
         },
-        h('span', {}, nameOf(repo.tree.folders.path[folder]!)),
+        h('span', {}, nameOf(repo.tree.folders.path[folder]!), h('i', {}, '/')),
         tally,
       );
       return {
         el,
         stem: h('i', { class: 'stem' }),
+        dot: h('i', { class: 'dot' }),
         folder,
         files,
         tier,
@@ -201,7 +204,7 @@ export function mountCanvas(app: App): {
         height: 0,
       };
     });
-    layer.replaceChildren(...pills.map((p) => p.stem), ...pills.map((p) => p.el));
+    layer.replaceChildren(...pills.flatMap((p) => [p.stem, p.dot]), ...pills.map((p) => p.el));
     for (const pill of pills) {
       pill.width = pill.el.offsetWidth;
       pill.height = pill.el.offsetHeight;
@@ -216,7 +219,7 @@ export function mountCanvas(app: App): {
     for (const pill of pills) pill.el.classList.toggle('on', pill.folder === folder);
   };
 
-  view.onFrame(({ labels, center }) => {
+  view.onFrame(({ labels, crown }) => {
     const repo = store.get().repo;
     if (!repo) return;
     debug.labels = labels.map(({ folder, x, y }) => ({
@@ -228,13 +231,16 @@ export function mountCanvas(app: App): {
     const at = new Map(labels.map((l) => [l.folder, l]));
     const shown = pills.filter((p) => at.get(p.folder)?.visible);
     layer.style.opacity = shown.length ? '1' : '0';
-    for (const pill of pills) pill.el.hidden = pill.stem.hidden = !shown.includes(pill);
+    for (const pill of pills) {
+      pill.el.hidden = pill.stem.hidden = pill.dot.hidden = !shown.includes(pill);
+    }
     for (const pill of shown) {
       if (pill.width < 0) pill.width = pill.el.offsetWidth;
       const back = !at.get(pill.folder)!.front;
       if (pill.el.classList.contains('back') !== back) {
         pill.el.classList.toggle('back', back);
         pill.stem.classList.toggle('back', back);
+        pill.dot.classList.toggle('back', back);
       }
     }
     const anchors = shown.map((p) => {
@@ -248,7 +254,7 @@ export function mountCanvas(app: App): {
         const r = el.getBoundingClientRect();
         return { x: r.x - origin.x, y: r.y - origin.y, width: r.width, height: r.height };
       });
-    const placed = relaxLabels(anchors, center, panels);
+    const placed = relaxLabels(anchors, crown, panels);
     shown.forEach((pill, i) => {
       const { x, y } = placed[i]!;
       const a = anchors[i]!;
@@ -256,6 +262,7 @@ export function mountCanvas(app: App): {
       const angle = Math.atan2(y - a.y, x - a.x);
       pill.el.style.transform = `translate(${x - pill.width / 2}px, ${y - pill.height / 2}px)`;
       pill.stem.style.transform = `translate(${a.x}px, ${a.y}px) rotate(${angle}rad) scaleX(${length})`;
+      pill.dot.style.transform = `translate(${a.x}px, ${a.y}px)`;
     });
   });
 

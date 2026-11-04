@@ -1,7 +1,7 @@
 const GAP = 6;
-/** How far a label sits out from its anchor, away from the crown's middle, and lifted. */
-const PUSH = 34;
-const LIFT = 16;
+/** How far a label sits out past the crown's outline (or its anchor, if that is farther), and lifted. */
+const PUSH = 18;
+const LIFT = 8;
 const ROUNDS = 40;
 /** A label on the far side of the crown gives way this much more than one in front. */
 const BACK_YIELD = 4;
@@ -17,25 +17,34 @@ export type LabelAnchor = {
   front: boolean;
 };
 
+/** The crown's outline on screen. */
+export type Crown = { x: number; y: number; rx?: number; ry?: number };
+
 /**
- * Places each label out from its anchor, away from the crown's middle at `center`, so labels
- * ring the crown like callouts instead of piling over it. Overlapping pairs are then pushed
- * apart along the axis they overlap least on, labels behind the crown giving way first, and
- * moved off any of `panels` the short way. Returns each label's center.
+ * Places each label just outside the crown's outline, on the line from the crown's middle
+ * through its anchor, so labels ring the crown like callouts with a stem in to their section
+ * instead of covering its leaves. Overlapping pairs are then pushed apart along the axis they
+ * overlap least on, labels behind the crown giving way first, and moved off any of `panels`
+ * the short way. Returns each label's center.
  */
 export function relaxLabels(
   anchors: ReadonlyArray<LabelAnchor>,
-  center: { x: number; y: number },
+  crown: Crown,
   panels: ReadonlyArray<Box> = [],
 ): { x: number; y: number }[] {
+  const { rx = 0, ry = 0 } = crown;
   const placed = anchors.map((a) => {
-    const dx = a.x - center.x;
-    const dy = a.y - center.y;
+    const dx = a.x - crown.x;
+    const dy = a.y - crown.y;
     const d = Math.hypot(dx, dy);
     const [ux, uy] = d > 1 ? [dx / d, dy / d] : [0, -1];
+    // Where the line out through the anchor leaves the outline, and the label's own half-size that way.
+    const rim = rx > 0 && ry > 0 ? 1 / Math.hypot(ux / rx, uy / ry) : 0;
+    const half = Math.abs(ux) * (a.width / 2) + Math.abs(uy) * (a.height / 2);
+    const out = Math.max(d, rim) + PUSH + half;
     return {
-      x: a.x + ux * PUSH,
-      y: a.y + uy * PUSH * 0.6 - LIFT,
+      x: crown.x + ux * out,
+      y: crown.y + uy * out - LIFT,
       w: a.width,
       h: a.height,
       give: a.front ? 1 : BACK_YIELD,
@@ -69,6 +78,21 @@ export function relaxLabels(
     }
   };
   relax();
+  // Stems that cross read as pointing at each other's sections: swap those labels' places.
+  for (let pass = 0; pass < 3; pass++) {
+    let swapped = false;
+    for (let i = 0; i < placed.length; i++) {
+      for (let j = i + 1; j < placed.length; j++) {
+        const a = placed[i]!;
+        const b = placed[j]!;
+        if (!crosses(anchors[i]!, a, anchors[j]!, b)) continue;
+        [a.x, b.x, a.y, b.y] = [b.x, a.x, b.y, a.y];
+        swapped = true;
+      }
+    }
+    if (!swapped) break;
+    relax();
+  }
   // Then off any panel, the short way out, and apart again from what that moved them into.
   for (let pass = 0; pass < 2 && panels.length > 0; pass++) {
     for (const p of placed) {
@@ -88,6 +112,15 @@ export function relaxLabels(
     if (pass === 0) relax();
   }
   return placed.map(({ x, y }) => ({ x, y }));
+}
+
+type Point = { x: number; y: number };
+
+/** Whether segment p1-p2 crosses segment q1-q2. */
+function crosses(p1: Point, p2: Point, q1: Point, q2: Point): boolean {
+  const side = (a: Point, b: Point, c: Point) =>
+    Math.sign((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+  return side(p1, p2, q1) * side(p1, p2, q2) < 0 && side(q1, q2, p1) * side(q1, q2, p2) < 0;
 }
 
 /** Which folders to label, and how prominently. */

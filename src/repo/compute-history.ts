@@ -5,6 +5,7 @@
  * connection) or was cancelled is kept, with what it read, for the next try at the same repo
  * and branch; a try at another repo ends it.
  */
+import type { TraceSummary } from '../../server/src/core/trace';
 import type { History } from '../../server/src/shape';
 
 /** A run to start, numbered so its messages are told apart from a cancelled run's. */
@@ -23,12 +24,15 @@ export type ComputeError =
 /** A snapshot of the History with its root tree, for the upload's manifest. */
 export type Snapshot = { sha: string; at: number; tree: string };
 export type ComputeMessage = { run: number } & (
-  { progress: number } | { history: History; snapshots: Snapshot[] } | { error: ComputeError }
+  | { progress: number }
+  | { history: History; snapshots: Snapshot[]; trace?: TraceSummary }
+  | { error: ComputeError; trace?: TraceSummary }
 );
 
+/** `trace`: where the run's time and bytes went (server/src/core/trace.ts). */
 export type ComputeResult =
-  | { status: 'ready'; history: History; snapshots: Snapshot[] }
-  | { status: 'error'; error: ComputeError };
+  | { status: 'ready'; history: History; snapshots: Snapshot[]; trace?: TraceSummary }
+  | { status: 'error'; error: ComputeError; trace?: TraceSummary };
 
 type WorkerLike = Pick<Worker, 'terminate'> & {
   postMessage(command: ComputeCommand): void;
@@ -89,10 +93,11 @@ export function computeHistoryInWorker(
       if (data.run !== run) return;
       if ('progress' in data) return options.onProgress?.(data.progress);
       settle('error' in data);
+      const trace = data.trace ? { trace: data.trace } : {};
       resolve(
         'history' in data
-          ? { status: 'ready', history: data.history, snapshots: data.snapshots }
-          : { status: 'error', error: data.error },
+          ? { status: 'ready', history: data.history, snapshots: data.snapshots, ...trace }
+          : { status: 'error', error: data.error, ...trace },
       );
     };
     worker.onerror = () => {

@@ -15,6 +15,9 @@
 //   listing entries in git's order (each folder before its contents, by path).
 // - Optionally (`network`), each answer is delayed by a round trip plus its transfer time on one
 //   shared link, so concurrency shows in wall time the way it would on a phone or a laptop.
+// - Optionally (`latency`), each answer also takes GitHub's own time to make, which does not
+//   hold the link: `GITHUB_LATENCY` models what real runs show (REST 150 to 400 ms, a recursive
+//   tree more by its size; GraphQL 0.8 to 3 s for 100 trees, by how many entries they hold).
 // - REST and GraphQL keep separate budgets (`remaining`, `graphqlRemaining`), each answer naming
 //   its own in x-ratelimit-resource. GraphQL fails the ways GitHub's does: a spent budget is 200
 //   with a RATE_LIMITED error; secondary limits come as 403 or as 200 with their message; a query
@@ -38,16 +41,34 @@ const FIELDS = ['%H', '%T', '%P', '%an', '%ae', '%cn', '%ce', '%cI', '%aI', '%B'
 /**
  * @typedef {{ dir: string, branch?: string, head?: string, private?: boolean }} FakeRepo
  * @typedef {{ rttMs: number, bytesPerMs: number }} Network
+ * @typedef {{ restMs: [number, number], restPerItemMs: number, graphqlMs: number,
+ *   graphqlPerObjectMs: number, graphqlPerEntryMs: number, jitter: [number, number],
+ *   seed?: number }} Latency
  * @typedef {{ maxEntries?: number, maxTreeBytes?: number, remaining?: number, tokens?: string[],
  *   graphqlMaxEntries?: number, login?: string, graphqlRemaining?: number,
  *   graphqlTimeoutStatus?: 200 | 502 | 504, graphqlFaults?: GraphQLFault[], resetInS?: number,
  *   inject?: (url: URL, init: RequestInit) => Promise<{ status: number, body: unknown, kind: string, type?: string, extra: Record<string, string> } | undefined> | undefined,
- *   log?: (line: string) => void, network?: Network, gzipLevel?: number }} FakeOptions
+ *   log?: (line: string) => void, network?: Network, latency?: Latency, gzipLevel?: number }} FakeOptions
  * @typedef {{ requests: number, bytes: number, raw: number }} Tally
  * @typedef {{ mode: string, type: 'blob' | 'tree' | 'commit', name: string, sha: string }} RawEntry
  * @typedef {'rate-limited' | 'secondary-403' | 'secondary-200' | 'timeout-200' | 'timeout-502'
  *   | 'timeout-504' | 'partial'} GraphQLFault
  */
+
+/**
+ * GitHub's time to answer, as real runs from a browser show it: REST 150 to 400 ms (a recursive
+ * listing of Linux, 90k entries, about 2 s more); GraphQL about 0.8 s for 100 small trees and 3 s
+ * for 100 that hold 100k entries between them, each give or take a fifth.
+ * @type {Latency}
+ */
+export const GITHUB_LATENCY = {
+  restMs: [150, 400],
+  restPerItemMs: 0.02,
+  graphqlMs: 400,
+  graphqlPerObjectMs: 4,
+  graphqlPerEntryMs: 0.022,
+  jitter: [0.8, 1.2],
+};
 
 /**
  * A fetch function that answers GitHub API paths from git repositories.
@@ -82,12 +103,54 @@ export function gitHubFetch(repos, options = {}) {
     peakInFlight: 0,
     /** Tree entries answered over GraphQL. */
     graphqlEntries: 0,
+    /** GitHub's modelled time making answers (`latency`), summed over requests. */
+    serverMs: 0,
     inFlight: 0,
   };
   /** @type {Map<string, GitObjects>} */
   const objects = new Map();
   const network = options.network;
+  const latency = options.latency;
   let linkFreeAt = 0;
+  // A seeded generator, so a measured run is repeatable.
+  let seed = latency?.seed ?? 1;
+  const random = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  /** How long GitHub takes to make an answer of this kind and size, in ms. */
+  function serverMs(/** @type {string} */ kind, /** @type {unknown} */ body) {
+    if (!latency) return 0;
+    const b = /** @type {any} */ (body);
+    const [lo, hi] = latency.jitter;
+    const jitter = lo + (hi - lo) * random();
+    if (kind === 'graphql') {
+      const objects = Object.values(b?.data?.repository ?? {});
+      const entries = objects.reduce(
+        (n, o) =>
+          n +
+          (Array.isArray(/** @type {any} */ (o)?.entries)
+            ? /** @type {any} */ (o).entries.length
+            : 0),
+        0,
+      );
+      return (
+        jitter *
+        (latency.graphqlMs +
+          latency.graphqlPerObjectMs * objects.length +
+          latency.graphqlPerEntryMs * entries)
+      );
+    }
+    const [min, max] = latency.restMs;
+    const items = Array.isArray(b?.tree)
+      ? b.tree.length
+      : Array.isArray(b?.files)
+        ? b.files.length
+        : Array.isArray(b)
+          ? b.length
+          : 0;
+    return min + (max - min) * random() + latency.restPerItemMs * items;
+  }
 
   /** @param {string | URL | Request} input @param {RequestInit} [init] */
   const fetchFn = async (input, init = {}) => {
@@ -117,7 +180,9 @@ export function gitHubFetch(repos, options = {}) {
       state.bytes += gz.length;
       state.raw += Buffer.byteLength(text);
       options.log?.(`${status} ${url.pathname}${url.search.replace(/code=[^&]*/, 'code=…')}`);
-      if (network) await delay(gz.length, signal);
+      const made = serverMs(kind, body);
+      state.serverMs = (state.serverMs ?? 0) + made;
+      if (network || made > 0) await delay(gz.length, signal, made);
       const res = new Response(status === 302 ? null : text, {
         status,
         headers: {
@@ -133,11 +198,15 @@ export function gitHubFetch(repos, options = {}) {
     }
   };
 
-  /** Waits a round trip, then for the body's turn on the shared link. */
-  function delay(/** @type {number} */ bytes, /** @type {AbortSignal | undefined} */ signal) {
-    const { rttMs, bytesPerMs } = /** @type {Network} */ (network);
+  /** Waits a round trip and GitHub's time to answer, then for the body's turn on the shared link. */
+  function delay(
+    /** @type {number} */ bytes,
+    /** @type {AbortSignal | undefined} */ signal,
+    /** @type {number} */ made = 0,
+  ) {
+    const { rttMs, bytesPerMs } = network ?? { rttMs: 0, bytesPerMs: Infinity };
     const now = performance.now();
-    const start = Math.max(now + rttMs, linkFreeAt);
+    const start = Math.max(now + rttMs + made, linkFreeAt);
     linkFreeAt = start + bytes / bytesPerMs;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(resolve, linkFreeAt - now);
@@ -858,10 +927,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // FAKE_NETWORK=<rtt ms>,<bytes per ms>: a slow link, to watch progress (verify-repo-tree).
   const [rttMs, bytesPerMs] = (process.env.FAKE_NETWORK ?? '').split(',').map(Number);
   const network = rttMs && bytesPerMs ? { rttMs, bytesPerMs } : undefined;
+  // FAKE_LATENCY=github: GitHub's own time per answer (GITHUB_LATENCY).
+  const latency = process.env.FAKE_LATENCY === 'github' ? GITHUB_LATENCY : undefined;
   const handle = gitHubFetch(repos, {
     log: (line) => console.error(line),
     remaining,
     ...(network ? { network } : {}),
+    ...(latency ? { latency } : {}),
   });
   createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {

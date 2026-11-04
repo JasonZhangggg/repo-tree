@@ -1579,6 +1579,15 @@ h1 a[aria-disabled] {
   opacity: 1;
   translate: -50% 0;
 }
+/* A long message (the debug flag's history breakdown) wraps in a box and stays a while. */
+.toast.long {
+  width: min(720px, calc(100vw - 32px));
+  border-radius: 12px;
+  font-weight: 450;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
 
 /* Press feedback. Every button answers a press by settling slightly, so a tap
    feels registered before anything else changes. Rows darken instead of scaling. */

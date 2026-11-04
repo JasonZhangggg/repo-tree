@@ -4,7 +4,8 @@ import { describeStep, type Step } from '../../timeline/compute-view';
 import { constrainedDevice, estimateCompute, type Estimate } from '../../timeline/estimate';
 import type { HistorySource } from '../../timeline/source';
 import type { App } from '../app';
-import { debug } from '../debug';
+import { formatTrace } from '../../../server/src/core/trace';
+import { debug, debugEnabled } from '../debug';
 import { byId, fill, h } from '../dom';
 import type { Repo } from '../state';
 
@@ -128,6 +129,13 @@ export function mountHistoryCompute(
       });
       if (current?.abort !== abort) return;
       current.abort = null;
+      if (outcome.trace) {
+        // Every run says where its time went, so a slow one on a real repo explains itself.
+        const line = formatTrace(name(current.repo), outcome.trace);
+        debug.computeTrace = outcome.trace;
+        console.info(line);
+        if (debugEnabled()) app.toast(line);
+      }
       if (outcome.status === 'error') {
         if (outcome.error.kind === 'unauthorized') signOut();
         return render({ kind: 'failed', error: outcome.error });

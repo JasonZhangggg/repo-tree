@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Usage: node scripts/perf.mjs [sample] [quality] [weather]   (defaults: linux low, the sample's own)
-//        PERF_PORT=<port> picks the preview port (default 4174).
+//        PERF_PORT=<port> picks the preview port (default 4174); PERF_HOTSPOTS=1 turns hotspots on.
 // Builds, serves the production preview, and loads the sample in Chromium on the software
 // renderer. Prints the longest main-thread task during load, the average fps over 5 s of
 // spin, and the time from navigation to the first tree frame and to the fully grown tree. Then it
@@ -14,6 +14,7 @@ const [sample = 'linux', quality = 'low', weather] = process.argv.slice(2);
 /** PERF_PORT keeps parallel worktrees off each other's preview. */
 const PORT = Number(process.env.PERF_PORT ?? 4174);
 const SPIN_MS = 5000;
+const HOTSPOTS = process.env.PERF_HOTSPOTS === '1';
 /** Inside the 2.6 s grow animation, which redraws the shadow every frame as playback does. */
 const GROW_SAMPLE_MS = 2400;
 
@@ -29,8 +30,8 @@ const browser = await chromium.launch({
 });
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-  await page.addInitScript((q) => {
-    localStorage.setItem('repo-tree:settings', JSON.stringify({ quality: q }));
+  await page.addInitScript(([q, hotspots]) => {
+    localStorage.setItem('repo-tree:settings', JSON.stringify({ quality: q, hotspots }));
     /** @type {{ start: number; duration: number }[]} */
     const tasks = [];
     Object.assign(window, { __longTasks: tasks });
@@ -39,7 +40,7 @@ try {
         tasks.push({ start: startTime, duration });
       }
     }).observe({ type: 'longtask', buffered: true });
-  }, quality);
+  }, /** @type {const} */ ([quality, HOTSPOTS]));
   const repos = {
     dotfiles: 'mathiasbynens/dotfiles',
     vite: 'vitejs/vite',
@@ -88,7 +89,7 @@ try {
 
   const ms = (/** @type {number} */ n) => `${Math.round(n)} ms`;
   console.log(
-    `sample ${sample}, quality ${quality}${weather ? `, weather ${weather}` : ''}, 1280x720, Chromium software renderer`,
+    `sample ${sample}, quality ${quality}${weather ? `, weather ${weather}` : ''}${HOTSPOTS ? ', hotspots on' : ''}, 1280x720, Chromium software renderer`,
   );
   const longest = Math.max(0, ...load.tasks.map((/** @type {any} */ t) => t.duration));
   const list = load.tasks.map((/** @type {any} */ t) => `${ms(t.duration)} at ${ms(t.start)}`);

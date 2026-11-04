@@ -2,7 +2,15 @@ import { describe, expect, test } from 'vitest';
 import type { Loaded } from '../load/load-in-worker';
 import { parseRepoRef, type RepoRef } from '../repo/ref';
 import { DEFAULT_SETTINGS } from './settings';
-import { createStore, qualityOf, reduce, weatherOf, type AppState, type Repo } from './state';
+import {
+  createStore,
+  needsHistory,
+  qualityOf,
+  reduce,
+  weatherOf,
+  type AppState,
+  type Repo,
+} from './state';
 
 const ref = (input: string) => parseRepoRef(input) as RepoRef;
 const INITIAL: AppState = {
@@ -141,6 +149,12 @@ test('settings merge and auto quality resolves', () => {
   expect(state.settings).toEqual({ ...DEFAULT_SETTINGS, palette: 'winter' });
   expect(qualityOf(state)).toBe('low');
   expect(qualityOf(reduce(state, { type: 'settings', patch: { quality: 'high' } }))).toBe('high');
+});
+
+test('activity colors and hotspots each ask for the history', () => {
+  expect(needsHistory(INITIAL)).toBe(false);
+  expect(needsHistory(run({ type: 'settings', patch: { colorBy: 'activity' } }))).toBe(true);
+  expect(needsHistory(run({ type: 'settings', patch: { hotspots: true } }))).toBe(true);
 });
 
 test('the store notifies with the previous state only on change', () => {

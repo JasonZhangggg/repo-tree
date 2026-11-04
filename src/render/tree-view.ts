@@ -41,11 +41,11 @@ import {
   type PaletteId,
 } from './palette';
 import {
+  ALWAYS,
   barkShader,
   growing,
   leafShader,
   PICK_FRAGMENT,
-  ALWAYS,
   PICK_VERTEX,
   SKY_FRAGMENT,
   SKY_VERTEX,

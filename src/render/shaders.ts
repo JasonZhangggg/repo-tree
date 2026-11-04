@@ -5,8 +5,9 @@ import { SPAN } from '../timeline/timeline';
  * Shader hooks shared by every tree material, ported from the approved mock. Each vertex moves
  * from `aBase` (the point it grows out of) to its position while `uGrow` crosses its `aT`
  * window. On the timeline it also waits for its birth: it grows in as `uTime` crosses `aBorn`
- * plus its `aT` window scaled to `uSpan`, so a branch extends before its children and leaves. Fragments whose node id `aId` falls outside `uSel` fade toward `uFade`, and so do
- * bark and every leaf outside color slot `uCategory` while it is not -1. Those leaves fade harder
+ * plus its `aT` window scaled to `uSpan`, so a branch extends before its children and leaves.
+ * Fragments whose node id `aId` falls outside `uSel` fade toward `uFade`, and so do bark and
+ * every leaf outside color slot `uCategory` while it is not -1. Those leaves fade harder
  * and go grey, and the leaves inside that slot deepen, so any category stands out, pale or gold.
  */
 export const ALWAYS = 1e6;

@@ -343,10 +343,11 @@ function reserved(panel: HTMLElement, rect: Rect, origin: DOMRect): Rect {
   return rect;
 }
 let reframing = 0;
-/** Frames the tree into the largest region the panels leave uncovered. */
+/** Frames the tree into the largest region the panels leave uncovered, once a sheet drag settles. */
 function reframe() {
   cancelAnimationFrame(reframing);
   reframing = requestAnimationFrame(() => {
+    if (side.hasAttribute('data-dragging')) return;
     const origin = container.getBoundingClientRect();
     const covered = panels
       .map((p) => {
@@ -373,6 +374,7 @@ for (const panel of panels) {
   panelObserver.observe(panel);
   for (const child of panel.children) panelObserver.observe(child);
 }
+new MutationObserver(reframe).observe(side, { attributeFilter: ['data-dragging'] });
 phone.addEventListener('change', reframe);
 addEventListener('resize', reframe);
 

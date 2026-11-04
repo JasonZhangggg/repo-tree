@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// @ts-nocheck: walks untyped Chrome trace JSON; types would be casts on every line.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment -- untyped Chrome trace JSON throughout
+// @ts-nocheck
 // Usage: node scripts/trace.mjs [--runs 3] [--out dir] [--port 4176] [--no-build]
-//          [--spin-ms 5000] [--all-traces] [sample:quality ...]          (default: linux:low)
+//          [--spin-ms 5000] [--all-traces] [--categories a,b] [sample:quality ...]          (default: linux:low)
 // Builds the production preview with source maps, then for each sample:quality and run opens a
 // fresh Chromium on the software renderer, records a Chrome performance trace (with the V8
 // sampling profiler) from navigation through the grown tree and a spin, and attributes time:
@@ -13,7 +14,7 @@
 // run's) and <out>/summary.json, and prints
 // medians per sample:quality. The longtask PerformanceObserver figure matches scripts/perf.mjs.
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { chromium } from 'playwright';
 import { SourceMapConsumer } from 'source-map-js';
@@ -28,6 +29,7 @@ const { positionals, values } = parseArgs({
     'no-build': { type: 'boolean', default: false },
     'spin-ms': { type: 'string', default: '5000' },
     'all-traces': { type: 'boolean', default: false },
+    categories: { type: 'string', default: '' },
   },
 });
 const configs = (positionals.length ? positionals : ['linux:low']).map((c) => {
@@ -57,6 +59,7 @@ const CATEGORIES = [
   'gpu',
   'cc',
   'viz',
+  ...values.categories.split(',').filter(Boolean),
 ];
 
 if (!values['no-build']) {
@@ -102,7 +105,26 @@ const top = (record, n) =>
     .slice(0, n)
     .map(([k, v]) => [k, round(v)]);
 
-function analyze(trace) {
+/**
+ * CPU time per process (ms), read from /proc. Wall-clock fps swings with whatever else the
+ * machine runs; the CPU each process spends per frame does not, so it compares runs taken
+ * minutes apart on a shared machine.
+ */
+function cpuTicks() {
+  const ticks = new Map();
+  for (const pid of readdirSync('/proc').filter((d) => /^\d+$/.test(d))) {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      ticks.set(Number(pid), ((Number(fields[11]) + Number(fields[12])) * 1000) / 100);
+    } catch {
+      // The process ended between listing and reading.
+    }
+  }
+  return ticks;
+}
+
+function analyze(trace, cpu) {
   const events = trace.traceEvents ?? trace;
   const threadNames = new Map();
   const processNames = new Map();
@@ -174,7 +196,8 @@ function analyze(trace) {
   const samples = [];
   const starts = new Map();
   for (const e of events) {
-    if (e.name === 'Profile' && e.pid === mainPid && e.tid === mainTid) starts.set(e.id, e.args.data.startTime);
+    if (e.name === 'Profile' && e.pid === mainPid && e.tid === mainTid)
+      starts.set(e.id, e.args.data.startTime);
   }
   for (const e of events) {
     if (e.name !== 'ProfileChunk' || e.pid !== mainPid || !starts.has(e.id)) continue;
@@ -249,8 +272,14 @@ function analyze(trace) {
     const frames = byThread
       .get(main)
       .filter((e) => e.name === 'FireAnimationFrame' && e.ts >= s && e.ts < t).length;
+    const cpuPerFrame = (pid) =>
+      cpu.cpuAfter.has(pid) && cpu.frames
+        ? round((cpu.cpuAfter.get(pid) - (cpu.cpuBefore.get(pid) ?? 0)) / cpu.frames)
+        : null;
+    const gpuPid = gpu ? Number(gpu.split(':')[0]) : -1;
     spin = {
       windowMs: round(ms),
+      cpuMsPerFrame: { gpuProcess: cpuPerFrame(gpuPid), renderer: cpuPerFrame(mainPid) },
       animationFrames: frames,
       busyPercent: threads,
       mainEvents: top(selfByName(main, s, t), 12).map(([k, v]) => [k, round(v / frames)]),
@@ -301,6 +330,7 @@ async function runOnce({ sample, quality }, i) {
       const { __longTasks: tasks, __repoTree: debug } = window;
       return { tasks, ...debug.timings };
     });
+    const cpuBefore = cpuTicks();
     const spin = await page.evaluate(async (ms) => {
       const { view } = window.__repoTree;
       performance.mark('trace:spin-start');
@@ -315,6 +345,7 @@ async function runOnce({ sample, quality }, i) {
         triangles: stats.triangles,
       };
     }, SPIN_MS);
+    const cpuAfter = cpuTicks();
     const buffer = await browser.stopTracing();
     const trace = JSON.parse(buffer.toString());
     const name = `${OUT}/${sample}-${quality}-${i}.json`;
@@ -333,7 +364,7 @@ async function runOnce({ sample, quality }, i) {
       loaded: round(load.loaded),
       firstFrame: round(load.grown),
       ready: round(load.ready),
-      ...analyze(trace),
+      ...analyze(trace, { cpuBefore, cpuAfter, frames: Math.round((spin.fps * SPIN_MS) / 1000) }),
     };
   } finally {
     await browser.close();

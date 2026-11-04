@@ -37,7 +37,11 @@ const DAY = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'U
  * The Timeline button and the scrubber. Playback and dragging move the view directly every
  * frame and write the date to the store only when they stop, so the share link follows.
  */
-export function mountTimeline(app: App, reducedMotion: () => boolean): { date(): number | null } {
+export function mountTimeline(
+  app: App,
+  reducedMotion: () => boolean,
+  showCounts: (counts: ReadonlyMap<number, number> | null) => void,
+): { date(): number | null } {
   const { store, view } = app;
   const button = byId<HTMLButtonElement>('timeline');
   const scrubber = byId('scrubber');
@@ -80,7 +84,13 @@ export function mountTimeline(app: App, reducedMotion: () => boolean): { date():
     range.value = String(Math.round(phase.s * STEPS));
     range.setAttribute('aria-valuetext', `${DAY.format(date)}, ${filesEl.textContent}`);
     scrubber.style.setProperty('--at', String(phase.s));
-    debug.timeline = { s: phase.s, date, files };
+    const at = phase.s;
+    debug.timeline = { s: at, date, files };
+    showCounts(
+      new Map(
+        [...timeline.tops].map(([folder, census]) => [folder, filesAt(timeline, at, census).files]),
+      ),
+    );
     const selection = store.get().selection;
     if (selection && selection.folder !== 0 && !bornBy(timeline, selection.folder, cursor)) {
       app.select(null);
@@ -183,6 +193,7 @@ export function mountTimeline(app: App, reducedMotion: () => boolean): { date():
     const wasOpen = phase.kind === 'open';
     phase = { kind: 'closed' };
     if (wasOpen) view.setTimeline(null);
+    showCounts(null);
     debug.timeline = null;
     syncButton();
     if (!quiet) store.dispatch({ type: 'timeline', at: null });

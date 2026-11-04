@@ -19,13 +19,15 @@ export type Timeline = {
   sprigs: Float32Array;
   /** Per TreeModel folder, the progress its branch appears at. */
   folders: Float32Array;
-  /** Progress of every file's birth, and of each deleted file's birth and deletion, ascending. */
-  born: Float64Array;
-  goneBorn: Float64Array;
-  goneGone: Float64Array;
+  /** Every file's birth and death, and those under each top-level folder (TreeModel.labels). */
+  census: Census;
+  tops: Map<number, Census>;
   /** Progress before which the deleted-file list is cut off (the server keeps GONE_CAP); 0 when complete. */
   partialBefore: number;
 };
+
+/** Progress of each file's birth, and of each deleted file's birth and deletion, ascending. */
+export type Census = { born: Float64Array; goneBorn: Float64Array; goneGone: Float64Array };
 
 /** Knots of a piecewise linear, increasing map from time (ms) to progress. */
 export type Ease = { at: Float64Array; p: Float64Array };
@@ -59,10 +61,14 @@ export const dateAt = (timeline: Timeline, s: number): number =>
  * the empty island just before the first commit. `atLeast`:
  * deletions this far back were cut from the history, so some files are missing from the count.
  */
-export function filesAt(timeline: Timeline, s: number): { files: number; atLeast: boolean } {
+export function filesAt(
+  timeline: Timeline,
+  s: number,
+  census: Census = timeline.census,
+): { files: number; atLeast: boolean } {
   const p = Math.min(1, cursorOf(s));
   if (p <= 0) return { files: 0, atLeast: false };
-  const files = upTo(timeline.born, p) + upTo(timeline.goneBorn, p) - upTo(timeline.goneGone, p);
+  const files = upTo(census.born, p) + upTo(census.goneBorn, p) - upTo(census.goneGone, p);
   return { files, atLeast: p < timeline.partialBefore };
 }
 
@@ -177,6 +183,24 @@ export function buildTimeline(
   const goneKey = folderKey + folders.path.length;
   const capped = history.gone.length >= GONE_CAP;
   const oldestGone = history.gone.reduce((min, g) => Math.min(min, g.gone), Infinity);
+  const goneBornP = Float64Array.from(gone, (g, i) => spread(g.born, goneKey + 2 * i));
+  const goneGoneP = Float64Array.from(gone, (g, i) => spread(g.gone, goneKey + 2 * i + 1));
+  const censusOf = (files: Float64Array, under: (path: string) => boolean): Census => {
+    const kept = gone.flatMap((g, i) => (under(g.path) ? [i] : []));
+    return {
+      born: files.sort(),
+      goneBorn: Float64Array.from(kept, (i) => goneBornP[i]!).sort(),
+      goneGone: Float64Array.from(kept, (i) => goneGoneP[i]!).sort(),
+    };
+  };
+  const tops = new Map(
+    tree.labels.map(({ folder }) => {
+      const first = index.folders.own[2 * folder]!;
+      const files = filesP.slice(first, first + index.folders.files[folder]!);
+      const prefix = `${folders.path[folder]}/`;
+      return [folder, censusOf(files, (path) => path.startsWith(prefix))] as const;
+    }),
+  );
   return {
     start,
     end,
@@ -184,9 +208,8 @@ export function buildTimeline(
     nodes,
     sprigs,
     folders: Float32Array.from(folders.path, (_, f) => nodes[folders.range[2 * f]!]!),
-    born: filesP.sort(),
-    goneBorn: Float64Array.from(gone, (g, i) => spread(g.born, goneKey + 2 * i)).sort(),
-    goneGone: Float64Array.from(gone, (g, i) => spread(g.gone, goneKey + 2 * i + 1)).sort(),
+    census: censusOf(filesP, () => true),
+    tops,
     partialBefore: capped ? progressOf(ease, oldestGone) : 0,
   };
 }

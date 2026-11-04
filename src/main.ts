@@ -422,7 +422,11 @@ const canvas = mountCanvas(app);
 mountHeader(app);
 mountSide(app);
 const search = mountSearch(app);
-const timeline = mountTimeline(app, () => reducedMotion(store.get().settings));
+const timeline = mountTimeline(
+  app,
+  () => reducedMotion(store.get().settings),
+  (counts) => canvas.setCounts(counts),
+);
 const settings = mountSettings(app);
 
 const link = parseLink(location.hash);

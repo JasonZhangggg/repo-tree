@@ -22,7 +22,11 @@ const selectionOf = (repo: Repo, { folder, rock }: Picked): Selection => {
 };
 
 /** Pointer picking on the tree, the hover tooltip, and the folder labels that follow limbs. */
-export function mountCanvas(app: App): { mark(folder: number | null): void } {
+export function mountCanvas(app: App): {
+  mark(folder: number | null): void;
+  /** Shows each label's file count at a timeline date, or the counts today when null. */
+  setCounts(counts: ReadonlyMap<number, number> | null): void;
+} {
   const { store, view } = app;
   const container = byId('view');
   const tip = byId('tip');
@@ -134,6 +138,8 @@ export function mountCanvas(app: App): { mark(folder: number | null): void } {
     el: HTMLButtonElement;
     stem: HTMLElement;
     folder: number;
+    files: number;
+    count: HTMLElement;
     width: number;
     height: number;
   };
@@ -143,6 +149,7 @@ export function mountCanvas(app: App): { mark(folder: number | null): void } {
     const repo = state.repo!;
     const top = [...repo.tree.labels].sort((a, b) => b.files - a.files).slice(0, LABELS);
     pills = top.map(({ folder, files }) => {
+      const tally = h('b', {}, count(files));
       const el = h(
         'button',
         {
@@ -154,9 +161,17 @@ export function mountCanvas(app: App): { mark(folder: number | null): void } {
           onpointerleave: () => setHovered(null),
         },
         h('span', {}, nameOf(repo.tree.folders.path[folder]!)),
-        h('b', {}, count(files)),
+        tally,
       );
-      return { el, stem: h('i', { class: 'stem' }), folder, width: 0, height: 0 };
+      return {
+        el,
+        stem: h('i', { class: 'stem' }),
+        folder,
+        files,
+        count: tally,
+        width: 0,
+        height: 0,
+      };
     });
     layer.replaceChildren(...pills.map((p) => p.stem), ...pills.map((p) => p.el));
     for (const pill of pills) {
@@ -181,13 +196,14 @@ export function mountCanvas(app: App): { mark(folder: number | null): void } {
     const at = new Map(labels.map((l) => [l.folder, l]));
     const shown = pills.filter((p) => at.get(p.folder)?.visible);
     layer.style.opacity = shown.length ? '1' : '0';
+    for (const pill of pills) pill.el.hidden = pill.stem.hidden = !shown.includes(pill);
+    for (const pill of shown) if (pill.width < 0) pill.width = pill.el.offsetWidth;
     const anchors = shown.map((p) => ({
       x: at.get(p.folder)!.x,
       y: at.get(p.folder)!.y,
       width: p.width,
     }));
     const placed = relaxLabels(anchors);
-    for (const pill of pills) pill.el.hidden = pill.stem.hidden = !shown.includes(pill);
     shown.forEach((pill, i) => {
       const { x, y } = placed[i]!;
       const stem = Math.max(0, anchors[i]!.y - y - 14);
@@ -207,5 +223,14 @@ export function mountCanvas(app: App): { mark(folder: number | null): void } {
   });
   layer.hidden = !store.get().settings.labels;
 
-  return { mark };
+  const setCounts = (counts: ReadonlyMap<number, number> | null) => {
+    for (const pill of pills) {
+      const text = count(counts?.get(pill.folder) ?? pill.files);
+      if (pill.count.textContent === text) continue;
+      pill.count.textContent = text;
+      pill.width = pill.el.hidden ? -1 : pill.el.offsetWidth;
+    }
+  };
+
+  return { mark, setCounts };
 }

@@ -148,8 +148,11 @@ describe.each<SampleId>(['mathiasbynens-dotfiles', 'vitejs-vite', 'torvalds-linu
     });
 
     test('the file count at a position is the brute-force count of files alive then', () => {
-      const born = Array.from(timeline.born);
-      const gone = Array.from(timeline.goneBorn, (b, i) => [b, timeline.goneGone[i]!] as const);
+      const born = Array.from(timeline.census.born);
+      const gone = Array.from(
+        timeline.census.goneBorn,
+        (b, i) => [b, timeline.census.goneGone[i]!] as const,
+      );
       for (const s of [0.01, 0.1, 0.33, 0.5, 0.77, 0.95, 1]) {
         const p = Math.min(1, cursorOf(s));
         const head = born.filter((b) => aliveAt(p, b)).length;
@@ -161,6 +164,18 @@ describe.each<SampleId>(['mathiasbynens-dotfiles', 'vitejs-vite', 'torvalds-linu
       }
       expect(filesAt(timeline, 0).files).toBe(0);
       expect(filesAt(timeline, 1).files).toBe(index.files.paths.length);
+    });
+
+    test('each top-level folder counts its own files, which add up within the whole', () => {
+      for (const s of [0.2, 0.6, 1]) {
+        let sum = 0;
+        for (const { folder } of tree.labels) {
+          const { files } = filesAt(timeline, s, timeline.tops.get(folder)!);
+          sum += files;
+          if (s === 1) expect(files).toBe(index.folders.files[folder]);
+        }
+        expect(sum).toBeLessThanOrEqual(filesAt(timeline, s).files);
+      }
     });
 
     test('the scrubber ends on the whole tree and a date maps back to its position', () => {

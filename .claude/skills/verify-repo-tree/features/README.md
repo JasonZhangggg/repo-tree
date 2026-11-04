@@ -40,5 +40,6 @@ Each feature file starts with an H1 and one paragraph on what the user sees. The
 - [Settings](./settings.md) covers palette, color by, quality, hidden folders, the token and persistence.
 - [Share and export](./share-and-export.md) covers the copied link, restoring from it and the PNG download.
 - [Phone layout](./phone-layout.md) covers tap to pin and the bottom sheet.
+- [Timeline](./timeline.md) covers the Timeline button, scrubbing, play and pause, the `t=` link, the dated PNG and the unavailable state.
 - [Weather](./weather.md) covers the sky from recent Actions runs, the chip, sample snapshots, `wx=` previews, failing soft and the setting.
 - [Performance](./performance.md) covers `scripts/perf.mjs`, the plan's targets and the last measured numbers.

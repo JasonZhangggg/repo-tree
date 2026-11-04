@@ -99,6 +99,9 @@ test('a shared link restores the timeline at its date', async ({ page, context }
   expect(count).toBeGreaterThan(0);
   expect(count).toBeLessThan(2898);
   await expect(page).toHaveURL(/&t=2022-06-15$/);
+  const playground = page.locator('#labels .pill', { hasText: 'playground' }).locator('b');
+  await expect(playground).not.toHaveText('1,859');
+  expect(Number((await playground.textContent())!.replace(/\D/g, ''))).toBeGreaterThan(0);
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.getByRole('button', { name: /Copy link/ }).click();

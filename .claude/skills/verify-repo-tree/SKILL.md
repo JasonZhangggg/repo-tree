@@ -48,7 +48,7 @@ Run doctor first, and again whenever a journey fails in a way that looks like th
 node .claude/skills/verify-repo-tree/scripts/drive.mjs <journey> --port 4175 [--viewport desktop|phone|phone-390] [--out dir]
 ```
 
-Journeys are `load-repo`, `explore`, `search`, `settings`, `share-and-export`, `phone-layout`, `tree-sizes` and `weather`. Each one is a Playwright recipe for one file of the feature map in [`features/`](features/README.md). Read the matching feature file before changing a journey or proving a feature it does not cover.
+Journeys are `load-repo`, `explore`, `search`, `settings`, `share-and-export`, `phone-layout`, `tree-sizes`, `timeline` and `weather`. Each one is a Playwright recipe for one file of the feature map in [`features/`](features/README.md). Read the matching feature file before changing a journey or proving a feature it does not cover.
 
 Every journey sets these up before the first navigation.
 

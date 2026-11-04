@@ -34,6 +34,8 @@ export type Palette = {
   leaves: readonly string[];
   /** Shared by every language or folder past the end of `leaves`. */
   rest: string;
+  /** What falls from a rain or storm sky. */
+  precip: 'rain' | 'snow';
 };
 
 export const PALETTES: Record<PaletteId, Palette> = {
@@ -69,6 +71,7 @@ export const PALETTES: Record<PaletteId, Palette> = {
       '#ff8f5a',
     ],
     rest: '#c9a98a',
+    precip: 'rain',
   },
   spring: {
     id: 'spring',
@@ -102,6 +105,7 @@ export const PALETTES: Record<PaletteId, Palette> = {
       '#b98ad0',
     ],
     rest: '#e6cbd3',
+    precip: 'rain',
   },
   summer: {
     id: 'summer',
@@ -135,6 +139,7 @@ export const PALETTES: Record<PaletteId, Palette> = {
       '#8fcf86',
     ],
     rest: '#a8b98f',
+    precip: 'rain',
   },
   winter: {
     id: 'winter',
@@ -168,6 +173,7 @@ export const PALETTES: Record<PaletteId, Palette> = {
       '#b23c52',
     ],
     rest: '#bcc6cf',
+    precip: 'snow',
   },
 };
 

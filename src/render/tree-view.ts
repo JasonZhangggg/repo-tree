@@ -9,6 +9,7 @@ import {
   LinearFilter,
   LinearMipmapLinearFilter,
   Mesh,
+  Object3D,
   MeshBasicMaterial,
   MeshDepthMaterial,
   MeshStandardMaterial,
@@ -27,6 +28,7 @@ import {
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MeshData, Quality, TreeModel, Vec3 } from '../grow/grow';
+import type { Sky } from '../repo/ci';
 import { distanceOf, FOV, frameFolder, frameTree, stage, VIEW_DIRECTION } from './framing';
 import { LIGHT } from './color';
 import { createGround } from './ground';
@@ -48,6 +50,7 @@ import {
   SKY_VERTEX,
   treeUniforms,
 } from './shaders';
+import { createWeather, weatherLight, weatherSky } from './weather';
 
 /** What a pixel shows: a folder's branch, or a rock lying for some of the root folder's files. */
 export type Picked = { folder: number; rock?: number };
@@ -55,6 +58,8 @@ export type LabelPosition = { folder: number; x: number; y: number; visible: boo
 export type FrameInfo = { growth: number; labels: LabelPosition[] };
 /** CSS pixels along each edge of the container that panels cover. */
 export type Insets = { top: number; right: number; bottom: number; left: number };
+/** The sky to show, and whether it must hold still (reduced motion): no drift, fall or flashes. */
+export type Weather = { sky: Sky; still: boolean };
 /** What stands out while the rest fades: a run of node ids, or the leaves of one legend entry. */
 export type Highlight = { range: readonly [number, number] } | { category: string };
 export type ViewStats = {
@@ -89,6 +94,11 @@ export interface TreeView {
   pickAt(x: number, y: number): Picked | null;
   /** Shows the mound, its rocks and its grass under the tree, or the bare shadow. */
   setGround(on: boolean): void;
+  /**
+   * Dresses the scene for a weather (sky, light, sun, clouds, rain or snow, lightning), or
+   * shows the palette's plain sky. Moving weather keeps the view rendering unless still.
+   */
+  setWeather(weather: Weather | null): void;
   setQuality(quality: Quality): void;
   setSpin(on: boolean): void;
   setReducedMotion(on: boolean): void;
@@ -221,6 +231,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const terrain = createGround();
   scene.add(terrain.land, terrain.cover);
   let groundOn = options.ground;
+  const weather = createWeather(camera);
+  scene.add(...weather.objects);
+  let weatherShown: Weather | null = null;
+  /** The weather's sky, before a lightning flash brightens it. */
+  let skyColors = weatherSky(palette, null);
 
   const barkMaterial = barkShader(new MeshStandardMaterial({ roughness: 0.92, flatShading: true }));
   const leafMaterial = leafShader(
@@ -264,11 +279,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   let lastFrame = 0;
   let renders = 0;
   /**
-   * Meshes held back from the first tree frames, one more drawn per frame, so a frame waits on
+   * Objects held back from the first tree frames, one more drawn per frame, so a frame waits on
    * at most one new program: a software GL links each in 100 to 250 ms, and the first tree frame
    * waited on all of them at once. A growing tree starts collapsed, so the hold does not show.
    */
-  let staged: Mesh[] = [];
+  let staged: Object3D[] = [];
   let linked = false;
   const listeners = new Set<(info: FrameInfo) => void>();
 
@@ -399,6 +414,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       busy = true;
     }
     if (controls.update(dt)) busy = true;
+    showFlash(weather.tick(dt, backdropSpan()));
+    if (weather.animated()) busy = true;
 
     const shadowChanged = renderer.shadowMap.needsUpdate;
     const held = staged.filter((mesh) => mesh.visible);
@@ -442,21 +459,20 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     for (const listener of listeners) listener({ growth, labels });
   };
 
-  const applyPalette = () => {
-    const srgb = (hex: string): [number, number, number] => {
-      const c = new Color(hex);
-      const out = { r: 0, g: 0, b: 0 };
-      c.getRGB(out, SRGBColorSpace);
-      return [out.r, out.g, out.b];
-    };
-    const center = srgb(palette.sky.center);
-    const edge = srgb(palette.sky.edge);
-    sky.material.uniforms.uCenter!.value = center;
-    sky.material.uniforms.uEdge!.value = edge;
-    const { center: c, edge: e } = palette.sky;
-    const mid = `color-mix(in srgb, ${c}, ${e} 28%)`;
-    container.style.background = `radial-gradient(120% 90% at 50% 40%, ${c}, ${mid} 45%, ${e})`;
+  /** The sky, the light and the weather's own objects for the palette, weather and quality. */
+  const applyWeather = () => {
+    const kind = weatherShown?.sky ?? null;
+    skyColors = weatherSky(palette, kind);
+    const { center, edge } = skyColors;
+    showFlash(0);
     treeUniforms.uFade.value = [0, 1, 2].map((i) => (center[i]! + edge[i]!) / 2) as Vec3;
+    key.intensity = LIGHT.key * weatherLight(kind).key;
+    weather.set({ sky: kind, palette, quality, still: weatherShown?.still ?? true });
+    requestRender();
+  };
+
+  const applyPalette = () => {
+    applyWeather();
     const slots: number[] = [];
     for (const hex of [...palette.leaves, palette.rest]) {
       const c = new Color(hex);
@@ -472,6 +488,30 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     contact.material.color.set(palette.shadow);
     renderer.shadowMap.needsUpdate = true;
     requestRender();
+  };
+
+  /**
+   * Paints the sky (the container's CSS gradient, and the quad PNG snapshots draw), brightened
+   * with the hemisphere light by a lightning flash, 0 to 1.
+   */
+  let painted = '';
+  const showFlash = (flash: number) => {
+    const bright = (c: readonly number[]) => c.map((v) => v + (0.95 - v) * flash * 0.5);
+    const center = bright(skyColors.center);
+    const edge = bright(skyColors.edge);
+    sky.material.uniforms.uCenter!.value = center;
+    sky.material.uniforms.uEdge!.value = edge;
+    const css = (c: number[]) => `rgb(${c.map((v) => Math.round(v * 255)).join(' ')})`;
+    const [c, e] = [css(center), css(edge)];
+    const background = `radial-gradient(120% 90% at 50% 40%, ${c}, color-mix(in srgb, ${c}, ${e} 28%) 45%, ${e})`;
+    if (background !== painted) container.style.background = painted = background;
+    hemi.intensity = LIGHT.sky * weatherLight(weatherShown?.sky ?? null).sky * (1 + flash * 0.6);
+  };
+
+  /** The canvas's left and right edges in backdrop units, where half the free height is one. */
+  const backdropSpan = () => {
+    const { width, x, w, h } = freeRegion();
+    return { left: -(x + w / 2) / (h / 2), right: (width - x - w / 2) / (h / 2) };
   };
 
   const categories = () => leafCategories(shown!.model, colorBy, palette);
@@ -576,7 +616,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         mesh.frustumCulled = false;
       }
       scene.add(bark, leaves);
-      if (!linked) staged = [terrain.cover, bark, leaves];
+      if (!linked) staged = [terrain.cover, bark, leaves, ...weather.objects];
       linked = true;
       const nodes = model.nodes.folder.length;
       shown = {
@@ -607,6 +647,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
     grow() {
       if (shown) startGrowth();
+    },
+
+    setWeather(next) {
+      weatherShown = next;
+      applyWeather();
     },
 
     setPalette(id) {
@@ -655,7 +700,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       if (!shown) return null;
       const { width, height, x: left, y: top, w, h } = freeRegion();
       if (x < 0 || y < 0 || x >= width || y >= height) return null;
-      const hidden = [sky, baked, terrain.cover].filter((mesh) => mesh.visible);
+      const hidden = [sky, baked, terrain.cover, ...weather.objects].filter((o) => o.visible);
       for (const mesh of hidden) mesh.visible = false;
       const shadowPending = renderer.shadowMap.needsUpdate;
       renderer.shadowMap.needsUpdate = false;
@@ -695,6 +740,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       key.shadow.map = null;
       resize();
       renderer.shadowMap.needsUpdate = true;
+      applyWeather();
     },
 
     setSpin(on) {
@@ -763,6 +809,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         material.dispose();
       }
       terrain.dispose();
+      weather.dispose();
       contactTexture.dispose();
       groundTarget.dispose();
       pickTarget.dispose();

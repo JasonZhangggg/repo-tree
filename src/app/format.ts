@@ -21,3 +21,19 @@ export function bytes(n: number): string {
   }
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
+
+const RELATIVE = new Intl.RelativeTimeFormat('en-US', { numeric: 'auto' });
+const SPANS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['day', 86_400_000],
+  ['hour', 3_600_000],
+  ['minute', 60_000],
+];
+
+/** How long ago `at` was, from `now`, in the largest whole unit: "2 hours ago", "yesterday". */
+export function ago(at: number, now: number): string {
+  const elapsed = Math.max(0, now - at);
+  for (const [unit, ms] of SPANS) {
+    if (elapsed >= ms) return RELATIVE.format(-Math.floor(elapsed / ms), unit);
+  }
+  return 'just now';
+}

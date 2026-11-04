@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import type { Loaded } from '../load/load-in-worker';
 import { parseRepoRef, type RepoRef } from '../repo/ref';
 import { DEFAULT_SETTINGS } from './settings';
-import { createStore, qualityOf, reduce, type AppState, type Repo } from './state';
+import { createStore, qualityOf, reduce, weatherOf, type AppState, type Repo } from './state';
 
 const ref = (input: string) => parseRepoRef(input) as RepoRef;
 const INITIAL: AppState = {
@@ -13,9 +13,14 @@ const INITIAL: AppState = {
   notice: null,
   settings: DEFAULT_SETTINGS,
   autoQuality: 'medium',
+  ci: {},
+  preview: null,
 };
 const repo = (name: string, truncated = false) =>
-  ({ info: { ref: ref(name), truncated }, folderIds: new Map() }) as unknown as Repo & Loaded;
+  ({
+    info: { ref: ref(name), truncated, branch: 'main' },
+    folderIds: new Map(),
+  }) as unknown as Repo & Loaded;
 
 const run = (...actions: Parameters<typeof reduce>[1][]) => actions.reduce(reduce, INITIAL);
 
@@ -143,4 +148,32 @@ test('the store notifies with the previous state only on change', () => {
   store.dispatch({ type: 'cancel' });
   store.dispatch({ type: 'load', id: 1, ref: ref('a/b') });
   expect(seen).toEqual([['idle', 'loading']]);
+});
+
+describe('weather', () => {
+  const shown = run(
+    { type: 'load', id: 1, ref: ref('Acme/Web') },
+    { type: 'loaded', id: 1, repo: repo('Acme/Web'), selection: null },
+  );
+  const failing = { type: 'ci', key: 'acme/web@main', runs: [{ passed: false, at: 1 }] } as const;
+
+  test('shows none until the runs of the repo on screen arrive', () => {
+    expect(weatherOf(shown)).toBeNull();
+    expect(weatherOf(reduce(shown, { ...failing, key: 'acme/other@main' }))).toBeNull();
+    expect(weatherOf(reduce(shown, failing))).toMatchObject({ sky: 'rain', health: { runs: 1 } });
+  });
+
+  test('shows none when the runs could not be read, and a clear sky with no CI', () => {
+    expect(weatherOf(reduce(shown, { type: 'ci', key: 'acme/web@main', runs: null }))).toBeNull();
+    expect(weatherOf(reduce(shown, { type: 'ci', key: 'acme/web@main', runs: [] }))?.sky).toBe(
+      'clear',
+    );
+  });
+
+  test('a preview replaces the repo weather, and the setting turns both off', () => {
+    const preview = reduce(reduce(shown, failing), { type: 'preview', sky: 'storm' });
+    expect(weatherOf(preview)).toEqual({ sky: 'storm', health: null });
+    const off = reduce(preview, { type: 'settings', patch: { weather: false } });
+    expect(weatherOf(off)).toBeNull();
+  });
 });

@@ -23,6 +23,7 @@ export async function fetchSnapshot(
   ref: RepoRef,
   token?: string,
   signal?: AbortSignal,
+  onBranch?: (branch: string) => void,
 ): Promise<Snapshot | LoadError> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
@@ -41,6 +42,7 @@ export async function fetchSnapshot(
       if (!hasDefaultBranch(repo)) return NETWORK;
       branch = repo.default_branch;
     }
+    onBranch?.(branch);
     const path = branch.split('/').map(encodeURIComponent).join('/');
     const res = await get(`/git/trees/${path}?recursive=1`);
     if (!res.ok) return httpError(res);

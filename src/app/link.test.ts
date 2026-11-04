@@ -13,6 +13,14 @@ describe('share links', () => {
     });
   });
 
+  test('reads a weather preview and drops an unknown one', () => {
+    expect(parseLink('#/vitejs/vite?wx=storm')).toEqual({ ref: ref('vitejs/vite'), wx: 'storm' });
+    expect(parseLink('#/vitejs/vite?wx=hail')).toEqual({ ref: ref('vitejs/vite') });
+    expect(formatLink({ ref: ref('vitejs/vite'), palette: 'winter', wx: 'rain' })).toBe(
+      '#/vitejs/vite?palette=winter&wx=rain',
+    );
+  });
+
   test('writes folder paths and branches readably', () => {
     const link: ViewLink = {
       ref: ref('https://github.com/acme/web/tree/feature/x'),

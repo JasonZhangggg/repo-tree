@@ -1,5 +1,6 @@
 import type { Quality } from '../grow/grow';
 import type { Loaded, LoadStep } from '../load/load-in-worker';
+import { ciHealth, ciKey, type CiHealth, type CiRun, type Sky } from '../repo/ci';
 import type { LoadError } from '../repo/github';
 import type { RepoRef } from '../repo/ref';
 import type { Settings } from './settings';
@@ -30,6 +31,13 @@ export type AppState = {
   settings: Settings;
   /** What 'auto' quality resolves to on this device. */
   autoQuality: Quality;
+  /**
+   * Recent Actions runs by `ciKey`: a list (empty for no CI) once known, null when they could
+   * not be read. A repo missing here is still loading or never asked.
+   */
+  ci: Readonly<Record<string, readonly CiRun[] | null>>;
+  /** A weather to show in place of the repo's own, from a link's `wx`. */
+  preview: Sky | null;
 };
 
 export type Action =
@@ -43,7 +51,9 @@ export type Action =
   | { type: 'select'; selection: Selection | null }
   | { type: 'highlight'; label: string | null }
   | { type: 'settings'; patch: Partial<Settings> }
-  | { type: 'auto-quality'; quality: Quality };
+  | { type: 'auto-quality'; quality: Quality }
+  | { type: 'ci'; key: string; runs: readonly CiRun[] | null }
+  | { type: 'preview'; sky: Sky | null };
 
 const IDLE: LoadState = { phase: 'idle' };
 
@@ -90,7 +100,25 @@ export function reduce(state: AppState, action: Action): AppState {
     }
     case 'auto-quality':
       return { ...state, autoQuality: action.quality };
+    case 'ci':
+      return { ...state, ci: { ...state.ci, [action.key]: action.runs } };
+    case 'preview':
+      return action.sky === state.preview ? state : { ...state, preview: action.sky };
   }
+}
+
+/**
+ * The weather over the repo on screen: a preview, or its CI's health. Null with weather off,
+ * before its runs arrive, or when they could not be read; `health` is null for a preview.
+ */
+export function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null {
+  const { repo, settings, preview } = state;
+  if (!repo || !settings.weather) return null;
+  if (preview) return { sky: preview, health: null };
+  const runs = state.ci[ciKey(repo.info.ref, repo.info.branch)];
+  if (!runs) return null;
+  const health = ciHealth(runs);
+  return { sky: health.sky, health };
 }
 
 export const qualityOf = (state: AppState): Quality =>

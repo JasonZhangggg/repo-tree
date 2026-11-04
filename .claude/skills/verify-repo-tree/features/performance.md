@@ -8,6 +8,7 @@ A user should see the page respond while a large repo loads and should be able t
 - `perf-spin` is the average fps over 5 s of spin.
 - `perf-time-to-tree` is the time from navigation to the snapshot loaded, the first tree frame and the fully grown tree.
 - `perf-geometry` is the draw calls and triangles per frame while spinning.
+- `perf-weather` is the same spin fps and geometry under a previewed weather.
 
 ## How to get to it (user POV)
 
@@ -21,7 +22,7 @@ Preconditions:
 - `PW_CHROMIUM_PATH` set as in the baseline. `scripts/perf.mjs` builds and serves its own preview on port `4174`, so no `drive launch` is needed and port `4174` must be free.
 - Run nothing else heavy on the machine. The numbers swing with CPU load.
 
-- **Measure.** Run `node scripts/perf.mjs <dotfiles|vite|linux> <low|medium|high>`. It sets the quality in localStorage, records long tasks with a `PerformanceObserver`, waits for `body[data-ready]`, then counts `view.stats().renders` over 5 s of spin.
+- **Measure.** Run `node scripts/perf.mjs <dotfiles|vite|linux> <low|medium|high> [clear|sunny|cloudy|rain|storm]`. A weather previews that sky through the link's `wx`, so moving weather's cost shows in the spin fps and the triangle count. It sets the quality in localStorage, records long tasks with a `PerformanceObserver`, waits for `body[data-ready]`, then counts `view.stats().renders` over 5 s of spin.
 - **Read.** Compare `longest main-thread task during load` to 100 ms and `average fps over 5 s of spin` to 50 at quality Low on `linux`. The `every task over 50 ms` line gives each task's start, which tells page startup (first 300 ms or so) apart from tasks during generation.
 - **Proof.** Paste the script's output into the PR when it touches rendering or generation, as `CLAUDE.md` asks.
 
@@ -44,3 +45,5 @@ Every run drew 4 calls per frame. Repeat runs of `linux low` and `dotfiles low` 
 - `longest main-thread task during load` covers everything from navigation, including script parse and startup, while the target speaks of generation. Read the task start times before calling a regression.
 - Spin fps counts renders. Render on demand means an idle tree renders nothing, so the script relies on spin being on, which is the default it leaves in place.
 - Port `4174` is fixed in the script. Two perf runs at once collide.
+
+Weather, measured on 2026-11-04 in the same sandbox at load average 7 to 8 with other agents running, `vite low`, five interleaved runs each, median spin fps: main 14.8, this branch with the sample's own sunny sky 14.8 (8 draw calls, 16,489 triangles), `rain` 13.2 (7 calls, 18,923 triangles), `storm` 12.8 (7 calls, 19,507 triangles). Disabling the rain alone recovered the storm's loss in a one-off run, so falling drops are most of the cost (inferred from one noisy run).

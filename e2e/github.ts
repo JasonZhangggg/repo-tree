@@ -46,3 +46,43 @@ export async function quietSettings(page: Page) {
 
 export const ready = (page: Page, repo: string) =>
   page.waitForSelector(`body[data-ready="${repo}"]`, { state: 'attached', timeout: 60_000 });
+
+/**
+ * Answers `owner/repo`'s Actions runs on `branch` with finished runs, newest first, from a
+ * pattern: `.` passed, `x` failed. A status other than 200 answers with that error instead.
+ */
+export async function serveRuns(
+  page: Page,
+  name: string,
+  pattern: string,
+  { branch = 'main', status = 200, headers = {} as Record<string, string> } = {},
+) {
+  const now = Date.now();
+  await page.route(
+    (url) => url.href.startsWith(`https://api.github.com/repos/${name}/actions/runs?`),
+    (route) =>
+      route.fulfill({
+        status,
+        headers: {
+          ...headers,
+          'access-control-allow-origin': '*',
+          'access-control-expose-headers': 'X-RateLimit-Remaining, X-RateLimit-Reset',
+        },
+        json:
+          status === 200
+            ? {
+                total_count: pattern.length,
+                workflow_runs: [...pattern].map((c, i) => ({
+                  id: 1000 - i,
+                  name: 'CI',
+                  head_branch: branch,
+                  event: 'push',
+                  status: 'completed',
+                  conclusion: c === '.' ? 'success' : 'failure',
+                  updated_at: new Date(now - (i + 2) * 3_600_000).toISOString(),
+                })),
+              }
+            : { message: 'API rate limit exceeded' },
+      }),
+  );
+}

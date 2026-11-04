@@ -1,8 +1,10 @@
+import type { CiRun } from '../repo/ci';
 import type { Snapshot } from '../repo/github';
 
 const DB = 'repo-tree';
 const STORE = 'snapshots';
 const FRESH_MS = 60 * 60 * 1000;
+const RUNS_FRESH_MS = 10 * 60 * 1000;
 
 let opened: Promise<IDBDatabase> | undefined;
 
@@ -27,20 +29,34 @@ function run<T>(mode: IDBTransactionMode, use: (store: IDBObjectStore) => IDBReq
   );
 }
 
-/** A snapshot fetched within the last hour, or undefined. Storage failures count as a miss. */
-export async function cachedSnapshot(key: string): Promise<Snapshot | undefined> {
+/** What was stored under `key` within the last `maxAge` ms, or undefined. Storage failures count as a miss. */
+async function cached<T extends { fetchedAt: number }>(
+  key: string,
+  maxAge: number,
+): Promise<T | undefined> {
   try {
-    const hit = await run<Snapshot | undefined>('readonly', (store) => store.get(key));
-    return hit && Date.now() - hit.fetchedAt < FRESH_MS ? hit : undefined;
+    const hit = await run<T | undefined>('readonly', (store) => store.get(key));
+    return hit && Date.now() - hit.fetchedAt < maxAge ? hit : undefined;
   } catch {
     return undefined;
   }
 }
 
-export async function cacheSnapshot(key: string, snapshot: Snapshot): Promise<void> {
+async function cache<T extends { fetchedAt: number }>(key: string, value: T): Promise<void> {
   try {
-    await run('readwrite', (store) => store.put(snapshot, key));
+    await run('readwrite', (store) => store.put(value, key));
   } catch {
     // A full or blocked store only costs the next visit a fetch.
   }
 }
+
+/** A snapshot fetched within the last hour, or undefined. */
+export const cachedSnapshot = (key: string) => cached<Snapshot>(key, FRESH_MS);
+export const cacheSnapshot = (key: string, snapshot: Snapshot) => cache(key, snapshot);
+
+type StoredRuns = { runs: CiRun[]; fetchedAt: number };
+/** Actions runs fetched within the last ten minutes: CI moves faster than the file tree. */
+export const cachedRuns = async (key: string) =>
+  (await cached<StoredRuns>(`runs:${key}`, RUNS_FRESH_MS))?.runs;
+export const cacheRuns = (key: string, runs: CiRun[]) =>
+  cache<StoredRuns>(`runs:${key}`, { runs, fetchedAt: Date.now() });

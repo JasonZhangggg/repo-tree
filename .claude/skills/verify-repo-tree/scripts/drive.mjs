@@ -2,7 +2,7 @@
 // Usage: node .claude/skills/verify-repo-tree/scripts/drive.mjs <command> [--port 4175]
 //          [--out dir] [--viewport desktop|phone|phone-390]
 // Commands: launch, doctor, cleanup, or a journey: load-repo, explore, search, settings,
-// share-and-export, phone-layout, tree-sizes. Journeys save numbered screenshots and report.json in --out
+// share-and-export, phone-layout, tree-sizes, weather. Journeys save numbered screenshots and report.json in --out
 // (default .verify/<journey>-<viewport>-<time>/) and exit 1 when a step fails.
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -19,7 +19,7 @@ import { parseArgs } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { expect } from '@playwright/test';
 import { chromium, devices } from 'playwright';
-import { failRepo, quietSettings, ready, serveRepo } from '../../../../e2e/github.ts';
+import { failRepo, quietSettings, ready, serveRepo, serveRuns } from '../../../../e2e/github.ts';
 
 process.chdir(new URL('../../../../', import.meta.url).pathname);
 const { positionals, values } = parseArgs({
@@ -476,6 +476,54 @@ const JOURNEYS = {
         await settle(page);
       });
     }
+  },
+
+  weather: async ({ page, step }) => {
+    const chip = page.locator('#weather');
+    await step('sample-sunny', async () => {
+      await page.goto(base);
+      await ready(page, 'vitejs/vite');
+      await expect(chip).toHaveAttribute('aria-label', 'CI passing, 20 of 20 recent runs');
+      await settle(page);
+    });
+    const live = [
+      ['acme/cloudy', '..x' + '.'.repeat(17), 'cloudy'],
+      ['acme/rain', 'x' + '.'.repeat(19), 'rain'],
+      ['acme/storm', 'xxxx' + '.'.repeat(16), 'storm'],
+    ];
+    for (const [repo, runs] of live) {
+      await serveRepo(page, repo);
+      await serveRuns(page, repo, runs);
+    }
+    for (const [repo, , sky] of live) {
+      await step(sky, async () => {
+        await enter(page, repo);
+        await ready(page, repo);
+        await expect(chip).toHaveAttribute('data-sky', sky);
+        await settle(page);
+      });
+    }
+    await step('rate-limited', async () => {
+      await serveRepo(page, 'acme/limited');
+      await serveRuns(page, 'acme/limited', '', { status: 403 });
+      await enter(page, 'acme/limited');
+      await ready(page, 'acme/limited');
+      await expect(chip).toBeHidden();
+      await expect(page.locator('#status')).toBeEmpty();
+    });
+    await step('winter-preview', async () => {
+      await page.goto(`${base}?visit=winter#/vitejs/vite?palette=winter&wx=storm`);
+      await ready(page, 'vitejs/vite');
+      await expect(chip).toHaveAttribute('aria-label', 'Weather preview, storm');
+      await settle(page);
+    });
+    await step('off', async () => {
+      await page.getByRole('button', { name: 'Settings' }).click();
+      await page.getByRole('switch', { name: /^Weather/ }).click();
+      await expect(chip).toBeHidden();
+      await page.getByRole('button', { name: 'Close settings' }).click();
+      await settle(page);
+    });
   },
 };
 

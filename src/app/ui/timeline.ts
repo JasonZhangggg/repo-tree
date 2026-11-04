@@ -62,7 +62,7 @@ export function mountTimeline(app: App, reducedMotion: () => boolean): { date():
   };
 
   const syncPlay = (playing: boolean) => {
-    play.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    play.setAttribute('aria-label', playing ? 'Pause timeline' : 'Play timeline');
     play.querySelector('path')!.setAttribute('d', playing ? 'M9 6v12m6-12v12' : 'M8 6.5v11l9-5.5Z');
   };
 

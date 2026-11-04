@@ -37,6 +37,12 @@ name = "UPLOAD_LIMITER"
 namespace_id = "1002"
 simple = { limit = 2, period = 60 }
 
+# 6 pack fetches (git-upload-pack) a minute per IP and per GitHub login: a history run makes one.
+[[ratelimits]]
+name = "PACK_LIMITER"
+namespace_id = "1003"
+simple = { limit = 6, period = 60 }
+
 # One global ledger of uploads and stored bytes (src/core/ledger.ts). SQLite-backed Durable
 # Objects are on the free plan.
 [[durable_objects.bindings]]

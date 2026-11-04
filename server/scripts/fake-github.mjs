@@ -23,6 +23,10 @@
 //   with a RATE_LIMITED error; secondary limits come as 403 or as 200 with their message; a query
 //   past the time limit is 200 with an error, or a 502 or 504 (`graphqlTimeoutStatus`); a reply
 //   can be partial, some objects null beside errors. `graphqlFaults` plays them in order.
+// - It serves git's smart HTTP fetch too (POST /<owner>/<repo>.git/git-upload-pack, protocol
+//   v2), from `git upload-pack --stateless-rpc` on the local clone, the pack streamed back at
+//   link speed after GitHub's time to make it (`GITHUB_LATENCY.packMs` and `packPerMBMs`).
+//   FAKE_GIT_CACHE keeps made packs on disk by request, as git takes 17 s over Linux's.
 // Known gaps: clones made with --filter=blob:none have no blobs, so blob `size` is a stand-in
 // derived from the sha (33 B to 22 KB, log-uniform), and /commits/{sha} files carry no `patch`
 // (real ones do, so real per-commit bodies are larger than these).
@@ -43,7 +47,7 @@ const FIELDS = ['%H', '%T', '%P', '%an', '%ae', '%cn', '%ce', '%cI', '%aI', '%B'
  * @typedef {{ rttMs: number, bytesPerMs: number }} Network
  * @typedef {{ restMs: [number, number], restPerItemMs: number, graphqlMs: number,
  *   graphqlPerObjectMs: number, graphqlPerEntryMs: number, jitter: [number, number],
- *   seed?: number }} Latency
+ *   packMs?: number, packPerMBMs?: number, seed?: number }} Latency
  * @typedef {{ maxEntries?: number, maxTreeBytes?: number, remaining?: number, tokens?: string[],
  *   graphqlMaxEntries?: number, login?: string, graphqlRemaining?: number,
  *   graphqlTimeoutStatus?: 200 | 502 | 504, graphqlFaults?: GraphQLFault[], resetInS?: number,
@@ -58,7 +62,10 @@ const FIELDS = ['%H', '%T', '%P', '%an', '%ae', '%cn', '%ce', '%cI', '%aI', '%B'
 /**
  * GitHub's time to answer, as real runs from a browser show it: REST 150 to 400 ms (a recursive
  * listing of Linux, 90k entries, about 2 s more); GraphQL about 0.8 s for 100 small trees and 3 s
- * for 100 that hold 100k entries between them, each give or take a fifth.
+ * for 100 that hold 100k entries between them, each give or take a fifth. A git fetch answers
+ * its shallow lines after 300 ms and starts the pack after about 106 ms per MB of it (measured
+ * from this sandbox, 2026-11: supabase, 51 commits, 5.3 MB: pack at 0.93 s, done 1.25 s;
+ * Linux, 65 commits, 47 MB: pack at 5.3 s, done 8.1 s).
  * @type {Latency}
  */
 export const GITHUB_LATENCY = {
@@ -68,6 +75,8 @@ export const GITHUB_LATENCY = {
   graphqlPerObjectMs: 4,
   graphqlPerEntryMs: 0.022,
   jitter: [0.8, 1.2],
+  packMs: 300,
+  packPerMBMs: 106,
 };
 
 /**
@@ -164,6 +173,8 @@ export function gitHubFetch(repos, options = {}) {
     state.peakInFlight = Math.max(state.peakInFlight, state.inFlight);
     try {
       const headers = new Headers(/** @type {HeadersInit} */ (init.headers ?? {}));
+      if (url.pathname.endsWith('.git/git-upload-pack'))
+        return await uploadPack(url, headers, init);
       const { status, body, kind, type, extra } = url.pathname.startsWith('/login/oauth/')
         ? oauth(url, String(init.body ?? ''))
         : ((await options.inject?.(url, init)) ??
@@ -197,6 +208,91 @@ export function gitHubFetch(repos, options = {}) {
       state.inFlight--;
     }
   };
+
+  /**
+   * git's smart HTTP fetch, protocol v2, as github.com answers it: the shallow lines after a
+   * round trip and GitHub's 300 ms, then the pack after its making time, at link speed.
+   * @param {URL} url @param {Headers} headers @param {RequestInit} init
+   */
+  async function uploadPack(url, headers, init) {
+    const signal = init.signal ?? undefined;
+    const m = /^\/([^/]+)\/([^/]+)\.git\/git-upload-pack$/.exec(url.pathname);
+    const name = m ? `${m[1]}/${m[2]}` : '';
+    const found = Object.entries(repos).find(([k]) => k.toLowerCase() === name.toLowerCase());
+    const auth = headers.get('authorization') ?? '';
+    const basic = auth.startsWith('Basic ')
+      ? (Buffer.from(auth.slice(6), 'base64').toString().split(':')[1] ?? '')
+      : '';
+    const fail = (/** @type {number} */ status, /** @type {string} */ text) => {
+      options.log?.(`${status} ${url.pathname}`);
+      return new Response(text, { status, headers: { 'content-type': 'text/plain' } });
+    };
+    if (options.tokens && !options.tokens.includes(basic)) return fail(401, 'Bad credentials');
+    if (!found || (found[1].private && !basic)) return fail(404, 'Repository not found.');
+    if (headers.get('git-protocol') !== 'version=2') return fail(400, 'protocol v2 only');
+    const body = Buffer.from(
+      typeof init.body === 'string' ? init.body : /** @type {Uint8Array} */ (init.body ?? []),
+    );
+    const out = await packFor(found[1].dir, body);
+    const tally = (state.kinds.pack ??= { requests: 0, bytes: 0, raw: 0 });
+    tally.requests++;
+    tally.bytes += out.length;
+    tally.raw += out.length;
+    tally.up = (tally.up ?? 0) + body.length;
+    state.up += body.length;
+    state.bytes += out.length;
+    state.raw += out.length;
+    options.log?.(`200 ${url.pathname}`);
+    // The sections up to `packfile`, then the pack's side band.
+    const mark = out.indexOf('000dpackfile\n');
+    const at = mark >= 0 ? mark + 13 : 0;
+    const head = out.subarray(0, at);
+    const rest = out.subarray(at);
+    const made = latency
+      ? (latency.packMs ?? 0) + ((latency.packPerMBMs ?? 0) * rest.length) / 1e6
+      : 0;
+    state.serverMs = (state.serverMs ?? 0) + made;
+    const first = latency ? (latency.packMs ?? 0) : 0;
+    // The shallow lines come first, then the pack once made, 64 KiB at a time on the link. The
+    // chunks go on the link's own schedule, whether or not the reader keeps up (a browser's
+    // network buffers ahead of the page), so reading overlaps the download as it would.
+    await delay(head.length, signal, first);
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          if (head.length) controller.enqueue(new Uint8Array(head));
+          let at = performance.now() + Math.max(0, made - first);
+          for (let sent = 0; sent < rest.length; sent += 65536) {
+            const chunk = rest.subarray(sent, sent + 65536);
+            at = await linkAt(chunk.length, at, signal);
+            controller.enqueue(new Uint8Array(chunk));
+          }
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'application/x-git-upload-pack-result' },
+    });
+  }
+
+  /**
+   * Sends `bytes` on the shared link no sooner than `notBefore` and waits until they are across;
+   * returns when that was, on the link's clock (a late timer does not hold the link up).
+   * @param {number} bytes @param {number} notBefore @param {AbortSignal | undefined} signal
+   */
+  async function linkAt(bytes, notBefore, signal) {
+    const bytesPerMs = network?.bytesPerMs ?? Infinity;
+    const start = Math.max(notBefore, linkFreeAt);
+    linkFreeAt = start + bytes / bytesPerMs;
+    const end = linkFreeAt;
+    const wait = end - performance.now();
+    if (wait > 0) await sleep(wait, signal);
+    return end;
+  }
 
   /** Waits a round trip and GitHub's time to answer, then for the body's turn on the shared link. */
   function delay(
@@ -501,10 +597,24 @@ export function gitHubFetch(repos, options = {}) {
     const fields = (/entries\s*\{([^}]*)\}/.exec(query)?.[1] ?? 'name oid').trim().split(/\s+/);
     /** @type {Record<string, unknown>} */
     const out = {};
+    // The history Worker's check of a pack request: the repo's visibility, each want's type.
+    if (/\bisPrivate\b/.test(query)) out.isPrivate = config.private ?? false;
+    const typed = /object\([^)]*\)\s*\{\s*__typename\s*\}/.test(query);
+    const TYPENAME = /** @type {Record<string, string>} */ ({
+      commit: 'Commit',
+      tree: 'Tree',
+      blob: 'Blob',
+      tag: 'Tag',
+    });
     let total = 0;
     for (const [, alias = '', oid = ''] of query.matchAll(
       /(\w+)\s*:\s*object\(\s*oid:\s*"([0-9a-f]{40})"\s*\)/g,
     )) {
+      if (typed) {
+        const any = await objs.read(oid);
+        out[alias] = any ? { __typename: TYPENAME[any.type] ?? 'Blob' } : null;
+        continue;
+      }
       const tree = await objs.tree(oid);
       if (!tree) {
         const any = await objs.read(oid);
@@ -583,6 +693,65 @@ export function gitHubFetch(repos, options = {}) {
       for (const o of objects.values()) o.close();
       objects.clear();
     },
+  });
+}
+
+/** @param {number} ms @param {AbortSignal | undefined} signal */
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
+  });
+}
+
+/**
+ * `git upload-pack --stateless-rpc` answering a v2 request, as github.com would (any sha may be
+ * wanted, filters allowed). FAKE_GIT_CACHE keeps the answers on disk by request.
+ * @param {string} dir @param {Buffer} body @returns {Promise<Buffer>}
+ */
+function packFor(dir, body) {
+  const cacheDir = process.env.FAKE_GIT_CACHE;
+  const file = cacheDir
+    ? join(cacheDir, `pack-${createHash('sha1').update(dir).update(body).digest('hex')}`)
+    : '';
+  if (file && existsSync(file)) return Promise.resolve(readFileSync(file));
+  return new Promise((resolve, reject) => {
+    const git = spawn(
+      'git',
+      [
+        '-c',
+        'uploadpack.allowFilter=true',
+        '-c',
+        'uploadpack.allowAnySHA1InWant=true',
+        'upload-pack',
+        '--stateless-rpc',
+        dir,
+      ],
+      {
+        env: { ...process.env, GIT_PROTOCOL: 'version=2', GIT_NO_LAZY_FETCH: '1' },
+        stdio: ['pipe', 'pipe', 'ignore'],
+      },
+    );
+    /** @type {Buffer[]} */
+    const parts = [];
+    git.stdout.on('data', (c) => parts.push(c));
+    git.on('error', reject);
+    git.on('close', () => {
+      const out = Buffer.concat(parts);
+      if (file && out.includes('PACK')) {
+        mkdirSync(cacheDir ?? '', { recursive: true });
+        writeFileSync(file, out);
+      }
+      resolve(out);
+    });
+    git.stdin.end(body);
   });
 }
 
@@ -991,13 +1160,23 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     }
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
+    const pack = req.url?.endsWith('.git/git-upload-pack') ?? false;
     const reply = await handle(`http://localhost${req.url}`, {
       method: req.method,
       headers: /** @type {Record<string, string>} */ (req.headers),
       ...(req.method === 'GET' || req.method === 'HEAD'
         ? {}
-        : { body: Buffer.concat(chunks).toString() }),
+        : { body: pack ? Buffer.concat(chunks) : Buffer.concat(chunks).toString() }),
     });
+    if (pack && reply.ok && reply.body) {
+      // Streamed as it is paced, never gzipped (a pack is compressed already).
+      res.writeHead(200, Object.fromEntries(reply.headers));
+      for await (const chunk of /** @type {AsyncIterable<Uint8Array>} */ (reply.body)) {
+        res.write(chunk);
+      }
+      res.end();
+      return;
+    }
     const body = Buffer.from(await reply.arrayBuffer());
     const headers = Object.fromEntries(reply.headers);
     delete headers['x-fake-gzip-bytes'];

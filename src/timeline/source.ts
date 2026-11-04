@@ -108,6 +108,8 @@ export function historySource(
         token,
         signal,
         api,
+        // Every snapshot's trees in one git fetch, through the history server.
+        packUrl: `${server}/v1/git/${ref.owner}/${ref.repo}/git-upload-pack`,
         ...(onProgress ? { onProgress } : {}),
         ...(spawn ? { spawn } : {}),
       });

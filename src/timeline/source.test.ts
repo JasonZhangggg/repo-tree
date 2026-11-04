@@ -41,7 +41,7 @@ describe('historySource', () => {
     ]);
   });
 
-  test('computes in a worker with the token and the GitHub API, then shares the result', async () => {
+  test('computes in a worker with the token, the GitHub API and the pack route, then shares the result', async () => {
     const history = { v: 1, repo: 'acme/widgets', branch: 'main' } as History;
     const sent: ComputeRequest[] = [];
     const worker = {
@@ -83,6 +83,7 @@ describe('historySource', () => {
         repo: 'acme/widgets',
         branch: 'main',
         token: 'gho_visitor',
+        packUrl: `${SERVER}/v1/git/acme/widgets/git-upload-pack`,
       },
     ]);
     expect(progress).toEqual([0.5]);

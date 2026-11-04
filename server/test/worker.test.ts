@@ -1,8 +1,10 @@
+import { execFileSync } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { gitHubFetch } from '../scripts/fake-github.mjs';
 import { ledgerNamespace } from '../scripts/ledger-sqlite.mjs';
 import { computeHistory } from '../src/core/engine';
+import { MAX_WANTS, PackReader, fetchRequest, pktLine } from '../src/core/pack';
 import { SPOT_CHECKS } from '../src/core/upload';
 import {
   MAX_INFLATED_BYTES,
@@ -12,7 +14,7 @@ import {
   type StoredManifest,
   type UploadManifest,
 } from '../src/shape';
-import worker, { type Env } from '../src/worker';
+import worker, { capped, ipKey, type Env } from '../src/worker';
 import { DAY, makeRepo } from './repo';
 
 const PAGES = 'https://jasonzhangggg.github.io';
@@ -177,8 +179,13 @@ describe('history routes', () => {
       '/v1/history/acme/app',
       '/v1/history/acme/app?branch=a..b',
       '/v1/history/-bad/app?branch=main',
+      '/v1/history/acme/%E0%A4%A?branch=main',
+      '/v1/history/%zz/app/bad?branch=main&head=nope',
     ]) {
-      expect((await call(e, path)).status, path).toBe(400);
+      const method = path.includes('/bad') ? 'POST' : 'GET';
+      const res = await call(e, path, { method, headers: { Origin: PAGES } });
+      expect(res.status, path).toBe(400);
+      expect(res.headers.get('Access-Control-Allow-Origin'), path).toBe(PAGES);
     }
     expect((await call(e, '/v1/history/acme/app?branch=main', { method: 'POST' })).status).toBe(
       404,
@@ -515,6 +522,191 @@ describe('abuse (review17b)', () => {
       expect(res.status).toBe(422);
     }
     expect(store.writes).toHaveLength(0);
+  });
+});
+
+describe('git-upload-pack route', () => {
+  const PATH = '/v1/git/acme/app/git-upload-pack';
+  const pack = (
+    e: Env,
+    body: Uint8Array | string,
+    options: { token?: string | null; path?: string; headers?: Record<string, string> } = {},
+  ) => {
+    const token = options.token === undefined ? TOKEN : options.token;
+    return call(e, options.path ?? PATH, {
+      method: 'POST',
+      body,
+      headers: {
+        Origin: PAGES,
+        'Content-Type': 'application/x-git-upload-pack-request',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  };
+  const wants = () => trees.map((t) => t.sha);
+
+  it('streams the trees of the wanted commits back from github.com, with CORS', async () => {
+    const { e, store } = env();
+    const before = fake.state.requests;
+    const res = await pack(e, fetchRequest(wants()));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('application/x-git-upload-pack-result');
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe(PAGES);
+    const oids: string[] = [];
+    const reader = new PackReader({ onObject: (o) => oids.push(`${o.type} ${o.oid}`) });
+    reader.push(new Uint8Array(await res.arrayBuffer()));
+    expect(reader.end().shallow).toBe(trees.length);
+    for (const t of trees) expect(oids).toContain(`tree ${t.tree}`);
+    expect(oids.some((o) => o.startsWith('blob'))).toBe(false);
+    // The token, and the repo's visibility with each want's type (one GraphQL query), then the
+    // fetch itself.
+    expect(fake.state.requests - before).toBe(3);
+    expect(store.writes).toHaveLength(0);
+  });
+
+  it('refuses a request that could pull blobs, or wants too much, before asking GitHub', async () => {
+    const { e } = env();
+    const before = fake.state.requests;
+    const text = new TextDecoder().decode(fetchRequest(wants()));
+    const many = Array.from({ length: MAX_WANTS + 1 }, (_, i) => i.toString(16).padStart(40, '0'));
+    for (const body of [
+      text.replace(pktLine('filter blob:none\n'), ''),
+      text.replace('filter blob:none', 'filter blob:limit=9'),
+      text.replace(pktLine('deepen 1\n'), ''),
+      text.replace(pktLine('done\n'), `${pktLine(`have ${trees[0]!.sha}\n`)}${pktLine('done\n')}`),
+      fetchRequest(many),
+      'not pkt-lines',
+    ]) {
+      const res = await pack(e, body);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: 'invalid' });
+    }
+    const big = await pack(e, new Uint8Array(70_000));
+    expect(big.status).toBe(413);
+    const wrongType = await pack(e, fetchRequest(wants()), {
+      headers: { 'Content-Type': 'text/plain' },
+    });
+    expect(wrongType.status).toBe(400);
+    expect(fake.state.requests).toBe(before);
+  });
+
+  it('refuses a want that is not a commit: GitHub would send a blob or tree wanted by name', async () => {
+    const { e } = env();
+    const git = (rev: string) =>
+      execFileSync('git', ['-C', repo.dir, 'rev-parse', rev], { encoding: 'utf8' }).trim();
+    const blob = git(`${repo.shas.at(-1)!}:b/c.txt`);
+    const tree = git(`${trees[0]!.sha}^{tree}`);
+    for (const extra of [blob, tree, 'f'.repeat(40)]) {
+      const before = fake.state.requests;
+      const res = await pack(e, fetchRequest([...wants(), extra]));
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: 'invalid' });
+      // The token and the types asked, never the fetch.
+      expect(fake.state.requests - before).toBe(2);
+    }
+  });
+
+  it('refuses a request with no Origin, or a badly escaped path, with CORS', async () => {
+    const { e } = env();
+    const before = fake.state.requests;
+    const bare = await call(e, PATH, {
+      method: 'POST',
+      body: fetchRequest(wants()),
+      headers: {
+        'Content-Type': 'application/x-git-upload-pack-request',
+        Authorization: `Bearer ${TOKEN}`,
+      },
+    });
+    expect(bare.status).toBe(403);
+    expect(await bare.json()).toMatchObject({ error: 'forbidden' });
+    const escaped = await pack(e, fetchRequest(wants()), {
+      path: '/v1/git/acme/%E0%A4%A/git-upload-pack',
+    });
+    expect(escaped.status).toBe(400);
+    expect(escaped.headers.get('Access-Control-Allow-Origin')).toBe(PAGES);
+    expect(fake.state.requests).toBe(before);
+  });
+
+  it('cuts the answer off past its byte cap, when one is set', async () => {
+    const chunks = (n: number) =>
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          for (let i = 0; i < n; i++) c.enqueue(new Uint8Array(1000));
+          c.close();
+        },
+      });
+    expect((await new Response(capped(chunks(5), 5000)).arrayBuffer()).byteLength).toBe(5000);
+    await expect(new Response(capped(chunks(6), 5000)).arrayBuffer()).rejects.toThrow();
+    // On the route only when PACK_MAX_BYTES is set (the count costs CPU for every chunk).
+    const { e } = env({ PACK_MAX_BYTES: '100' });
+    const cut = await pack(e, fetchRequest(wants()));
+    expect(cut.status).toBe(200);
+    await expect(cut.arrayBuffer()).rejects.toThrow();
+  });
+
+  it('keys rate limits by IPv4 address, or by IPv6 /64', () => {
+    expect(ipKey('203.0.113.9')).toBe('203.0.113.9');
+    expect(ipKey('::ffff:203.0.113.9')).toBe('203.0.113.9');
+    const net = '2001:db8:85a3:42::/64';
+    for (const ip of [
+      '2001:db8:85a3:42::1',
+      '2001:0db8:85a3:0042:ffff:ffff:ffff:ffff',
+      '2001:DB8:85A3:42:1:2:3:4',
+    ]) {
+      expect(ipKey(ip), ip).toBe(net);
+    }
+    expect(ipKey('2001:db8:85a3:43::1')).not.toBe(net);
+    expect(ipKey('::1')).toBe('0:0:0:0::/64');
+    expect(ipKey('unknown')).toBe('unknown');
+    expect(ipKey('1::2::3')).toBe('1::2::3');
+  });
+
+  it('needs a signed-in token, and a public repo', async () => {
+    const { e } = env();
+    const anon = await pack(e, fetchRequest(wants()), { token: null });
+    expect(anon.status).toBe(401);
+    const odd = await pack(e, fetchRequest(wants()), { token: 'short' });
+    expect(odd.status).toBe(401);
+    const secret = await pack(e, fetchRequest(wants()), {
+      path: '/v1/git/acme/secret/git-upload-pack',
+    });
+    expect(secret.status).toBe(403);
+    expect(await secret.json()).toMatchObject({ error: 'private' });
+    const nobody = await pack(e, fetchRequest(wants()), {
+      path: '/v1/git/acme/nothing/git-upload-pack',
+    });
+    expect(nobody.status).toBe(404);
+    expect((await call(e, PATH)).status).toBe(404);
+    const evil = await pack(e, fetchRequest(wants()), {
+      headers: { Origin: 'https://evil.example' },
+    });
+    expect(evil.status).toBe(403);
+  });
+
+  it('rate-limits pack fetches per IP before asking GitHub, and per login', async () => {
+    const keys: string[] = [];
+    const limiter = (refuse: string) => ({
+      limit: async ({ key }: { key: string }) => {
+        keys.push(key);
+        return { success: !key.startsWith(refuse) };
+      },
+    });
+    const byIp = env({ PACK_LIMITER: limiter('ip:') as unknown as RateLimit }).e;
+    const before = fake.state.requests;
+    const res = await pack(byIp, fetchRequest(wants()), {
+      headers: { 'CF-Connecting-IP': '203.0.113.9' },
+    });
+    expect(res.status).toBe(429);
+    const v6 = await pack(byIp, fetchRequest(wants()), {
+      headers: { 'CF-Connecting-IP': '2001:db8:1:2:aaaa::7' },
+    });
+    expect(v6.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('60');
+    expect(fake.state.requests).toBe(before);
+    const byLogin = env({ PACK_LIMITER: limiter('login:') as unknown as RateLimit }).e;
+    expect((await pack(byLogin, fetchRequest(wants()))).status).toBe(429);
+    expect(keys).toEqual(['ip:203.0.113.9', 'ip:2001:db8:1:2::/64', 'ip:unknown', 'login:ada']);
   });
 });
 

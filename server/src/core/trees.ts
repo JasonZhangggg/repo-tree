@@ -78,7 +78,7 @@ export type ReadStats = {
 
 type Flat = { path: string; mode: Mode; sha: string };
 
-function modeOf(text: unknown, type: unknown): Mode | null {
+export function modeOf(text: unknown, type: unknown): Mode | null {
   switch (text) {
     case '100644':
     case 0o100644:

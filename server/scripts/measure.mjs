@@ -46,6 +46,7 @@ const { values, positionals } = parseArgs({
     recent: { type: 'string' },
     snapshots: { type: 'string' },
     remote: { type: 'string' },
+    budget: { type: 'string' },
     'per-snapshot': { type: 'boolean', default: false },
     json: { type: 'boolean', default: false },
   },
@@ -128,6 +129,7 @@ for (const t of targets) {
         ...(values.plan ? { plan: JSON.parse(values.plan) } : {}),
         ...(values.recent ? { recentCommits: Number(values.recent) } : {}),
         ...(values.snapshots ? { maxSnapshots: Number(values.snapshots) } : {}),
+        ...(values.budget ? { treeBudget: Number(values.budget) } : {}),
         onStats: (/** @type {any} */ s) => (stats = s),
       });
     }
@@ -153,6 +155,13 @@ for (const t of targets) {
       ),
     };
     rows.push({ ...row, reader: stats?.trees });
+    if (stats && values['per-snapshot'] && !values.json) {
+      const per = stats.perSnapshot.map(
+        (/** @type {{ requests: number, entries: number }} */ p, /** @type {number} */ j) =>
+          `${j}:${p.requests}/${p.entries}`,
+      );
+      console.error(`per snapshot (requests/entries): ${per.join(' ')}`);
+    }
     if (values.out) {
       mkdirSync(values.out, { recursive: true });
       writeFileSync(join(values.out, `${t.short}.${which}.json`), JSON.stringify(history));

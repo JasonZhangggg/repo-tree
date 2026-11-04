@@ -20,6 +20,7 @@ import {
   toCommits,
   toTree,
   type CommitSummary,
+  type FileChange,
   type GitHub,
   type TreeEntry,
 } from './github';
@@ -51,8 +52,8 @@ const SHA_CHARS = 12;
 const PER_PAGE = 100;
 
 export type Sample = { sha: string; at: number; tree: string };
-type Listed = Pick<CommitSummary, 'sha' | 'at' | 'tree' | 'author'>;
-type Counts = Record<string, number>;
+export type Listed = Pick<CommitSummary, 'sha' | 'at' | 'tree' | 'author'>;
+export type Counts = Record<string, number>;
 
 /**
  * Per path, over the snapshots folded so far (j counts snapshots from the head, 0, to older):
@@ -206,7 +207,12 @@ async function listCommits(
   return { commits: toCommits(body), link };
 }
 
-const listed = ({ sha, at, tree, author }: CommitSummary): Listed => ({ sha, at, tree, author });
+export const listed = ({ sha, at, tree, author }: CommitSummary): Listed => ({
+  sha,
+  at,
+  tree,
+  author,
+});
 
 async function start(ctx: Ctx): Promise<void> {
   const { job, limits } = ctx;
@@ -261,7 +267,8 @@ export function schedule(headAt: number, rootAt: number | null, max: number): nu
   return out;
 }
 
-function countAuthors(list: readonly Listed[], after: number, upTo: number): Counts {
+/** Authors of the listed commits after `after` up to `upTo`. */
+export function countAuthors(list: readonly Listed[], after: number, upTo: number): Counts {
   const counts: Counts = {};
   for (const c of list)
     if (c.at > after && c.at <= upTo) counts[c.author] = (counts[c.author] ?? 0) + 1;
@@ -451,10 +458,22 @@ async function recent(ctx: Ctx): Promise<void> {
   const { body } = await ctx.gh.json(`${repoPath(job)}/commits/${commit.sha}`);
   const changes = toChanges(body);
   job.recentNext++;
+  touchCommit(job, commit, changes);
+}
+
+/**
+ * Folds one recent commit's changed files into `touched` (files by path, folders by `path/`)
+ * and `commitsBy` (its author, per top-level folder it touched). Commits go newest first.
+ */
+export function touchCommit(
+  into: Pick<Job, 'touched' | 'commitsBy'>,
+  commit: Pick<Listed, 'at' | 'author'>,
+  changes: readonly FileChange[],
+): void {
   const folders = new Set<string>(['']);
   const tops = new Set<string>();
   const touch = (path: string, kind: 'add' | 'remove' | 'change') => {
-    const row = (job.touched[path] ??= [commit.at, 0, 0, 0]);
+    const row = (into.touched[path] ??= [commit.at, 0, 0, 0]);
     row[1]++;
     if (kind === 'add' && !row[2]) row[2] = commit.at;
     if (kind === 'remove' && !row[3]) row[3] = commit.at;
@@ -471,11 +490,11 @@ async function recent(ctx: Ctx): Promise<void> {
     } else touch(c.path, 'change');
   }
   for (const folder of folders) {
-    const row = (job.touched[`${folder}/`] ??= [commit.at, 0, 0, 0]);
+    const row = (into.touched[`${folder}/`] ??= [commit.at, 0, 0, 0]);
     row[1]++;
   }
   for (const top of tops) {
-    const counts = (job.commitsBy[top] ??= {});
+    const counts = (into.commitsBy[top] ??= {});
     counts[commit.author] = (counts[commit.author] ?? 0) + 1;
   }
 }

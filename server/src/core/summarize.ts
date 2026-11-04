@@ -11,8 +11,28 @@ import type { Job } from './job';
 /** Bots (dependabot[bot], renovate[bot]) touch everything and own nothing. */
 const BOT = /\[bot\]$/;
 
+/** What summarize reads: a finished job, or the browser engine's equivalent. */
+export type Folded = Pick<
+  Job,
+  | 'repo'
+  | 'branch'
+  | 'head'
+  | 'gaps'
+  | 'samples'
+  | 'applied'
+  | 'acc'
+  | 'weights'
+  | 'recent'
+  | 'recentIsAll'
+  | 'recentNext'
+  | 'touched'
+  | 'commitsBy'
+  | 'codeowners'
+  | 'headTruncated'
+>;
+
 /** Turns a finished job into the history the app reads. Pure. */
-export function summarize(job: Job, now: number): History {
+export function summarize(job: Folded, now: number): History {
   const at = (j: number) => job.samples[j]!.at;
   const recentDone = job.recent.slice(0, job.recentNext);
   const reachesRoot =

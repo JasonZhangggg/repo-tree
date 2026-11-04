@@ -7,7 +7,7 @@ A user changes how the tree looks and loads from the Settings popover (a bottom 
 - `settings-palette` recolors leaves, bark and sky with Autumn, Spring blossom, Summer green or Winter without regrowing.
 - `settings-color-by` colors leaves by language or by top-level folder and retitles the legend.
 - `settings-quality` picks Auto, Low, Medium or High and regrows the tree.
-- `settings-toggles` switches spin, folder labels, the ground (the island, its rocks and grass) and the growth animation.
+- `settings-toggles` switches spin, folder labels, the ground (the island, its rocks and grass), weather and the growth animation.
 - `settings-hidden` hides folders by exact name at any depth and regrows the tree.
 - `settings-token` saves a GitHub token in this browser and sends it only to `api.github.com`.
 - `settings-persist` restores every setting after a reload.
@@ -33,7 +33,7 @@ Preconditions:
 - **Token.** Type `ghp_verify_fake` into `GitHub token` and press Enter, close Settings, and load `acme/widgets` from the stand-in API. Step `token`. `Token saved in this browser` shows, and every request that carried an `Authorization` header went to `api.github.com`.
 - **Persist.** Reload. Step `reload`. localStorage `repo-tree:settings` holds `palette: winter`, `colorBy: folder`, `quality: high`, the token and `playground` in `hidden`, and the reopened dialog has `Winter` checked.
 - **Proof.** `report.json` passes, and `02-palette.png`, `03-color-by.png` and `05-hide-folder.png` show each visible change.
-- `settings-toggles` has no step.
+- `settings-toggles` has no step here. The `weather` journey's `off` step turns weather off.
 
 ## Gotchas
 

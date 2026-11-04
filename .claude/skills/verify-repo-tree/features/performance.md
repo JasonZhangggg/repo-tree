@@ -8,6 +8,7 @@ A user should see the page respond while a large repo loads and should be able t
 - `perf-spin` is the average fps over 5 s of spin.
 - `perf-time-to-tree` is the time from navigation to the snapshot loaded, the first tree frame and the fully grown tree.
 - `perf-geometry` is the draw calls and triangles per frame while spinning.
+- `perf-weather` is the same spin fps and geometry under a previewed weather.
 
 ## How to get to it (user POV)
 
@@ -21,7 +22,7 @@ Preconditions:
 - `PW_CHROMIUM_PATH` set as in the baseline. `scripts/perf.mjs` builds and serves its own preview on port `4174`, so no `drive launch` is needed and port `4174` must be free.
 - Run nothing else heavy on the machine. The numbers swing with CPU load.
 
-- **Measure.** Run `node scripts/perf.mjs <dotfiles|vite|linux> <low|medium|high>`. It sets the quality in localStorage, records long tasks with a `PerformanceObserver`, waits for `body[data-ready]`, then counts `view.stats().renders` over 5 s of spin.
+- **Measure.** Run `node scripts/perf.mjs <dotfiles|vite|linux> <low|medium|high> [clear|sunny|cloudy|rain|storm]`. A weather previews that sky through the link's `wx`, so moving weather's cost shows in the spin fps and the triangle count. It sets the quality in localStorage, records long tasks with a `PerformanceObserver`, waits for `body[data-ready]`, then counts `view.stats().renders` over 5 s of spin.
 - **Read.** Compare `longest main-thread task during load` to 100 ms and `average fps over 5 s of spin` to 50 at quality Low on `linux`. The `every task over 50 ms` line gives each task's start, which tells page startup (first 300 ms or so) apart from tasks during generation.
 - **Proof.** Paste the script's output into the PR when it touches rendering or generation, as `CLAUDE.md` asks.
 

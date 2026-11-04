@@ -48,7 +48,7 @@ Run doctor first, and again whenever a journey fails in a way that looks like th
 node .claude/skills/verify-repo-tree/scripts/drive.mjs <journey> --port 4175 [--viewport desktop|phone|phone-390] [--out dir]
 ```
 
-Journeys are `load-repo`, `explore`, `search`, `settings`, `share-and-export`, `phone-layout` and `tree-sizes`. Each one is a Playwright recipe for one file of the feature map in [`features/`](features/README.md). Read the matching feature file before changing a journey or proving a feature it does not cover.
+Journeys are `load-repo`, `explore`, `search`, `settings`, `share-and-export`, `phone-layout`, `tree-sizes` and `weather`. Each one is a Playwright recipe for one file of the feature map in [`features/`](features/README.md). Read the matching feature file before changing a journey or proving a feature it does not cover.
 
 Every journey sets these up before the first navigation.
 
@@ -56,7 +56,7 @@ Every journey sets these up before the first navigation.
 - Desktop is 1280 by 800. Phone is Playwright's `Pixel 7` (412 px wide, touch). `phone-390` is the same phone at 390 by 844.
 - `reducedMotion: 'reduce'`, so trees appear grown at once instead of animating.
 - `quietSettings` from `e2e/github.ts`. Stored settings start as `{ quality: 'low', spin: false }` and every request to `api.github.com` is aborted.
-- A stand-in GitHub API where a step needs one. `serveRepo(page, 'acme/widgets')` answers the repo and tree endpoints from a bundled sample, and `failRepo(page, status, headers)` answers every API call with an error. Real `api.github.com` is unreachable from this sandbox. The app's only network boundary is `fetchSnapshot` in `src/repo/github.ts`, so a `page.route` stand-in exercises the same code path a live response would.
+- A stand-in GitHub API where a step needs one. `serveRepo(page, 'acme/widgets')` answers the repo and tree endpoints from a bundled sample, `serveRuns(page, 'acme/widgets', '..x')` answers its Actions runs, and `failRepo(page, status, headers)` answers every API call with an error. Real `api.github.com` is unreachable from this sandbox. The app's network boundaries are `fetchSnapshot` in `src/repo/github.ts` and `fetchRuns` in `src/repo/ci.ts`, so a `page.route` stand-in exercises the same code path a live response would.
 
 Selectors come from the page's accessible names and stable ids.
 
@@ -98,5 +98,5 @@ Cleanup reads `.verify/preview-4175.pid`, kills that pid only if it still owns t
 ## Helpers
 
 - `scripts/drive.mjs` is the helper above. It imports `serveRepo`, `failRepo`, `quietSettings` and `ready` from `e2e/github.ts`, so the stand-in API matches the e2e suite. Node 22.18 or later strips the TypeScript types on import.
-- `node scripts/perf.mjs [dotfiles|vite|linux] [low|medium|high]` builds and serves its own preview on port `4174`, then prints load blocking, spin fps and time to tree. See [`features/performance.md`](features/performance.md).
+- `node scripts/perf.mjs [dotfiles|vite|linux] [low|medium|high] [clear|sunny|cloudy|rain|storm]` builds and serves its own preview on port `4174`, then prints load blocking, spin fps and time to tree. See [`features/performance.md`](features/performance.md).
 - `npm run e2e` runs the Playwright suite on port `4173`. It covers the same journeys as assertions without evidence folders.

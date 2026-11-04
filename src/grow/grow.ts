@@ -368,8 +368,6 @@ function growSkeleton(
     roll: number,
     depth: number,
     path: number,
-    az0: number,
-    az1: number,
   ): void => {
     const side = rotate(perp(dir), dir, random() * 6.28);
     const end = addScaled(start, dir, len);
@@ -396,29 +394,9 @@ function growSkeleton(
     if (!a) return;
     if (!b) {
       const jitter: Vec3 = [(random() - 0.5) * 0.25, 0, (random() - 0.5) * 0.25];
-      const d = wedge(normalize(lerp(add(dir, jitter), UP, SHAPE.tropism)), az0, az1);
-      const { w } = a;
-      return grow(
-        a,
-        end,
-        d,
-        lenOf(w),
-        rChild(a),
-        roll + GOLDEN_ANGLE,
-        depth + 1,
-        path + len,
-        az0,
-        az1,
-      );
+      const d = normalize(lerp(add(dir, jitter), UP, SHAPE.tropism));
+      return grow(a, end, d, lenOf(a.w), rChild(a), roll + GOLDEN_ANGLE, depth + 1, path + len);
     }
-    // Each fork splits its wedge of the compass between its two kids, by the square root of their
-    // files so small folders still get room, and steers each kid's limb into its own share.
-    const span = az1 - az0;
-    const share = a.w ** WEDGE.exp / (a.w ** WEDGE.exp + b.w ** WEDGE.exp);
-    // Below the top-level forks, a slice narrower than `least` is not split further: both kids fan
-    // out across all of it, so a small folder's twigs spread into a tuft, not one thin plane.
-    const split = n.folder === 0 || span * Math.min(share, 1 - share) >= WEDGE.least;
-    const [aTo, bFrom] = split ? [az0 + span * share, az0 + span * share] : [az1, az0];
     const theta = SHAPE.spread * (0.85 + 0.3 * random());
     const angA = (theta * b.w) / (a.w + b.w);
     const angB = Math.max(0.42, (theta * a.w) / (a.w + b.w));
@@ -426,61 +404,26 @@ function growSkeleton(
     grow(
       a,
       end,
-      wedge(tropism(rotate(dir, axis, angA), a.w), az0, aTo),
+      tropism(rotate(dir, axis, angA), a.w),
       lenOf(a.w),
       rChild(a),
       roll + GOLDEN_ANGLE,
       depth + 1,
       path + len,
-      az0,
-      aTo,
     );
     grow(
       b,
       end,
-      wedge(tropism(rotate(dir, axis, -angB), b.w), bFrom, az1),
+      tropism(rotate(dir, axis, -angB), b.w),
       lenOf(b.w),
       rChild(b),
       roll + GOLDEN_ANGLE,
       depth + 1,
       path + len,
-      bFrom,
-      az1,
     );
   };
-  grow(
-    top,
-    [0, -0.06, 0],
-    normalize([0.05, 1, 0.02]),
-    SHAPE.trunkLen,
-    trunkR,
-    0,
-    0,
-    0,
-    0,
-    Math.PI * 2,
-  );
+  grow(top, [0, -0.06, 0], normalize([0.05, 1, 0.02]), SHAPE.trunkLen, trunkR, 0, 0, 0);
   return s;
-}
-
-/**
- * Wedges keep each folder's limbs inside its own slice of the compass, so a folder reads as one
- * section of the crown. `exp` shares a fork's slice by files to this power; `pull` is how far a
- * limb's heading turns toward the middle of its slice, `keep` how much of the slice it may use,
- * and `least` the narrowest share, in radians, a fork still splits off.
- */
-const WEDGE = { exp: 0.5, pull: 0, keep: 0.8, least: 0.7 };
-
-/** Turns a heading about the vertical so its compass bearing falls inside [az0, az1]. */
-function wedge(d: Vec3, az0: number, az1: number): Vec3 {
-  const horizontal = Math.hypot(d[0], d[2]);
-  if (horizontal < 1e-6) return d;
-  const mid = (az0 + az1) / 2;
-  const half = ((az1 - az0) / 2) * WEDGE.keep;
-  let off = Math.atan2(d[2], d[0]) - mid;
-  off -= Math.round(off / (Math.PI * 2)) * Math.PI * 2;
-  const az = mid + Math.max(-half, Math.min(half, off * (1 - WEDGE.pull)));
-  return [Math.cos(az) * horizontal, d[1], Math.sin(az) * horizontal];
 }
 
 /** Draws every point in toward the trunk by `k`, keeping heights and thicknesses. */

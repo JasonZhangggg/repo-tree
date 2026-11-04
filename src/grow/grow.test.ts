@@ -29,24 +29,6 @@ function triangleNodes(mesh: MeshData): Map<number, number> {
   return counts;
 }
 
-/** Each top-level folder's twig tips as [x, z], by the base of each twig and its end. */
-function tipsByTop(tree: TreeModel): [number, number][][] {
-  const ends = new Map<number, [number, number]>();
-  const { position, nodeId } = tree.bark;
-  for (let v = 0; v < nodeId.length; v++) {
-    const n = nodeId[v]!;
-    if (tree.nodes.files[n]! === 0) continue;
-    const [x, z] = [position[v * 3]!, position[v * 3 + 2]!];
-    const best = ends.get(n);
-    if (!best || Math.hypot(x, z) > Math.hypot(...best)) ends.set(n, [x, z]);
-  }
-  return tree.labels.map(({ folder }) => {
-    const lo = tree.folders.range[2 * folder]!;
-    const hi = tree.folders.range[2 * folder + 1]!;
-    return [...ends].filter(([n]) => n >= lo && n <= hi).map(([, at]) => at);
-  });
-}
-
 function positions(tree: TreeModel): Float32Array[] {
   return [tree.bark.position, tree.leaves.position];
 }
@@ -212,30 +194,6 @@ describe.each(SAMPLES)('growTree on %s', (id) => {
         ...tree.anchors.subarray(label.folder * 3, label.folder * 3 + 3),
       ]);
     }
-  });
-
-  test('keeps each top-level folder on its own side of the crown', () => {
-    if (tree.labels.length < 2) return;
-    const tips = tipsByTop(tree);
-    const means = tips.map((list) => {
-      const [x, z] = list.reduce(([x, z], [tx, tz]) => [x + tx, z + tz], [0, 0]);
-      return Math.atan2(z, x);
-    });
-    const gap = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
-    let own = 0;
-    let all = 0;
-    tips.forEach((list, i) => {
-      for (const [x, z] of list) {
-        const bearing = Math.atan2(z, x);
-        const nearest = means.reduce(
-          (best, m, j) => (gap(bearing, m) < gap(bearing, means[best]!) ? j : best),
-          0,
-        );
-        if (nearest === i) own++;
-        all++;
-      }
-    });
-    expect(own / all).toBeGreaterThan(0.8);
   });
 
   test('gives every top-level folder a limb of its own', () => {

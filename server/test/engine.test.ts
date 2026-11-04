@@ -577,8 +577,16 @@ describe('commit files', () => {
       for (let i = 0; i < n; i++) writeFileSync(join(big.dir, 'f', `${i}.txt`), v);
       const date = new Date(at).toISOString();
       execFileSync('git', ['-C', big.dir, 'add', '-A']);
-      execFileSync('git', ['-C', big.dir, 'commit', '-q', '-m', v], {
-        env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+      execFileSync('git', ['-c', 'commit.gpgsign=false', '-C', big.dir, 'commit', '-q', '-m', v], {
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: 'ada',
+          GIT_AUTHOR_EMAIL: 'ada@example.com',
+          GIT_COMMITTER_NAME: 'ada',
+          GIT_COMMITTER_EMAIL: 'ada@example.com',
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_DATE: date,
+        },
       });
     };
     commit(3001, 'a', HEAD - 10 * DAY);

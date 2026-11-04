@@ -10,12 +10,14 @@ compatibility_date = "2025-10-01"
 ALLOWED_ORIGINS = "https://jasonzhangggg.github.io"
 # Localhost origins are refused here; local runs set ALLOW_LOCALHOST = "1" (scripts/local-worker.mjs,
 # or `wrangler dev --var ALLOW_LOCALHOST:1`).
-# Uploads (each one KV write) per GitHub login a day and in all a day, and the bytes all stored
-# histories may take. The Ledger Durable Object counts them; they keep the account's 1,000 KV
-# writes a day and 1 GB of KV safe.
+# Uploads per GitHub login a day and in all a day, the bytes all stored histories may take (past
+# it the oldest are evicted, at most 20 an upload), and KV writes a day, puts and eviction deletes
+# together. The Ledger Durable Object counts them; they keep the account's 1,000 KV writes a day
+# and 1 GB of KV safe.
 UPLOADS_PER_LOGIN = "20"
 UPLOADS_PER_DAY = "200"
 STORED_BYTES = "524288000"
+KV_WRITES_PER_DAY = "400"
 
 # The HISTORY namespace in the owner's Cloudflare account (not a secret).
 [[kv_namespaces]]

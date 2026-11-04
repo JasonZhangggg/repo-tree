@@ -75,7 +75,7 @@ function snapshotDigest(snapshots: { sha: string; at: number }[]): Promise<strin
 // POST <...>/{owner}/{repo}/bad?branch=&head=  202 noted: a reader could not use the stored body; the next upload for that head may replace it.
 // Uploads are taken for the repo's default branch only. Localhost origins only when the ALLOW_LOCALHOST var is set (local runs, e2e).
 // KV (the store): key `h1:${repo.toLowerCase()}@${branch}` (core/upload.ts historyKey), value the body untouched, metadata the StoredManifest,
-// 90-day TTL, one write per accepted upload, none per job step or sign-in. The Worker never decompresses or parses a body (10 ms CPU);
+// 90-day TTL, one write per accepted upload (plus a delete per eviction), none per job step or sign-in. The Worker never decompresses or parses a body (10 ms CPU);
 // it reads the gzip trailer's ISIZE and refuses past MAX_INFLATED_BYTES.
 // core/upload.ts: parseManifest also wants unique shas, the head last, time order, and followsSchedule(snapshots): at most one snapshot per
 //   schedule(head.at, root.at, 80) target, at or before it (as the engine picks). There is no floor: a sparse branch has few snapshots.
@@ -86,8 +86,11 @@ function snapshotDigest(snapshots: { sha: string; at: number }[]): Promise<strin
 type LedgerRequest = { op: 'check'; key: string; head: string; now: number } /* before GitHub requests */
   | { op: 'reserve'; key: string; head: string; bytes: number; login: string; now: number } /* before the KV put: counts one write */
   | { op: 'release'; key; head; now } /* the put failed */ | { op: 'bad'; key; head; now } /* a reader's report */;
-type LedgerReply = { ok: true } | { ok: false; error: 'exists' | 'rate-limited' | 'full'; retryAfter?: number /* to UTC midnight */ };
-type LedgerLimits = { perLogin: 20; perDay: 200; maxBytes: 500 MB; replaceAfterMs: 1 day; ttlMs: 90 days }; // vars UPLOADS_PER_LOGIN, UPLOADS_PER_DAY, STORED_BYTES
+type LedgerReply = { ok: true; evict?: string[] /* KV keys the Worker deletes before its put */ } | { ok: false; error: 'exists' | 'rate-limited' | 'full'; retryAfter?: number /* to UTC midnight */ };
+type LedgerLimits = { perLogin: 20; perDay: 200; maxBytes: 500 MB; writesPerDay: 400; evictPerUpload: 20; replaceAfterMs: 1 day; ttlMs: 90 days };
+// vars UPLOADS_PER_LOGIN, UPLOADS_PER_DAY, STORED_BYTES, KV_WRITES_PER_DAY. Past maxBytes a reserve evicts FIFO: entries reported bad first, then
+// the oldest by stored_at, at most evictPerUpload, else 'full'. Each eviction's KV delete counts in writesPerDay with the put. No LRU: a view
+// would cost a Durable Object request per read.
 // A stored head is refused as 'exists' unless it was reported bad or is a day old; a new head replaces it. Bytes count a replaced entry once.
 // Readers (repo/history.ts agrees) drop a body unless its repo, branch, head, snapshot count and snapshotDigest match the StoredManifest.
 

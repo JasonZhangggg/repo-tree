@@ -302,6 +302,11 @@ kbd {
   padding: 0;
   width: 40px;
 }
+/* The More button and its menu exist only on a phone, where the menu holds the actions that
+   don't fit the bottom row. */
+#more {
+  display: none;
+}
 
 /* Title block: repo name, meta, load status, samples. */
 .title {
@@ -1005,8 +1010,11 @@ h1 a[aria-disabled] {
 
 /* Timeline: the button among the controls and the scrubber above them. */
 #timeline[aria-pressed='true'] {
-  background: var(--ink);
-  color: #fff;
+  background: #fbeee9;
+  color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1.5px rgba(184, 64, 31, 0.35),
+    var(--shadow);
 }
 #timeline[aria-disabled='true'] {
   color: var(--faint);
@@ -1032,6 +1040,7 @@ h1 a[aria-disabled] {
   border-radius: 999px;
   box-shadow: var(--shadow-lift);
   --thumb: 18px;
+  animation: rise 0.24s var(--ease);
 }
 .scrub-play,
 .scrub-close {
@@ -1098,13 +1107,13 @@ h1 a[aria-disabled] {
 }
 .scrub-ticks i {
   position: absolute;
-  top: 11px;
+  top: 20px;
   width: 1px;
-  height: 8px;
+  height: 4px;
   background: rgba(37, 34, 30, 0.2);
   font: 500 10.5px/1 var(--sans);
   font-style: normal;
-  color: var(--faint);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .scrub-ticks i[data-y] {
@@ -1113,7 +1122,7 @@ h1 a[aria-disabled] {
 .scrub-ticks i[data-y]::after {
   content: attr(data-y);
   position: absolute;
-  top: 13px;
+  top: 7px;
   left: 0;
   transform: translateX(-50%);
 }
@@ -1157,6 +1166,29 @@ h1 a[aria-disabled] {
   background: #fff;
   border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
+  transition:
+    transform 0.16s var(--ease),
+    box-shadow 0.16s var(--ease);
+}
+#timeline-range:active::-webkit-slider-thumb {
+  transform: scale(1.2);
+  box-shadow:
+    0 0 0 6px rgba(184, 64, 31, 0.14),
+    0 2px 6px rgba(60, 40, 20, 0.3);
+}
+#timeline-range:active::-moz-range-thumb {
+  transform: scale(1.2);
+  box-shadow:
+    0 0 0 6px rgba(184, 64, 31, 0.14),
+    0 2px 6px rgba(60, 40, 20, 0.3);
+}
+@media (hover: hover) and (pointer: fine) {
+  #timeline-range:hover::-webkit-slider-thumb {
+    transform: scale(1.1);
+  }
+  #timeline-range:hover::-moz-range-thumb {
+    transform: scale(1.1);
+  }
 }
 #timeline-range::-moz-range-thumb {
   width: var(--thumb);
@@ -1165,6 +1197,9 @@ h1 a[aria-disabled] {
   background: #fff;
   border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
+  transition:
+    transform 0.16s var(--ease),
+    box-shadow 0.16s var(--ease);
 }
 #timeline-range:focus-visible {
   outline: none;
@@ -1559,7 +1594,7 @@ h1 a[aria-disabled] {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 76px);
   translate: -50% 12px;
   z-index: 9;
   padding: 10px 16px;
@@ -1579,6 +1614,10 @@ h1 a[aria-disabled] {
   opacity: 1;
   translate: -50% 0;
 }
+body:has(.scrubber:not([hidden])) .toast {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 140px);
+}
+
 /* A long message (the debug flag's history breakdown) wraps in a box and stays a while. */
 .toast.long {
   width: min(720px, calc(100vw - 32px));
@@ -2001,6 +2040,55 @@ h1 a[aria-disabled] {
   .controls #settings-open {
     width: 44px;
   }
+  .controls #more {
+    display: flex;
+  }
+  .controls #more[aria-expanded='true'] {
+    background: var(--ink);
+    color: #fff;
+  }
+  .controls .tools {
+    position: relative;
+  }
+  .more-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 10px);
+    z-index: 4;
+    display: grid;
+    gap: 2px;
+    min-width: 210px;
+    padding: 6px;
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: var(--shadow-lift);
+    transform-origin: bottom right;
+    animation: pop 0.2s var(--ease);
+  }
+  .controls .more-menu :is(.pill-btn, .tool) {
+    width: 100%;
+    height: 48px;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 14px;
+    border-radius: 12px;
+    background: none;
+    color: var(--ink);
+    box-shadow: none;
+    font-weight: 550;
+    font-size: 15px;
+  }
+  .controls .more-menu :is(.pill-btn, .tool):active {
+    background: rgba(37, 34, 30, 0.07);
+  }
+  .controls .more-menu :is(.pill-btn span, .tool .label) {
+    display: inline;
+  }
+  .controls .more-menu svg {
+    width: 19px;
+    height: 19px;
+    color: var(--muted);
+  }
   .controls :is(.pill-btn, .tool) {
     flex: none;
   }
@@ -2013,6 +2101,7 @@ h1 a[aria-disabled] {
   }
   .scrubber {
     gap: 8px;
+    --thumb: 22px;
   }
   .scrub-when {
     min-width: 78px;
@@ -2020,9 +2109,14 @@ h1 a[aria-disabled] {
   .scrub-when strong {
     font-size: 14px;
   }
+  .scrub-play {
+    width: 44px;
+    height: 44px;
+  }
   .scrub-close {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
+    margin-left: -6px;
   }
   .help {
     display: none;
@@ -2066,6 +2160,9 @@ h1 a[aria-disabled] {
   }
   .toast {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 124px);
+  }
+  body:has(.scrubber:not([hidden])) .toast {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 196px);
   }
 }
 @media (max-width: 380px) {

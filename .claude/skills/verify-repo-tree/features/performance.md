@@ -61,3 +61,5 @@ Weather, measured on 2026-11-04 in the same sandbox at load average 7 to 8 with 
 | linux rain  | 23.0, 21.4 | 22.8, 21.8 | 6 / 19,509             | 6 / 19,045               |
 
 Sunny draws two clouds now, one more call. A storm frame that catches a lightning bolt draws one more call. Every pair is within the run-to-run spread.
+
+Rain kept on the island with about a third of the drops, 2026-11-04 at load average 2.8 to 4.4, main and branch interleaved, two runs each, spin fps: vite rain 21.6, 22.0 on main against 26.4, 24.8 (6 calls, 18,177 triangles); vite storm 21.8, 22.4 against 24.2, 25.0 (6 calls, 18,641 triangles); linux rain 22.8, 21.6 against 25.8, 25.6 (6 calls, 18,765 triangles).

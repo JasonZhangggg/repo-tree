@@ -66,6 +66,9 @@ const R = ISLAND_RADIUS;
 const H = R * SHAPE.drop;
 const D = R * SHAPE.depth;
 
+/** The island's top at `r` from the trunk, without its lumps (up to 0.3 of the rim drop either way). */
+export const surfaceAt = (r: number) => -H * Math.min(1, r / R) ** 2;
+
 /** Room the island and its grass can take, the same for every repo. */
 export const ISLAND = roundBox(R * (1 + SHAPE.wobble), -H - D * 1.15, R * 0.1);
 

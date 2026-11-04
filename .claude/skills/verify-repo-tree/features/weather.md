@@ -4,7 +4,7 @@ The scene's weather reflects the repo's recent GitHub Actions health on its defa
 
 ## Sub-features
 
-- `weather-sky` dresses the sky, light, sun, clouds, rain or snow and lightning for clear, sunny, cloudy, rain and storm. The sun and clouds are low-poly 3D objects in the island's world, so they turn with it; rain falls from under the clouds onto the island and lightning strikes from a cloud.
+- `weather-sky` dresses the sky, light, sun, clouds, rain or snow and lightning for clear, sunny, cloudy, rain and storm. The sun and clouds are low-poly 3D objects in the island's world, so they turn with it; light rain falls from under the clouds onto the island (none past its rim) and lightning strikes from a cloud.
 - `weather-chip` names the verdict and the runs behind it (`CI passing · 20 of 20 recent runs`, `CI failing · last run failed 2 hours ago`) and links to the Actions page filtered to the branch. On a phone it shows only its icon.
 - `weather-samples` gives each bundled sample its own runs snapshot (`public/samples/<id>.runs.json`): vite is sunny, dotfiles and linux have no CI.
 - `weather-preview` shows any weather from a link's `wx=clear|sunny|cloudy|rain|storm`, which the chip calls a preview.

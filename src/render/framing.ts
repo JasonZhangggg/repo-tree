@@ -8,7 +8,18 @@ const TAN_HALF_FOV = Math.tan(((FOV / 2) * Math.PI) / 180);
 export const VIEW_DIRECTION: Vec3 = [0.3, 0.12, 0.95];
 
 export type Box = { min: Vec3; max: Vec3 };
+/**
+ * The whole view looks this share of the stage's height higher (`frameTree`'s `lift`), so the
+ * island sits a little lower in the room the panels leave and the sky over the crown has room
+ * for the weather's clouds and sun. The island's round, tapering underside keeps it in frame.
+ */
+export const SKY_LIFT = 0.08;
 export type Framing = { target: Vec3; position: Vec3; minDistance: number; maxDistance: number };
+
+/** The height of the top edge of the view where it passes over the target, for a framing. */
+export function skyTop({ target, position }: Framing): number {
+  return target[1] + distanceOf(position, target) * TAN_HALF_FOV;
+}
 
 /**
  * What the whole view frames: the tallest tree any repo grows, on the island while it shows.
@@ -25,9 +36,10 @@ export function stage(ground: boolean): Box {
 /**
  * The approved mock's framing, made aspect-aware: fit the crown's bounding sphere vertically
  * and its widest horizontal extent across the narrower of the two fields of view, so the
- * crown stays in frame at any spin angle and on a portrait phone.
+ * crown stays in frame at any spin angle and on a portrait phone. `lift` raises where it looks
+ * by that share of the box's height (SKY_LIFT for the whole view).
  */
-export function frameTree({ min, max }: Box, aspect: number): Framing {
+export function frameTree({ min, max }: Box, aspect: number, lift = 0): Framing {
   const center = mid(min, max);
   const size: Vec3 = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
   const radius = Math.max(...size) * 0.62;
@@ -35,7 +47,7 @@ export function frameTree({ min, max }: Box, aspect: number): Framing {
   const a = Math.max(0.3, aspect);
   const distance =
     Math.max(radius / TAN_HALF_FOV, (across * 1.05) / (TAN_HALF_FOV * a)) * (a < 1 ? 1 : 1.05);
-  const target: Vec3 = [center[0], center[1] * 0.92, center[2]];
+  const target: Vec3 = [center[0], center[1] * 0.92 + size[1] * lift, center[2]];
   return {
     target,
     position: along(target, VIEW_DIRECTION, distance),

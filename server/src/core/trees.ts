@@ -2,8 +2,8 @@
  * Reading a repo's snapshot trees into a TreeStore (store.ts), two ways.
  *
  * GraphQL (`graphqlLoader`, the default): every tree not yet in the store is asked for once,
- * about fifty to a query as aliased `object(oid:)` lookups, breadth first across all snapshots
- * at once. Each distinct tree object costs its entries once and no request of its own, so the
+ * fifty to a hundred to a query as aliased `object(oid:)` lookups, breadth first across all
+ * snapshots at once. Each distinct tree object costs its entries once and no request of its own, so the
  * bytes follow what changed between snapshots. GraphQL needs a token; the loader backs off to
  * smaller batches when a query fails and gives up (leaving the rest to REST) when they keep
  * failing.
@@ -454,7 +454,14 @@ export function graphqlLoader(
   }
 
   function pump() {
-    while (!gaveUp && inFlight < options.concurrency && queue.length > 0) {
+    // A part batch goes only when nothing else is in flight: replies queue the next level, so
+    // waiting for them fills batches (a level of every snapshot's trees at once).
+    while (
+      !gaveUp &&
+      inFlight < options.concurrency &&
+      queue.length > 0 &&
+      (queue.length >= batch || inFlight === 0)
+    ) {
       const take = queue.splice(0, batch);
       inFlight++;
       void send(take).finally(() => {

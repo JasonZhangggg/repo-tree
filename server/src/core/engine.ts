@@ -3,9 +3,10 @@
  * wait as long as it takes: the visitor's browser (a Web Worker), with the visitor's token.
  * It reads what src/core/job.ts reads and yields the same History (summarize.ts), but:
  *
- * - snapshots are kept on the branch's first-parent chain when its mainline has one committer
- *   (Linux: Linus Torvalds; squash-merging repos: GitHub), so a snapshot is never a topic
- *   branch commit whose older base would read as churn;
+ * - snapshots are kept on the branch's first-parent chain, so a snapshot is never a topic
+ *   branch commit whose older base would read as churn: found by walking first parents through
+ *   the commit listings where they reach (exact), else, when the mainline has one committer
+ *   (Linux: Linus Torvalds), the newest of that committer's commits, else the newest by date;
  * - every distinct tree object is read once, through GraphQL many to a query (trees.ts), or,
  *   without it, through REST pruned against the newer snapshot; both fill one compact store;
  * - snapshots are folded as diffs of neighbouring trees, so the work per snapshot follows what
@@ -109,6 +110,11 @@ export type EngineStats = {
   mainline: string | null;
   /** Filtered probes sent because a page held no mainline commit before its target. */
   mainlineProbes: number;
+  /**
+   * Targets picked by walking first parents through the listings (exact), and by date (the
+   * newest commit before the target, of the mainline committer when there is one).
+   */
+  picks: { walked: number; dated: number };
   /**
    * Per snapshot, newest first: REST requests and entries charged to it, and the entries of
    * tree objects it was the first (newest) snapshot to hold (what GraphQL pays for it).
@@ -278,6 +284,7 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
   // so every target takes its own request anyway: send them all at once.
   const parallelProbes = !firstComplete && span < 3.5 * DAY;
   let mainlineProbes = 0;
+  const picks = { walked: 0, dated: 0 };
   const samples = probeSamples({
     head,
     root,
@@ -301,6 +308,7 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
       );
       return r.commits[0];
     },
+    walked: (exact) => (exact ? picks.walked++ : picks.dated++),
     signal,
   });
 
@@ -454,6 +462,7 @@ export async function computeHistory(options: EngineOptions): Promise<History> {
     parallelProbes,
     mainline,
     mainlineProbes,
+    picks,
     perSnapshot,
   });
   options.onProgress?.(1);
@@ -491,22 +500,41 @@ type Probing = {
   page: (target: number) => Promise<CommitSummary[]>;
   /** The newest mainline commit before a target, for a page that held none. */
   pick: (target: number) => Promise<CommitSummary | undefined>;
+  /** Tallies whether a pick was found by walking first parents (exact) or by date. */
+  walked: (exact: boolean) => void;
   signal: AbortSignal | undefined;
 };
 
 /**
  * The snapshots newest first, each with the authors of the listed commits between it and the
  * newer one: job.ts's probe phase, one commit per target time, a page reused while it reaches
- * the next target; with a mainline committer, the newest of that committer's commits.
+ * the next target; the first-parent ancestor of the newer snapshot where the listings reach
+ * it, else with a mainline committer, the newest of that committer's commits.
  */
 async function* probeSamples(p: Probing): AsyncGenerator<{ sample: Sample; between: Counts }> {
   yield { sample: p.head, between: {} };
   const targets = await p.targets();
   const pages = p.parallel ? targets.map((t) => p.page(t)) : [];
   for (const page of pages) page.catch(() => undefined);
+  /** Every commit listed so far, by sha, to walk first parents through. */
+  const known = new Map<string, CommitSummary>();
+  const learn = (listing: readonly CommitSummary[]) => {
+    for (const c of listing) known.set(c.sha, c);
+  };
+  /**
+   * The newest first-parent ancestor of `from` at or before the target, when the listings so
+   * far hold the chain that far down (exact, whatever the history's shape); else undefined.
+   */
+  const walk = (from: string, target: number) => {
+    for (let c = known.get(from); c; c = known.get(c.parents[0] ?? '')) {
+      if (c.at <= target) return c;
+    }
+    return undefined;
+  };
   const pickIn = (listing: readonly CommitSummary[], target: number) =>
     listing.find((c) => c.at <= target && (!p.mainline || c.committer === p.mainline));
   let listing = p.first;
+  learn(listing);
   let complete = p.complete;
   let newer = p.head;
   for (let k = 0; k < targets.length; k++) {
@@ -514,17 +542,17 @@ async function* probeSamples(p: Probing): AsyncGenerator<{ sample: Sample; betwe
     const target = targets[k]!;
     const oldestListed = listing[listing.length - 1];
     const covers = oldestListed !== undefined && (oldestListed.at <= target || complete);
-    let found: CommitSummary | undefined;
-    let between: Counts;
-    if (covers) {
-      found = pickIn(listing, target);
-      between = found ? countAuthors(listing, found.at, newer.at) : {};
-    } else {
+    let between: Counts = {};
+    if (!covers) {
       between = countAuthors(listing, target, newer.at);
       listing = await (pages[k] ?? p.page(target));
+      learn(listing);
       complete = listing.length < PER_PAGE;
-      found = pickIn(listing, target);
     }
+    const exact = walk(newer.sha, target);
+    let found = exact ?? pickIn(listing, target);
+    if (covers && found) between = countAuthors(listing, found.at, newer.at);
+    p.walked(exact !== undefined);
     if (!found && p.mainline) {
       found = (await p.pick(target)) ?? listing.find((c) => c.at <= target);
     }

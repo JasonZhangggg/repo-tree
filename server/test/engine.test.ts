@@ -505,11 +505,10 @@ describe('commit files', () => {
 
 describe('first-parent snapshots', () => {
   /**
-   * A mainline committed by `linus` that merges a topic branch each week; the topic commits are
-   * committed by `dev` after the mainline commit they fork from, so the newest commit before a
-   * target is often on a branch.
+   * A mainline committed by `linus` that merges a topic branch each week, the topic commits
+   * committed by `topic`.
    */
-  function merged() {
+  function merged(topic = 'dev') {
     const dir = mkdtempSync(join(tmpdir(), 'history-merge-'));
     const git = (args: string[], who = 'linus', at = 0) =>
       execFileSync('git', ['-C', dir, ...args], {
@@ -525,7 +524,7 @@ describe('first-parent snapshots', () => {
         },
       }).trim();
     git(['init', '-q', '-b', 'main']);
-    const start = HEAD - 12 * 7 * DAY;
+    const start = HEAD - 12 * 7 * DAY - 3 * DAY;
     const write = (path: string, text: string) => {
       mkdirSync(dirname(join(dir, path)), { recursive: true });
       writeFileSync(join(dir, path), text);
@@ -533,37 +532,49 @@ describe('first-parent snapshots', () => {
     };
     write('main.txt', '0');
     git(['commit', '-q', '-m', 'root'], 'linus', start);
-    for (let w = 1; w <= 12; w++) {
+    // Each week: a mainline commit on day 1, topic commits on days 2 and 2.5, the merge on day
+    // 4. The head lands on day 3, so every weekly target falls between a topic commit and its
+    // merge, where the newest commit by date is on the topic branch.
+    for (let w = 0; w < 12; w++) {
       const at = start + w * 7 * DAY;
       git(['checkout', '-q', '-b', `t${w}`]);
       for (let k = 0; k < 2; k++) {
         write(`topic/${w}-${k}.txt`, String(k));
-        git(['commit', '-q', '-m', `topic ${w}.${k}`], 'dev', at - 3 * DAY + k * DAY);
+        git(['commit', '-q', '-m', `topic ${w}.${k}`], topic, at + 2 * DAY + k * DAY * 0.5);
       }
       git(['checkout', '-q', 'main']);
-      write('main.txt', String(w));
-      git(['commit', '-q', '-m', `main ${w}`], 'linus', at - 4 * DAY);
-      git(['merge', '-q', '--no-ff', '--no-edit', `t${w}`], 'linus', at - 2 * DAY + 12 * 3600_000);
+      write('main.txt', String(w + 1));
+      git(['commit', '-q', '-m', `main ${w}`], 'linus', at + DAY);
+      git(['merge', '-q', '--no-ff', '--no-edit', `t${w}`], 'linus', at + 4 * DAY);
     }
+    write('main.txt', 'head');
+    git(['commit', '-q', '-m', 'head'], 'linus', start + 12 * 7 * DAY + 3 * DAY);
     const chain = new Set(git(['rev-list', '--first-parent', 'main']).split('\n'));
     return { dir, chain, remove: () => rmSync(dir, { recursive: true, force: true }) };
   }
 
   it('picks every snapshot on the first-parent chain', async () => {
-    const m = merged();
-    let stats: EngineStats | undefined;
-    const h = await computeHistory({
-      fetch: gitHubFetch({ 'acme/m': { dir: m.dir } }) as unknown as typeof fetch,
-      api: API,
-      repo: 'acme/m',
-      branch: 'main',
-      recentCommits: 0,
-      onStats: (s) => (stats = s),
-    });
-    m.remove();
-    expect(stats!.mainline).toBe('linus@example.com');
-    expect(h.snapshots.length).toBeGreaterThan(8);
-    for (const s of h.snapshots) expect(m.chain.has(s.sha)).toBe(true);
+    // Topic commits by another committer (Linux), and by the same one (where only walking
+    // first parents through the listings tells them apart).
+    const walked: number[] = [];
+    for (const topic of ['dev', 'linus']) {
+      const m = merged(topic);
+      let stats: EngineStats | undefined;
+      const h = await computeHistory({
+        fetch: gitHubFetch({ 'acme/m': { dir: m.dir } }) as unknown as typeof fetch,
+        api: API,
+        repo: 'acme/m',
+        branch: 'main',
+        recentCommits: 0,
+        onStats: (s) => (stats = s),
+      });
+      m.remove();
+      expect(stats!.mainline).toBe('linus@example.com');
+      expect(h.snapshots.length).toBeGreaterThan(8);
+      for (const s of h.snapshots) expect(m.chain.has(s.sha)).toBe(true);
+      walked.push(stats!.picks.walked);
+    }
+    expect(Math.min(...walked)).toBeGreaterThan(0);
   }, 60_000);
 
   it('keeps the date pick for a linear history', () => {

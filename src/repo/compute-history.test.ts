@@ -50,10 +50,33 @@ describe('computeHistoryInWorker', () => {
     expect(await done).toEqual({ status: 'error', error: { kind: 'rate-limited', resetAt: 5 } });
   });
 
+  test("keeps a failed run's worker to resume the same repo, and only that", async () => {
+    const first = fakeWorker();
+    const failed = computeHistoryInWorker(ref, 'dev', { spawn: () => first.worker });
+    first.worker.reply({ error: { kind: 'upstream' } });
+    await failed;
+    expect(first.worker.terminated).toBe(false);
+    const unused = fakeWorker();
+    const again = computeHistoryInWorker(ref, 'dev', { spawn: () => unused.worker });
+    expect(first.sent).toHaveLength(2);
+    first.worker.reply({ history: { v: 1 } as History });
+    await again;
+    expect(first.worker.terminated).toBe(true);
+
+    const third = fakeWorker();
+    const failing = computeHistoryInWorker(ref, 'dev', { spawn: () => third.worker });
+    third.worker.reply({ error: { kind: 'upstream' } });
+    await failing;
+    const other = fakeWorker();
+    void computeHistoryInWorker({ owner: 'a', repo: 'b' }, 'dev', { spawn: () => other.worker });
+    expect(third.worker.terminated).toBe(true);
+    expect(other.sent).toHaveLength(1);
+  });
+
   test('abort terminates the worker and rejects', async () => {
     const { worker } = fakeWorker();
     const controller = new AbortController();
-    const done = computeHistoryInWorker(ref, 'main', {
+    const done = computeHistoryInWorker(ref, 'aborted', {
       spawn: () => worker,
       signal: controller.signal,
     });

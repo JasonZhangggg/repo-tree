@@ -18,7 +18,8 @@
 // derived from the sha (33 B to 22 KB, log-uniform), and /commits/{sha} files carry no `patch`
 // (real ones do, so real per-commit bodies are larger than these).
 import { execFile, spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -59,6 +60,8 @@ export function gitHubFetch(repos, options = {}) {
     bytes: 0,
     /** Uncompressed body bytes. */
     raw: 0,
+    /** Request body bytes sent up (GraphQL queries), uncompressed as browsers send them. */
+    up: 0,
     /** @type {Record<string, Tally>} */
     kinds: {},
     /** Most requests in flight at once. */
@@ -94,6 +97,9 @@ export function gitHubFetch(repos, options = {}) {
       tally.requests++;
       tally.bytes += gz.length;
       tally.raw += Buffer.byteLength(text);
+      const sent = init.body ? Buffer.byteLength(String(init.body)) : 0;
+      tally.up = (tally.up ?? 0) + sent;
+      state.up += sent;
       state.bytes += gz.length;
       state.raw += Buffer.byteLength(text);
       options.log?.(`${status} ${url.pathname}${url.search.replace(/code=[^&]*/, 'code=…')}`);
@@ -226,8 +232,10 @@ export function gitHubFetch(repos, options = {}) {
           .split('\0')
           .filter(Boolean)
           .map((line) => toCommit(line, fullName));
-        // Counting is slow on big histories, and only one-per-page listings have their Link read.
-        const total = per === 1 ? Number((await git('rev-list', '--count', ...range)).trim()) : 0;
+        // Counting is slow on big histories, and only the unfiltered one-per-page listing (the
+        // root probe) has its Link read.
+        const total =
+          per === 1 && !committer ? Number((await git('rev-list', '--count', ...range)).trim()) : 0;
         const last = Math.max(1, Math.ceil(total / per));
         const extra = /** @type {Record<string, string>} */ ({});
         if (last > 1) {
@@ -409,6 +417,28 @@ export function gitHubFetch(repos, options = {}) {
 
 /** @param {string} dir @param {string[]} args @returns {Promise<string>} */
 function run(dir, args) {
+  // FAKE_GIT_CACHE=<dir>: keep history walks (log, rev-list) on disk, so a measured run times
+  // the engine and the modelled network rather than git walking a big history.
+  const cacheDir = process.env.FAKE_GIT_CACHE;
+  if (cacheDir && (args[0] === 'log' || args[0] === 'rev-list')) {
+    const file = join(
+      cacheDir,
+      createHash('sha1')
+        .update(JSON.stringify([dir, args]))
+        .digest('hex'),
+    );
+    if (existsSync(file)) return Promise.resolve(readFileSync(file, 'utf8'));
+    return runGit(dir, args).then((out) => {
+      mkdirSync(cacheDir, { recursive: true });
+      writeFileSync(file, out);
+      return out;
+    });
+  }
+  return runGit(dir, args);
+}
+
+/** @param {string} dir @param {string[]} args @returns {Promise<string>} */
+function runGit(dir, args) {
   return new Promise((resolve, reject) =>
     execFile(
       'git',
@@ -732,12 +762,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     }
     const staticDir = process.env.FAKE_STATIC;
     if (staticDir && req.url?.startsWith('/__static/')) {
-      // A page and worker bundle served from this origin (scripts/measure-browser.mjs).
+      // A page and worker bundle served from this origin, to measure the engine in a browser.
       const file = join(staticDir, req.url.slice('/__static/'.length).split('?')[0] ?? '');
       try {
         const bytes = readFileSync(file);
         const type = file.endsWith('.html') ? 'text/html' : 'text/javascript';
-        res.writeHead(200, { 'content-type': type });
+        // Cross-origin isolated, so the page can call performance.measureUserAgentSpecificMemory.
+        res.writeHead(200, {
+          'content-type': type,
+          'cross-origin-opener-policy': 'same-origin',
+          'cross-origin-embedder-policy': 'require-corp',
+        });
         res.end(bytes);
       } catch {
         res.writeHead(404);

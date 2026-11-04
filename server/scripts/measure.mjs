@@ -2,14 +2,17 @@
 // Measures what computing a repo's history costs on GitHub: requests, bytes on the wire (gzipped,
 // as GitHub serves them) and wall time, against scripts/fake-github.mjs over local clones.
 //
-//   node scripts/measure.mjs [--engine worker|browser|both] [--clones <dir>] [--rtt <ms>]
-//     [--mbps <megabits>] [--concurrency <n>] [--out <dir>] [repo ...]
+//   node scripts/measure.mjs [--engine worker|browser|both] [--reader graphql|rest]
+//     [--clones <dir>] [--rtt <ms>] [--mbps <megabits>] [--concurrency <n>] [--out <dir>]
+//     [--remote <fake server url>] [--per-snapshot] [--json] [repo ...]
 //
 // repo: linux, vite, dotfiles (default: all three), or owner/name=<git dir>. --clones holds
 // <name>.git for the short names. `worker` runs the server's step job (src/core/job.ts) as the
 // Worker would, step after step; `browser` runs the in-browser engine (src/core/engine.ts).
 // --rtt / --mbps model a network (default 60 ms, 40 Mbit/s on one shared link) so concurrency
 // shows in wall time; --rtt 0 turns the model off. --out writes each history as JSON for diffing.
+// Set FAKE_GIT_CACHE=<dir> to keep the fake's history walks on disk: a second run then times the
+// engine and the modelled network, not git walking Linux's history for each probe.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { register } from 'node:module';
@@ -47,6 +50,7 @@ const { values, positionals } = parseArgs({
     snapshots: { type: 'string' },
     remote: { type: 'string' },
     budget: { type: 'string' },
+    reader: { type: 'string' },
     'per-snapshot': { type: 'boolean', default: false },
     json: { type: 'boolean', default: false },
   },
@@ -130,6 +134,7 @@ for (const t of targets) {
         ...(values.recent ? { recentCommits: Number(values.recent) } : {}),
         ...(values.snapshots ? { maxSnapshots: Number(values.snapshots) } : {}),
         ...(values.budget ? { treeBudget: Number(values.budget) } : {}),
+        ...(values.reader ? { reader: values.reader } : {}),
         onStats: (/** @type {any} */ s) => (stats = s),
       });
     }
@@ -143,6 +148,7 @@ for (const t of targets) {
       requests: s.requests,
       bytes: s.bytes,
       raw: s.raw,
+      up: s.up ?? 0,
       ms: Math.round(ms),
       peakInFlight: s.peakInFlight,
       peakHeapMB: Math.round((peakHeap - base.heapUsed) / 1e6),
@@ -154,13 +160,31 @@ for (const t of targets) {
         Object.entries(s.kinds).map(([k, v]) => [k, `${v.requests} req ${mb(v.bytes)} MB`]),
       ),
     };
-    rows.push({ ...row, reader: stats?.trees });
+    rows.push({
+      ...row,
+      ...(stats
+        ? {
+            split: stats.requests,
+            rest: stats.rest,
+            graphql: stats.graphql,
+            store: stats.store,
+            retried: stats.retried,
+            mainline: stats.mainline,
+            mainlineProbes: stats.mainlineProbes,
+            picks: stats.picks,
+            perSnapshot: stats.perSnapshot,
+            shas: history.snapshots.map((/** @type {{ sha: string }} */ x) => x.sha),
+          }
+        : {}),
+    });
     if (stats && values['per-snapshot'] && !values.json) {
       const per = stats.perSnapshot.map(
-        (/** @type {{ requests: number, entries: number }} */ p, /** @type {number} */ j) =>
-          `${j}:${p.requests}/${p.entries}`,
+        (
+          /** @type {{ requests: number, entries: number, fresh: number }} */ p,
+          /** @type {number} */ j,
+        ) => `${j}:${p.requests}/${p.entries}/${p.fresh}`,
       );
-      console.error(`per snapshot (requests/entries): ${per.join(' ')}`);
+      console.error(`per snapshot (REST requests/REST entries/fresh entries): ${per.join(' ')}`);
     }
     if (values.out) {
       mkdirSync(values.out, { recursive: true });
@@ -169,7 +193,7 @@ for (const t of targets) {
     if (!values.json) {
       console.log(
         `${row.repo.padEnd(9)} ${row.engine.padEnd(8)} ${String(row.requests).padStart(6)} req ` +
-          `${mb(row.bytes).padStart(8)} MB gz (${mb(row.raw)} MB raw) ${(row.ms / 1000).toFixed(1).padStart(6)} s  ` +
+          `${mb(row.bytes).padStart(8)} MB gz (${mb(row.raw)} MB raw, ${mb(row.up)} MB up) ${(row.ms / 1000).toFixed(1).padStart(6)} s  ` +
           `heap +${row.peakHeapMB} MB rss ${row.peakRssMB} MB  in flight ${row.peakInFlight}  ` +
           `${row.snapshots} snapshots ${row.files} files gaps ${row.gaps}`,
       );
@@ -180,7 +204,9 @@ for (const t of targets) {
       );
       if (stats)
         console.log(
-          `          reader: ${JSON.stringify(stats.trees)} probes in parallel: ${stats.parallelProbes} rows: ${stats.rows}`,
+          `          requests: ${JSON.stringify(stats.requests)} retried ${stats.retried} rest: ${JSON.stringify(stats.rest)}\n` +
+            `          graphql: ${JSON.stringify(stats.graphql)} store: ${JSON.stringify(stats.store)}\n` +
+            `          mainline: ${stats.mainline} (${stats.mainlineProbes} filtered probes) parallel probes: ${stats.parallelProbes} rows: ${stats.rows}`,
         );
     }
   }
@@ -213,6 +239,7 @@ async function remoteFake(base) {
         requests: after.requests - before.requests,
         bytes: after.bytes - before.bytes,
         raw: after.raw - before.raw,
+        up: (after.up ?? 0) - (before.up ?? 0),
         peakInFlight: after.peakInFlight,
         kinds,
       };

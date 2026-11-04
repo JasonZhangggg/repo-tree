@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import { expect, test, type Page } from '@playwright/test';
+import { serveSampleRuns } from './github';
 import { settle } from './view';
 
 const SAMPLES = {
@@ -33,6 +34,7 @@ async function open(page: Page, sample: Sample, errors: string[]) {
     if (msg.type() === 'error') errors.push(msg.text());
   });
   page.on('pageerror', (err) => errors.push(err.message));
+  await serveSampleRuns(page);
   await page.addInitScript(() =>
     localStorage.setItem('repo-tree:settings', JSON.stringify({ spin: false, quality: 'high' })),
   );

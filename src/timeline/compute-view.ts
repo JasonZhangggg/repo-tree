@@ -114,10 +114,14 @@ export function describeStep(
         title: 'The history could not be finished',
         lines: [{ kind: 'note', text: failure(step.error) }],
         buttons: [
-          {
-            label: step.error.kind === 'unauthorized' ? 'Sign in with GitHub' : 'Try again',
-            act: 'start',
-          },
+          ...(step.error.kind === 'not-default-branch'
+            ? []
+            : [
+                {
+                  label: step.error.kind === 'unauthorized' ? 'Sign in with GitHub' : 'Try again',
+                  act: 'start' as const,
+                },
+              ]),
           { label: 'Close', act: 'close' },
         ],
       };
@@ -135,5 +139,7 @@ function failure(error: ComputeError): string {
       return 'GitHub has no such repository or branch, or it has no commits.';
     case 'upstream':
       return 'GitHub stopped answering. Try again; it continues where it stopped.';
+    case 'not-default-branch':
+      return `Histories are kept for each repo's default branch, ${error.defaultBranch}. Open the repo on ${error.defaultBranch} to see its timeline.`;
   }
 }

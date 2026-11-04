@@ -322,10 +322,9 @@ export function mountHeader(app: App): void {
           class: 'icon-btn',
           'aria-label': 'Reload from GitHub',
           title: 'Reload from GitHub, skipping the cache',
-          onclick: () =>
-            app.load({ ...repo.info.ref, ref: repo.info.branch } as typeof repo.info.ref, {
-              fresh: true,
-            }),
+          // The ref as it was asked for: pinning the branch here would make the reload a
+          // branch link, which reads history but is never offered to compute one.
+          onclick: () => app.load(repo.info.ref, { fresh: true }),
         },
         icon(...ICONS.reload),
       ),

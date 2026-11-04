@@ -330,7 +330,7 @@ export function mountHeader(app: App): void {
       return;
     }
     link.removeAttribute('aria-disabled');
-    link.href = githubUrl(repo.info.ref);
+    link.href = byId<HTMLAnchorElement>('open-github').href = githubUrl(repo.info.ref);
     link.title = 'Open on GitHub';
     const { folders } = repo.index;
     const langs = repo.index.langs.filter((l) => l !== 'Other').length;
@@ -340,7 +340,8 @@ export function mountHeader(app: App): void {
       h(
         'a',
         {
-          class: 'branch',
+          // On a phone the default branch goes unsaid; a branch asked for by link still shows.
+          class: repo.info.ref.ref === undefined ? 'branch default' : 'branch',
           href: githubUrl(repo.info.ref, repo.info.branch),
           target: '_blank',
           rel: 'noopener',

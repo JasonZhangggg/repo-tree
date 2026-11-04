@@ -115,6 +115,10 @@ test('the phone row keeps four buttons and the rest sit behind More actions', as
   await expect(more).toHaveAttribute('aria-expanded', 'true');
   for (const name of ['Grow again', 'Spin', /Copy link/, 'Export PNG'])
     await expect(menu.getByRole('button', { name })).toBeVisible();
+  await expect(menu.getByRole('link', { name: 'Open on GitHub' })).toHaveAttribute(
+    'href',
+    'https://github.com/vitejs/vite',
+  );
 
   await menu.getByRole('button', { name: 'Spin' }).tap();
   await expect(menu).toBeHidden();

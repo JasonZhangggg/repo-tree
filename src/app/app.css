@@ -1520,8 +1520,11 @@ h1 a[aria-disabled] {
   width: 340px;
   max-height: calc(100% - 86px);
   overflow: auto;
+  overflow-x: hidden;
   padding: 18px;
   display: grid;
+  /* One column no wider than the panel: a long row wraps instead of widening it past the edge. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   transform-origin: top right;
 }
@@ -1589,6 +1592,8 @@ h1 a[aria-disabled] {
 }
 .settings .seg {
   display: flex;
+  flex-wrap: wrap;
+  border-radius: 18px;
 }
 .settings .seg button {
   flex: 1;
@@ -1871,6 +1876,40 @@ body:has(.scrubber:not([hidden])) .toast {
   color: var(--muted);
   font-size: 12.5px;
 }
+.ci-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ci-glyph {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--wash);
+  color: var(--muted);
+  flex: none;
+}
+.ci-glyph svg {
+  width: 20px;
+  height: 20px;
+}
+.ci-card[data-sky='sunny'] .ci-glyph {
+  color: #c47a12;
+  background: rgba(240, 170, 40, 0.13);
+}
+.ci-card[data-sky='rain'] .ci-glyph {
+  color: #3f6690;
+  background: rgba(63, 102, 144, 0.11);
+}
+.ci-card[data-sky='storm'] .ci-glyph {
+  color: #3b4350;
+  background: rgba(59, 67, 80, 0.14);
+}
+.ci-card .actions {
+  justify-content: flex-end;
+}
 .compute .compute-progress {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -2039,6 +2078,9 @@ body:has(.scrubber:not([hidden])) .toast {
   /* The row's buttons never clip: the branch shortens first, and the file count goes when narrow. */
   .meta .branch {
     min-width: 0;
+  }
+  .meta .branch.default {
+    display: none;
   }
   .meta .branch span {
     min-width: 0;
@@ -2249,6 +2291,9 @@ body:has(.scrubber:not([hidden])) .toast {
     animation: pop 0.2s var(--ease);
   }
   .controls .more-menu :is(.pill-btn, .tool) {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
     width: 100%;
     height: 48px;
     justify-content: flex-start;

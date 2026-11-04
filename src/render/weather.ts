@@ -413,6 +413,23 @@ export function createWeather(camera: PerspectiveCamera) {
   return {
     /** Objects to add to the scene, all in world space over the island. */
     objects: [sun, clouds, fall, bolt],
+    /**
+     * The sun and each cloud out now, as a center and radius in world space, for telling a
+     * tap on the sky: the sun to its halo, a cloud to its puffs.
+     */
+    targets(): { x: number; y: number; z: number; r: number }[] {
+      const out: { x: number; y: number; z: number; r: number }[] = [];
+      if (sun.visible) {
+        const { x, y, z } = sun.position;
+        out.push({ x, y, z, r: SUN_DISCS[0]! * SUN.scale });
+      }
+      if (clouds.visible) {
+        for (const c of clouds$.value) {
+          if (c.w > 0) out.push({ x: c.x, y: c.y + 0.25 * c.w, z: c.z, r: 0.85 * c.w });
+        }
+      }
+      return out;
+    },
     /** Whether the weather moves, so the view keeps rendering. */
     animated,
     set(next: { sky: Sky | null; palette: Palette; quality: Quality; still: boolean }) {

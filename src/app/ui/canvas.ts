@@ -4,6 +4,7 @@ import { debug } from '../debug';
 import { byId, h } from '../dom';
 import { bytes, count, plural } from '../format';
 import { pickLabels, relaxLabels, type LabelPick } from '../labels';
+import { mountCiCard } from './ci-card';
 import type { AppState, Repo, Selection } from '../state';
 import type { Picked } from '../../render/tree-view';
 
@@ -44,6 +45,11 @@ export function mountCanvas(app: App): {
   const container = byId('view');
   const tip = byId('tip');
   const layer = byId('labels');
+  const ci = mountCiCard(app);
+  // The CI chip explains the sky the same way before it leaves for GitHub.
+  byId('weather').addEventListener('click', (event) => {
+    if (ci.open()) event.preventDefault();
+  });
 
   let hovered: Picked | null = null;
   let pointer: { x: number; y: number; clientX: number; clientY: number } | null = null;
@@ -107,6 +113,8 @@ export function mountCanvas(app: App): {
     const picked = pointer ? view.pickAt(pointer.x, pointer.y) : null;
     setHovered(picked);
     showTip(picked);
+    // The sun and clouds open the CI card, so they take a pointer too.
+    if (!picked && pointer && view.skyAt(pointer.x, pointer.y)) container.style.cursor = 'pointer';
   };
 
   container.addEventListener('pointermove', (event) => {
@@ -149,7 +157,10 @@ export function mountCanvas(app: App): {
     const pill = pillAt(event.clientX, event.clientY);
     if (pill) return app.select({ folder: pill.folder }, true);
     const rect = container.getBoundingClientRect();
-    const picked = view.pickAt(event.clientX - rect.left, event.clientY - rect.top);
+    const [x, y] = [event.clientX - rect.left, event.clientY - rect.top];
+    const picked = view.pickAt(x, y);
+    // A tap on the sky says what it stands for, and keeps the pin as it was.
+    if (picked === null && view.skyAt(x, y) && ci.open()) return;
     const repo = store.get().repo;
     app.select(picked === null || !repo ? null : selectionOf(repo, picked));
   });

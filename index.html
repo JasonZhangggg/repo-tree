@@ -92,7 +92,15 @@
             <circle cx="18" cy="12" r="1.2" />
           </svg>
         </button>
-        <div class="more-menu" id="more-menu" role="group" aria-label="More actions" hidden></div>
+        <div class="more-menu" id="more-menu" role="group" aria-label="More actions" hidden>
+          <a class="tool" id="open-github" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M14 5h5v5m0-5-8 8" />
+              <path d="M18 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4" />
+            </svg>
+            <span class="label">Open on GitHub</span>
+          </a>
+        </div>
       </nav>
     </header>
 
@@ -240,6 +248,15 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="compute-title"
+      hidden
+    ></div>
+    <div class="scrim" id="ci-scrim" hidden></div>
+    <div
+      class="dialog compute ci-card"
+      id="ci-card"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ci-title"
       hidden
     ></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

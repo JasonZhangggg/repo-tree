@@ -597,3 +597,13 @@ test('the history button is dark, like the other primary action', async ({ page 
   const bg = await page.locator('#timeline').evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(bg).toBe('rgb(37, 34, 30)');
 });
+
+test('settings fit their panel without a sideways scroll', async ({ page }) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const panel = page.locator('#settings');
+  await expect(panel).toBeVisible();
+  const [scroll, client] = await panel.evaluate((el) => [el.scrollWidth, el.clientWidth]);
+  expect(scroll, 'no content past the right edge').toBeLessThanOrEqual(client);
+});

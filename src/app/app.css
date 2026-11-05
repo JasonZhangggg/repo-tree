@@ -2678,3 +2678,14 @@ body:has(.scrubber:not([hidden])) .toast {
     transition-duration: 0.01ms !important;
   }
 }
+.pr-card .pr-glyph {
+  color: var(--bird);
+  background: color-mix(in srgb, var(--bird) 14%, transparent);
+}
+.pr-card h2 {
+  overflow-wrap: anywhere;
+}
+.pr-card .pr-meta {
+  color: var(--muted);
+  font-size: 13.5px;
+}

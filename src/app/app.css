@@ -1672,6 +1672,13 @@ h1 a[aria-disabled] {
   font-size: 12.5px;
   line-height: 1.45;
 }
+/* What's left of GitHub's hourly budget, over whose budget it is. */
+.field .rate {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 .swatches {
   display: grid;
   grid-template-columns: 1fr 1fr;

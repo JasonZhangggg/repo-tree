@@ -40,6 +40,10 @@ type LoadError =
 function fetchSnapshot(ref: RepoRef, token?: string, signal?: AbortSignal, onBranch?: (branch: string) => void): Promise<Snapshot | LoadError>; // rejects only on abort; onBranch as soon as the branch is known
 function loadSample(id: string, base?: string): Promise<Snapshot | LoadError>; // <base>samples/<id>.json.gz; a worker passes the page's base
 
+// repo/rate-limit.ts  (boundary: network)
+type RateLimit = { limit: number; remaining: number; resetAt: number /* ms */ };
+function fetchRateLimit(token?: string, signal?: AbortSignal): Promise<RateLimit | null>; // GET /rate_limit resources.core (not counted against the limit); null on any failure
+function describeRateLimit(rate: RateLimit, now?: number): string; // "4,812 of 5,000 left, resets at 6:42 PM"; "resets within a minute" when due
 // repo/ci.ts  (boundary: network, plus the pure health rule)
 type CiRun = { passed: boolean; at: number /* ms, when it finished */ };
 type Sky = 'clear' | 'sunny' | 'cloudy' | 'rain' | 'storm'; // clear: no CI to report on

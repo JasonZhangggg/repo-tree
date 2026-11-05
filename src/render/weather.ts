@@ -138,7 +138,7 @@ const DECK_RATE = 2.5;
  * The night sky in dark mode, the same for every palette: deep blue behind the crown fading to
  * near black at the corners. A weather's tint darkens `dim` of the way to `edge` at night.
  */
-export const NIGHT = { center: '#1f2a44', edge: '#080b14', dim: 0.78 };
+export const NIGHT = { center: '#141c30', edge: '#04060c', dim: 0.85 };
 
 /**
  * The palette's sky center and edge with the weather mixed in, as sRGB; at `night` the night
@@ -160,8 +160,12 @@ export function weatherSky(
   };
 }
 
-/** How much the key and hemisphere lights keep at night: moonlight, dim but the same hue. */
-export const MOONLIGHT = { key: 0.5, sky: 0.55 };
+/**
+ * How much of each light the scene keeps at night: moonlight, dim enough that leaves, bark and
+ * ground fall into shadow, but the same hue so leaf colors stay the palette's. Glowing leaves
+ * light themselves, so they stand out.
+ */
+export const MOONLIGHT = { key: 0.14, sky: 0.2, fill: 0.25 };
 
 /** How much of the palette's key and hemisphere light the weather lets through. */
 export const weatherLight = (sky: Sky | null) => LOOKS[sky ?? 'clear'].light;

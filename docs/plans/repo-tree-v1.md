@@ -269,7 +269,7 @@ interface TreeView {
   pickAt(x: number, y: number): { folder: number; rock?: number } | null; // folder or rock under a CSS pixel of the container; a rock's folder is 0
   setGround(on: boolean): void; // the island with its rocks and grass, or the bare baked shadow; framing includes it while shown
   setWeather(weather: { sky: Sky; still: boolean } | null): void; // sky tint, light, and in world space over the island a low-poly sun, low-poly clouds above the crown, rain or snow falling from them, lightning from a cloud; moving weather keeps rendering unless still
-  setNight(on: boolean): void; // dark mode: a fixed night sky (NIGHT) with stars, the moon (a lit crescent, no rays) in the sun's place, clouds darkened toward the sky, and key and hemisphere light scaled by MOONLIGHT keeping their hue, so leaf colors stay the palette's and glowing leaves stand out
+  setNight(on: boolean): void; // dark mode: a fixed night sky (NIGHT) with stars, the moon (a lit crescent, no rays) in the sun's place, clouds darkened toward the sky, and key, fill and hemisphere light scaled by MOONLIGHT keeping their hue (leaves, bark and ground read darker), so leaf colors stay the palette's and glowing leaves stand out
   setQuality(q: Quality): void; // pixel ratio, shadow map size, antialias (swaps the canvas)
   setSpin(on: boolean): void;
   setReducedMotion(on: boolean): void;

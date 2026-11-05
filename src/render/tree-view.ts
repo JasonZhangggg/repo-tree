@@ -322,7 +322,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   scene.add(terrain.land, terrain.cover);
   let groundOn = options.ground;
   let night = options.night;
-  const moonlight = () => (night ? MOONLIGHT : { key: 1, sky: 1 });
+  const moonlight = () => (night ? MOONLIGHT : { key: 1, sky: 1, fill: 1 });
   const weather = createWeather(camera);
   scene.add(...weather.objects);
   let weatherShown: Weather | null = null;
@@ -735,6 +735,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     showFlash(0);
     treeUniforms.uFade.value = [0, 1, 2].map((i) => (center[i]! + edge[i]!) / 2) as Vec3;
     key.intensity = LIGHT.key * weatherLight(kind).key * moonlight().key;
+    fill.intensity = LIGHT.fill * moonlight().fill;
     weather.set({ sky: kind, palette, quality, still: weatherShown?.still ?? true, night });
     requestRender();
   };

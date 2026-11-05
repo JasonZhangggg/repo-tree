@@ -214,7 +214,7 @@ const FALL_MS = 2600;
 /** A leaf is six triangles of its own three vertices each (grow.ts `leaf`). */
 const LEAF_VERTICES = 18;
 /** The glow's warm amber, in sRGB. */
-const GLOW_COLOR = '#ffa21f';
+const GLOW_COLOR = '#ff8f0f';
 /** A birth past any cursor: the element never shows. */
 const NEVER = ALWAYS * 4;
 

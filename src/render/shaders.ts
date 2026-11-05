@@ -130,10 +130,6 @@ vec3 offsetHSL(vec3 c, float dh, float dl) {
 }
 `;
 
-/** A hot leaf stands HOT_SIZE times as large about its stem, so a few read in a big crown. */
-const HOT_GROW = /* glsl */ `
-transformed = aBase + (transformed - aBase) * (1.0 + (HOT_SIZE - 1.0) * step(0.001, aHeat));
-`;
 /** A falling leaf tumbles about its stem as it drops and drifts, then shrinks away on the ground. */
 const FALL = /* glsl */ `
 if (aFall > 0.5 && uFall > 0.0) {
@@ -167,7 +163,7 @@ totalEmissiveRadiance += uGlowColor * (step(0.001, vHeat) * (0.55 + 0.45 * vHeat
 const CALM = /* glsl */ `
 if (uCalm > 0.5 && vHeat <= 0.0) {
   float l = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, mix(vec3(l), uFade, 0.35), CALM);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(l * 0.7), CALM);
 }
 `;
 
@@ -210,12 +206,11 @@ export const barkShader = <M extends Material>(m: M) =>
 export const leafShader = <M extends Material>(m: M, slots: number) =>
   hook(m, `leaf${slots}`, (shader) => {
     shader.vertexShader =
-      `#define SLOTS ${slots}\n#define HOT_SIZE 2.0\n` +
+      `#define SLOTS ${slots}\n` +
       LEAF_VERTEX +
       shader.vertexShader.replace(
         '#include <begin_vertex>',
         '#include <begin_vertex>\nvLeaf = offsetHSL(uSlots[int(aSlot)], aShade.x, aShade.y);\nvSlot = aSlot;\nvHeat = aHeat;\n' +
-          HOT_GROW +
           FALL,
       );
     shader.fragmentShader =
@@ -279,7 +274,7 @@ void main() {
 
 /**
  * The glow around each hot leaf: a second copy of the leaves where only hot leaves draw, each
- * SHELL times as large about its own heart (`aCenter`, the leaf as drawn HOT_SIZE large) and
+ * SHELL times as large about its own heart (`aCenter`; hot leaves keep their size) and
  * pushed a little away from the camera, so its own leaf covers its middle and the light spills
  * past its edges. It is brightest at the leaf's heart (`aRim` 0) and fades to nothing at its
  * rim (`aRim` 1), as bright as its `aHeat` times the pulse `uGlow`. Leaves nearer the camera
@@ -288,22 +283,21 @@ void main() {
 export const glowShader = <M extends Material>(m: M) =>
   hook(m, 'glow', (shader) => {
     shader.vertexShader =
-      '#define HOT_SIZE 2.0\n#define SHELL 1.9\n#define PUSH 0.6\n' +
+      '#define SHELL 3.2\n#define PUSH 0.6\n' +
       'attribute float aHeat;\nattribute float aRim;\nattribute vec3 aCenter;\nuniform float uGlow;\nvarying float vGlow;\n' +
       shader.vertexShader
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
-vec3 heart = aBase + (aCenter - aBase) * HOT_SIZE;
-float reach = length(heart - aBase);
-transformed = aHeat > 0.0 ? heart + (aBase + (transformed - aBase) * HOT_SIZE - heart) * SHELL : vec3(0.0);
+float reach = length(aCenter - aBase);
+transformed = aHeat > 0.0 ? aCenter + (transformed - aCenter) * SHELL : vec3(0.0);
 vGlow = aHeat > 0.0 ? (1.0 - aRim) * (0.55 + 0.45 * aHeat) * uGlow * GLOW_GAIN : 0.0;`,
         )
         .replace(
           '#include <project_vertex>',
           '#include <project_vertex>\nmvPosition.xyz += normalize(mvPosition.xyz) * reach * PUSH;\ngl_Position = projectionMatrix * mvPosition;',
         );
-    shader.vertexShader = '#define GLOW_GAIN 1.3\n' + shader.vertexShader;
+    shader.vertexShader = '#define GLOW_GAIN 2.0\n' + shader.vertexShader;
     shader.fragmentShader =
       'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\n' +
       shader.fragmentShader.replace(

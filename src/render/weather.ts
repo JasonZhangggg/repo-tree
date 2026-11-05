@@ -165,7 +165,7 @@ export function weatherSky(
  * ground fall into shadow, but the same hue so leaf colors stay the palette's. Glowing leaves
  * light themselves, so they stand out.
  */
-export const MOONLIGHT = { key: 0.05, sky: 0.12, fill: 0.15 };
+export const MOONLIGHT = { key: 0.05, sky: 0.16, fill: 0.2 };
 
 /** How much of the palette's key and hemisphere light the weather lets through. */
 export const weatherLight = (sky: Sky | null) => LOOKS[sky ?? 'clear'].light;

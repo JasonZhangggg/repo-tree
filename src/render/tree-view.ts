@@ -206,7 +206,7 @@ const SLOTS = PALETTES.autumn.leaves.length + 1;
 /** The hottest leaf's glow, and how it breathes: down to PULSE_LOW of it over PULSE_MS. */
 const GLOW = 0.7;
 /** At night the glow shines this much brighter, against the dark. */
-const NIGHT_GLOW = 1.5;
+const NIGHT_GLOW = 1.25;
 const PULSE_LOW = 0.6;
 const PULSE_MS = 2800;
 /** While only the pulse moves, frames come this far apart: a slow glow needs few. */

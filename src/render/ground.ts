@@ -10,7 +10,7 @@ import type { Quality, TreeModel } from '../grow/grow';
 import { growGround, KIND, type GroundMesh, type GroundModel } from '../grow/ground';
 import { VIEW_DIRECTION } from './framing';
 import type { Palette } from './palette';
-import { FADE, treeUniforms } from './shaders';
+import { FADE, GROUND_SWAY, treeUniforms } from './shaders';
 
 /** The trunk flares to this much of its base radius where it meets the ground. */
 const FLARE = 1.55;
@@ -28,6 +28,7 @@ export function createGround() {
   const coverMaterial = fading(
     new MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: DoubleSide }),
     'cover',
+    true,
   );
   const land = new Mesh(new BufferGeometry(), landMaterial);
   const cover = new Mesh(new BufferGeometry(), [coverMaterial]);
@@ -72,7 +73,10 @@ export function createGround() {
       land.geometry.dispose();
       cover.geometry.dispose();
       land.geometry = pickable(geometryOf(model.land), model.land.rock, tree.nodes.folder.length);
-      cover.geometry = geometryOf(model.cover);
+      cover.geometry = geometryOf(model.cover).setAttribute(
+        'aSway',
+        new BufferAttribute(swayOf(model.cover), 1),
+      );
       paint();
       return model.bounds;
     },
@@ -195,15 +199,40 @@ export function seedOf(tree: TreeModel): number {
   return h >>> 0;
 }
 
-function fading<M extends MeshStandardMaterial>(material: M, key: string): M {
+/**
+ * How far each vertex of the cover stands above the root it sways from: a grass blade or a
+ * flower's stem bends from its foot, so its tip sways most, and a flower's head (emitted just
+ * after its stem) moves as one with the stem's tip. Fallen leaves lie still.
+ */
+export function swayOf(mesh: GroundMesh): Float32Array {
+  const { position, kind } = mesh;
+  const sway = new Float32Array(kind.length);
+  let stem = 0;
+  for (let v = 0; v + 2 < kind.length; v += 3) {
+    if (kind[v] === KIND.flower) {
+      sway.fill(stem, v, v + 3);
+      continue;
+    }
+    if (kind[v] !== KIND.blade) continue;
+    const ys = [position[3 * v + 1]!, position[3 * v + 4]!, position[3 * v + 7]!];
+    const low = Math.min(...ys);
+    stem = Math.max(...ys) - low;
+    for (let c = 0; c < 3; c++) sway[v + c] = ys[c]! - low;
+  }
+  return sway;
+}
+
+function fading<M extends MeshStandardMaterial>(material: M, key: string, sways = false): M {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSel = treeUniforms.uSel;
     shader.uniforms.uFade = treeUniforms.uFade;
+    if (sways) Object.assign(shader.uniforms, treeUniforms);
     shader.vertexShader =
       'attribute float aId;\nvarying float vId;\n' +
+      (sways ? GROUND_SWAY.head : '') +
       shader.vertexShader.replace(
         '#include <begin_vertex>',
-        '#include <begin_vertex>\nvId = aId < 0.0 ? -1.0 : 0.0;',
+        '#include <begin_vertex>\nvId = aId < 0.0 ? -1.0 : 0.0;' + (sways ? GROUND_SWAY.body : ''),
       );
     shader.fragmentShader =
       'uniform vec2 uSel;\nuniform vec3 uFade;\nvarying float vId;\n' +

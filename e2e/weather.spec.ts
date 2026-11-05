@@ -197,7 +197,7 @@ test('turning weather off in settings clears the sky and survives a reload', asy
 test.describe('with motion allowed', () => {
   test.use({ reducedMotion: 'no-preference' });
 
-  test('the sun and clouds in the scene keep moving, and a clear sky rests', async ({ page }) => {
+  test('the sun and clouds in the scene keep moving', async ({ page }) => {
     type Stats = { renders: number; calls: number };
     const stats = () =>
       page.evaluate(() =>
@@ -205,7 +205,8 @@ test.describe('with motion allowed', () => {
       );
     await page.goto('./?visit=clear#/vitejs/vite?wx=clear');
     await ready(page, 'vitejs/vite');
-    await settle(page);
+    // With motion allowed the breeze keeps the scene drawing, so a clear sky never comes to rest.
+    await page.waitForTimeout(1500);
     const clear = await stats();
 
     await page.goto('./?visit=cloudy#/vitejs/vite?wx=cloudy');
@@ -213,10 +214,7 @@ test.describe('with motion allowed', () => {
     const before = await stats();
     await page.waitForTimeout(1500);
     const after = await stats();
-    expect(
-      after.renders - before.renders,
-      'spin is off, so only the weather renders',
-    ).toBeGreaterThan(2);
+    expect(after.renders - before.renders, 'the scene keeps drawing').toBeGreaterThan(2);
     expect(after.calls, 'the sun and the clouds draw in the scene').toBe(clear.calls + 2);
   });
 });

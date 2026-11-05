@@ -199,7 +199,7 @@ function signOut(): void;
 function githubToken(manual: string | undefined): string | undefined; // the Settings token, else the signed-in one: every read of GitHub's API (tree, Actions runs, history) sends it
 function onAuthChange(listener: () => void): void; // this tab signed in or out
 // The sign-in token goes only in the Authorization header of requests to GitHub's API and the history Worker, never in a link.
-// app/ui/signin.ts: the Sign in with GitHub button beside Settings (in the More menu on a phone), hidden without HISTORY_URL; signed in, it signs out. Settings repeats it with what sign-in lets Repo Tree see.
+// app/ui/signin.ts: the Sign in with GitHub button beside Settings (a round bubble at the top right on a phone), hidden without HISTORY_URL; signed in, it opens the account panel: requests left this hour (fetchRateLimit with the token in use), What Repo Tree can see (PRIVACY), Sign out. Settings repeats sign-in and sign-out with PRIVACY.
 // app/errors.ts: describeError(error, ref, { hasToken, signedIn?, canSignIn? }); ErrorAction adds 'signin', offered for a rate limit when the build can sign in, and for a refused sign-in token (which is then forgotten).
 
 // repo/languages.ts  (table, not branching)

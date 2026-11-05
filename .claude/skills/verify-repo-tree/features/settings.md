@@ -11,7 +11,6 @@ A user changes how the tree looks and loads from the Settings popover (a bottom 
 - `settings-toggles` switches spin, folder labels, the ground (the island, its rocks and grass), weather and the growth animation.
 - `settings-hidden` hides folders by exact name at any depth and regrows the tree.
 - `settings-token` saves a GitHub token in this browser and sends it only to `api.github.com`.
-- `settings-rate` says how many GitHub requests are left this hour (`4,812 of 5,000 left, resets at 6:42 PM`) and whose budget it is: the pasted token's, the signed-in account's, or the network's shared 60. It asks `GET api.github.com/rate_limit` (free) each time Settings opens and when the token in use changes. `quietSettings` answers it with `serveRateLimit`. e2e: `rate-limit.spec.ts`.
 - `settings-persist` restores every setting after a reload.
 
 ## How to get to it (user POV)

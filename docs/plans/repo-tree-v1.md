@@ -44,6 +44,8 @@ function loadSample(id: string, base?: string): Promise<Snapshot | LoadError>; /
 type RateLimit = { limit: number; remaining: number; resetAt: number /* ms */ };
 function fetchRateLimit(token?: string, signal?: AbortSignal): Promise<RateLimit | null>; // GET /rate_limit resources.core (not counted against the limit); null on any failure
 function describeRateLimit(rate: RateLimit, now?: number): string; // "4,812 of 5,000 left, resets at 6:42 PM"; "resets within a minute" when due
+function resetsIn(rate: RateLimit, now?: number): string; // "resets at 6:42 PM" | "resets within a minute"
+function formatCount(n: number): string; // "4,812"
 // repo/ci.ts  (boundary: network, plus the pure health rule)
 type CiRun = { passed: boolean; at: number /* ms, when it finished */ };
 type Sky = 'clear' | 'sunny' | 'cloudy' | 'rain' | 'storm'; // clear: no CI to report on
@@ -199,7 +201,7 @@ function signOut(): void;
 function githubToken(manual: string | undefined): string | undefined; // the Settings token, else the signed-in one: every read of GitHub's API (tree, Actions runs, history) sends it
 function onAuthChange(listener: () => void): void; // this tab signed in or out
 // The sign-in token goes only in the Authorization header of requests to GitHub's API and the history Worker, never in a link.
-// app/ui/signin.ts: the Sign in with GitHub button beside Settings (a round bubble at the top right on a phone), hidden without HISTORY_URL; signed in, it opens the account panel: requests left this hour (fetchRateLimit with the token in use), What Repo Tree can see (PRIVACY), Sign out. Settings repeats sign-in and sign-out with PRIVACY.
+// app/ui/signin.ts: the Sign in with GitHub button beside Settings (its own rounded box at the top right on a phone), hidden without HISTORY_URL; signed in, it opens the account menu: requests left this hour over a meter (fetchRateLimit with the token in use), a link to What Repo Tree can see (FAQ_URL, public/faq.html#github, a static questions page), Sign out. Settings holds no sign-in; its GitHub token field stays, for private repos.
 // app/errors.ts: describeError(error, ref, { hasToken, signedIn?, canSignIn? }); ErrorAction adds 'signin', offered for a rate limit when the build can sign in, and for a refused sign-in token (which is then forgotten).
 
 // repo/languages.ts  (table, not branching)

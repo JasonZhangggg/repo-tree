@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { describeRateLimit, fetchRateLimit } from './rate-limit';
+import { describeRateLimit, fetchRateLimit, formatCount, resetsIn } from './rate-limit';
 
 const reply = (body: unknown, status = 200) =>
   vi.fn(async () => new Response(JSON.stringify(body), { status }));
@@ -56,5 +56,21 @@ describe('describeRateLimit', () => {
     expect(describeRateLimit({ limit: 60, remaining: 0, resetAt: now + 20_000 }, now)).toBe(
       '0 of 60 left, resets within a minute',
     );
+  });
+});
+
+describe('resetsIn and formatCount', () => {
+  const now = Date.UTC(2026, 10, 5, 6, 0);
+  test('name the time the hour starts over, or say it is within a minute', () => {
+    const resetAt = now + 42 * 60_000;
+    const at = new Date(resetAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    expect(resetsIn({ limit: 5000, remaining: 1, resetAt }, now)).toBe(`resets at ${at}`);
+    expect(resetsIn({ limit: 5000, remaining: 1, resetAt: now - 5_000 }, now)).toBe(
+      'resets within a minute',
+    );
+  });
+  test('count with thousands separators', () => {
+    expect(formatCount(4812)).toBe('4,812');
+    expect(formatCount(60)).toBe('60');
   });
 });

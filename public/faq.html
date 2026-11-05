@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="What Repo Tree uses GitHub for, and what signing in lets it see."
+    />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <title>Repo Tree questions</title>
+    <script>
+      // The app's own theme setting, else the system's, before the page paints.
+      try {
+        const saved = JSON.parse(localStorage.getItem('repo-tree:settings') || '{}').theme;
+        const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      } catch {
+        document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light';
+      }
+    </script>
+    <style>
+      :root {
+        --stage: #f6f4f0;
+        --ink: #25221e;
+        --muted: #69635a;
+        --line: rgba(37, 34, 30, 0.1);
+        --wash: rgba(37, 34, 30, 0.05);
+        --raised: #fff;
+        --accent: #b8401f;
+        --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        color-scheme: light;
+      }
+      :root[data-theme='dark'] {
+        --stage: #050506;
+        --ink: #ece8e1;
+        --muted: #a7a197;
+        --line: rgba(236, 232, 225, 0.12);
+        --wash: rgba(236, 232, 225, 0.06);
+        --raised: #1b1c20;
+        --accent: #ef8a5f;
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--stage);
+        color: var(--ink);
+        font: 16px/1.6 var(--sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        max-width: 680px;
+        margin: 0 auto;
+        padding: calc(env(safe-area-inset-top, 0px) + 32px) 16px 64px;
+      }
+      .back {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 14px;
+        text-decoration: none;
+      }
+      .back:hover {
+        color: var(--ink);
+      }
+      .back svg {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      h1 {
+        margin: 20px 0 6px;
+        font-size: clamp(26px, 6vw, 34px);
+        line-height: 1.15;
+        letter-spacing: -0.01em;
+        text-wrap: balance;
+      }
+      .lede {
+        margin: 0 0 28px;
+        color: var(--muted);
+      }
+      section {
+        margin-top: 28px;
+      }
+      h2 {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      details {
+        background: var(--raised);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+      }
+      details + details {
+        margin-top: 8px;
+      }
+      summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        font-weight: 600;
+        cursor: pointer;
+        list-style: none;
+      }
+      summary::-webkit-details-marker {
+        display: none;
+      }
+      summary::after {
+        content: '';
+        flex: none;
+        width: 8px;
+        height: 8px;
+        margin-top: -4px;
+        border-right: 2px solid var(--muted);
+        border-bottom: 2px solid var(--muted);
+        transform: rotate(45deg);
+        transition: transform 0.2s;
+      }
+      details[open] summary::after {
+        margin-top: 4px;
+        transform: rotate(225deg);
+      }
+      summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+        border-radius: 14px;
+      }
+      .answer {
+        padding: 0 16px 14px;
+        color: var(--muted);
+      }
+      .answer p {
+        margin: 0 0 10px;
+      }
+      .answer p:last-child,
+      .answer ul:last-child {
+        margin-bottom: 0;
+      }
+      .answer ul {
+        margin: 0 0 10px;
+        padding-left: 20px;
+      }
+      .answer li + li {
+        margin-top: 4px;
+      }
+      .answer strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      a {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back" href="./">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6" /></svg>
+        Back to Repo Tree
+      </a>
+      <h1>Questions and answers</h1>
+      <p class="lede">What Repo Tree asks GitHub for, and what signing in changes.</p>
+
+      <section id="github" aria-labelledby="github-title">
+        <h2 id="github-title">GitHub and your account</h2>
+        <details id="what-can-it-see" open>
+          <summary>What can Repo Tree see when I sign in?</summary>
+          <div class="answer">
+            <p>
+              <strong>Public data only.</strong> Signing in asks GitHub for no permissions, so Repo
+              Tree can't see your private repositories. It reads the same things anyone can see on
+              github.com without signing in.
+            </p>
+            <p>
+              It reads names, sizes and history, not your code. The one file whose contents it reads
+              is CODEOWNERS, to say who owns each folder.
+            </p>
+          </div>
+        </details>
+        <details id="what-for">
+          <summary>What does Repo Tree use GitHub for?</summary>
+          <div class="answer">
+            <ul>
+              <li>
+                <strong>The tree:</strong> the list of folders and file names, and their sizes.
+              </li>
+              <li>
+                <strong>The weather:</strong> recent GitHub Actions runs on the default branch.
+              </li>
+              <li><strong>The birds:</strong> open pull requests.</li>
+              <li>
+                <strong>History and Color leaves by:</strong> commits, their dates and authors, and
+                the CODEOWNERS file.
+              </li>
+            </ul>
+            <p>Nothing is written to GitHub: Repo Tree only reads.</p>
+          </div>
+        </details>
+        <details id="why-sign-in">
+          <summary>Why sign in at all?</summary>
+          <div class="answer">
+            <p>
+              GitHub allows 60 requests an hour to anyone not signed in, shared by everyone on the
+              same network. A big repository or a busy office can use that up in minutes, and then
+              trees, weather and birds stop loading. Signed in, you get your own 5,000 an hour.
+            </p>
+          </div>
+        </details>
+        <details id="requests">
+          <summary>What are the “requests this hour”?</summary>
+          <div class="answer">
+            <p>
+              How much of that hourly allowance is left, as GitHub counts it. Opening a repository
+              takes a handful of requests; a repository's history takes more. The count starts over
+              at the time shown under the meter. Checking it doesn't use any.
+            </p>
+          </div>
+        </details>
+        <details id="token">
+          <summary>Where does my sign-in go?</summary>
+          <div class="answer">
+            <p>
+              Signing in gives this browser tab a token. It stays in that tab: closing the tab
+              forgets it, and it never goes into a share link. The tab sends it only to GitHub, and
+              to the Repo Tree history server when that reads a repository's history for you. The
+              history server uses it for that request and never stores it.
+            </p>
+          </div>
+        </details>
+        <details id="sign-out">
+          <summary>How do I sign out, or remove Repo Tree from my account?</summary>
+          <div class="answer">
+            <p>
+              Choose the GitHub button at the top right, then <strong>Sign out</strong>, or close
+              the tab. To remove Repo Tree from your GitHub account altogether, revoke it under
+              <a href="https://github.com/settings/applications" rel="noopener"
+                >Settings, Applications</a
+              >
+              on GitHub.
+            </p>
+          </div>
+        </details>
+        <details id="private">
+          <summary>Can I see a private repository?</summary>
+          <div class="answer">
+            <p>
+              Signing in can't. For a private repository, paste a GitHub token with read access in
+              Repo Tree's Settings, under <strong>GitHub token</strong>. That token is kept in this
+              browser and sent only to GitHub.
+            </p>
+          </div>
+        </details>
+      </section>
+    </main>
+    <script>
+      // A link to one question opens it.
+      const open = () => {
+        const target = location.hash && document.querySelector(location.hash);
+        if (target instanceof HTMLDetailsElement) target.open = true;
+      };
+      addEventListener('hashchange', open);
+      open();
+    </script>
+  </body>
+</html>

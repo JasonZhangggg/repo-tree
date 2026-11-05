@@ -1,19 +1,18 @@
 import { HISTORY_URL } from '../../repo/history';
 import { githubToken, onAuthChange, signIn, signOut, signedInToken } from '../../repo/auth';
-import { describeRateLimit, fetchRateLimit } from '../../repo/rate-limit';
+import { fetchRateLimit, formatCount, resetsIn } from '../../repo/rate-limit';
 import type { App } from '../app';
-import { byId, h } from '../dom';
+import { byId, h, icon, ICONS } from '../dom';
 
-/** What signing in lets Repo Tree see, said in the account panel and in Settings. */
-export const PRIVACY =
-  'public data only: no private repos, never file contents. Your token stays in this tab and goes only to GitHub and the Repo Tree history server, which never stores it.';
+/** The questions page's answer to what Repo Tree uses GitHub for and what it can see. */
+export const FAQ_URL = './faq.html#github';
 
 /**
- * The Sign in with GitHub button, last in the toolbar (in the More menu on a phone). Signing in lifts
- * GitHub's hourly limit from 60 requests per network address to 5,000 per visitor, for trees, CI
- * weather and history alike. Signed in, the same button opens the account panel: the requests left
- * this hour, what Repo Tree can see, and Sign out. Hidden when this build has no history server,
- * which is what signs visitors in.
+ * The Sign in with GitHub button, last in the toolbar (its own box beside the repo card on a
+ * phone). Signing in lifts GitHub's hourly limit from 60 requests per network address to 5,000 per
+ * visitor, for trees, CI weather and history alike. Signed in, the same button opens the account
+ * menu: the requests left this hour over a meter, a link to what Repo Tree can see, and Sign out.
+ * Hidden when this build has no history server, which is what signs visitors in.
  */
 export function mountSignIn(
   app: App,
@@ -36,27 +35,11 @@ export function mountSignIn(
     if (!inside) close();
   };
 
-  const usage = h('p', { class: 'account-usage', id: 'account-usage', 'aria-live': 'polite' });
-  const seeing = h(
-    'p',
-    { class: 'note', id: 'account-privacy', hidden: true },
-    PRIVACY[0]!.toUpperCase() + PRIVACY.slice(1),
-  );
-  const seeButton = h(
-    'button',
-    {
-      type: 'button',
-      class: 'btn',
-      id: 'account-see',
-      'aria-expanded': 'false',
-      'aria-controls': 'account-privacy',
-      onclick: () => {
-        seeing.hidden = !seeing.hidden;
-        seeButton.setAttribute('aria-expanded', String(!seeing.hidden));
-      },
-    },
-    'What Repo Tree can see',
-  );
+  const usage = h('span', { class: 'account-count', id: 'account-usage', 'aria-live': 'polite' });
+  const fillBar = h('i');
+  const meter = h('div', { class: 'account-meter', 'aria-hidden': 'true' }, fillBar);
+  const resets = h('p', { class: 'account-reset', id: 'account-reset' });
+  const mark = button.querySelector('svg')?.cloneNode(true) ?? icon(...ICONS.person);
   const panel = h(
     'div',
     {
@@ -64,18 +47,51 @@ export function mountSignIn(
       id: 'account',
       role: 'dialog',
       'aria-label': 'GitHub account',
+      tabindex: '-1',
       hidden: true,
     },
-    h('p', { class: 'h' }, 'Signed in with GitHub'),
-    h('p', { class: 'account-label' }, 'Requests this hour'),
-    usage,
-    seeButton,
-    seeing,
+    h(
+      'div',
+      { class: 'account-head' },
+      h('span', { class: 'account-mark' }, mark),
+      h(
+        'span',
+        { class: 'account-who' },
+        h('strong', {}, 'GitHub'),
+        h('small', {}, 'Signed in for this tab'),
+      ),
+    ),
+    h(
+      'div',
+      { class: 'account-usage' },
+      h(
+        'div',
+        { class: 'account-row' },
+        h('span', { class: 'account-label' }, 'Requests this hour'),
+        usage,
+      ),
+      meter,
+      resets,
+    ),
+    h('div', { class: 'account-sep', role: 'separator' }),
+    h(
+      'a',
+      {
+        class: 'account-item',
+        id: 'account-faq',
+        href: FAQ_URL,
+        target: '_blank',
+        rel: 'noopener',
+      },
+      icon(...ICONS.help),
+      h('span', {}, 'What Repo Tree can see'),
+      icon(...ICONS.external),
+    ),
     h(
       'button',
       {
         type: 'button',
-        class: 'btn dark',
+        class: 'account-item',
         id: 'account-signout',
         onclick: () => {
           signOut();
@@ -83,7 +99,8 @@ export function mountSignIn(
           button.focus();
         },
       },
-      'Sign out',
+      icon(...ICONS.signout),
+      h('span', {}, 'Sign out'),
     ),
   );
   document.body.append(panel);
@@ -92,26 +109,34 @@ export function mountSignIn(
   const readUsage = () => {
     asking?.abort();
     const ask = (asking = new AbortController());
+    panel.dataset.usage = 'checking';
     usage.textContent = 'Checking…';
+    resets.textContent = '';
     void fetchRateLimit(githubToken(app.store.get().settings.token), ask.signal).then((rate) => {
       if (ask !== asking) return;
-      usage.textContent = rate
-        ? describeRateLimit(rate)
-        : 'GitHub didn’t answer. Open this again to retry.';
+      panel.dataset.usage = rate ? 'read' : 'failed';
+      if (!rate) {
+        usage.textContent = 'GitHub didn’t answer. Open this again to retry.';
+        return;
+      }
+      usage.textContent = `${formatCount(rate.remaining)} of ${formatCount(rate.limit)} left`;
+      const share = rate.limit ? rate.remaining / rate.limit : 0;
+      fillBar.style.width = `${Math.round(Math.min(1, Math.max(0, share)) * 1000) / 10}%`;
+      panel.dataset.low = String(share < 0.1);
+      const when = resetsIn(rate);
+      resets.textContent = when[0]!.toUpperCase() + when.slice(1);
     });
   };
 
-  /** Under the button on a desktop; on a phone, whose button sits in the More menu, over the bottom row. */
+  /** Under the button, its right edge on the button's. */
   function open() {
     const at = button.getBoundingClientRect();
     panel.style.top = `${Math.round(at.bottom + 8)}px`;
     panel.style.right = `${Math.round(innerWidth - at.right)}px`;
-    seeing.hidden = true;
-    seeButton.setAttribute('aria-expanded', 'false');
     panel.hidden = false;
     button.setAttribute('aria-expanded', 'true');
     readUsage();
-    panel.querySelector<HTMLElement>('#account-signout')?.focus({ preventScroll: true });
+    panel.focus({ preventScroll: true });
   }
   function close() {
     if (panel.hidden) return;

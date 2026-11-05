@@ -38,10 +38,17 @@ export async function fetchRateLimit(
 
 const count = new Intl.NumberFormat('en-US');
 
+/** A request count with thousands separators: "4,812". */
+export const formatCount = (n: number): string => count.format(n);
+
+/** "resets at 6:42 PM", or "resets within a minute" when it is that close. */
+export function resetsIn(rate: RateLimit, now = Date.now()): string {
+  if (rate.resetAt <= now + 60_000) return 'resets within a minute';
+  const at = new Date(rate.resetAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `resets at ${at}`;
+}
+
 /** "4,812 of 5,000 left, resets at 6:42 PM", or how soon when it resets within the minute. */
 export function describeRateLimit(rate: RateLimit, now = Date.now()): string {
-  const left = `${count.format(rate.remaining)} of ${count.format(rate.limit)} left`;
-  if (rate.resetAt <= now + 60_000) return `${left}, resets within a minute`;
-  const at = new Date(rate.resetAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  return `${left}, resets at ${at}`;
+  return `${count.format(rate.remaining)} of ${count.format(rate.limit)} left, ${resetsIn(rate, now)}`;
 }

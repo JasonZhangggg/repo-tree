@@ -171,17 +171,15 @@ test('the Sign in button signs in from anywhere, and GitHub reads then carry the
   expect(sent).toHaveLength(1);
   expect(sent[0]).toMatch(/^Bearer \S+$/);
 
-  // Settings says what signing in lets Repo Tree see.
+  // Settings no longer holds sign-in: the account button does.
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.locator('#signin-privacy')).toContainText('public data only');
-  await expect(page.locator('#signin-privacy')).toContainText('never file contents');
-  await page.locator('#signin-settings').click();
-  await expect(page.locator('#toast')).toHaveText('Signed out of GitHub');
-  await expect(page.locator('#signin-settings')).toHaveText('Sign in with GitHub');
-  await expect(button).toHaveAccessibleName('Sign in with GitHub');
+  await expect(page.locator('#settings')).toBeVisible();
+  await expect(page.locator('#settings')).not.toContainText('Sign out');
+  await expect(page.locator('#settings')).not.toContainText('GitHub sign-in');
+  await page.keyboard.press('Escape');
 });
 
-test('the GitHub account button shows the requests left this hour, what Repo Tree sees, and Sign out', async ({
+test('the GitHub account menu shows the requests left this hour, links to what Repo Tree sees, and signs out', async ({
   page,
 }) => {
   const asked: (string | undefined)[] = [];
@@ -200,7 +198,13 @@ test('the GitHub account button shows the requests left this hour, what Repo Tre
   await button.click();
   const panel = page.getByRole('dialog', { name: 'GitHub account' });
   await expect(panel).toBeVisible();
-  await expect(panel.locator('#account-usage')).toHaveText(/^4,812 of 5,000 left, resets at /);
+  await expect(panel.locator('#account-usage')).toHaveText('4,812 of 5,000 left');
+  await expect(panel.locator('#account-reset')).toHaveText(/^Resets at /);
+  // The meter shows the share left.
+  const fill = await panel
+    .locator('.account-meter i')
+    .evaluate((el) => (el as HTMLElement).style.width);
+  expect(fill).toBe('96.2%');
   // Asked with the sign-in token, so it is the account's own budget.
   expect(asked.at(-1)).toMatch(/^Bearer \S+$/);
   // Under the button, not off screen.
@@ -209,10 +213,16 @@ test('the GitHub account button shows the requests left this hour, what Repo Tre
   expect(box.y).toBeGreaterThan(at.y + at.height);
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
 
-  await expect(panel.locator('#account-privacy')).toBeHidden();
-  await panel.getByRole('button', { name: 'What Repo Tree can see' }).click();
-  await expect(panel.locator('#account-privacy')).toContainText('Public data only');
-  await expect(panel.locator('#account-privacy')).toContainText('never file contents');
+  // What Repo Tree can see is on the questions page, which opens in a new tab.
+  const faq = panel.getByRole('link', { name: 'What Repo Tree can see' });
+  await expect(faq).toHaveAttribute('href', './faq.html#github');
+  await expect(faq).toHaveAttribute('target', '_blank');
+  const page2 = await page.context().newPage();
+  await page2.goto(new URL('./faq.html#github', page.url()).href);
+  await expect(page2.getByRole('heading', { name: 'Questions and answers' })).toBeVisible();
+  await expect(page2.locator('#what-can-it-see')).toContainText('Public data only');
+  await expect(page2.locator('#what-can-it-see')).toContainText('CODEOWNERS');
+  await page2.close();
 
   // Escape closes it; a click outside does too.
   await page.keyboard.press('Escape');
@@ -226,6 +236,7 @@ test('the GitHub account button shows the requests left this hour, what Repo Tre
   await page.route('https://api.github.com/rate_limit', (route) => route.fulfill({ status: 500 }));
   await button.click();
   await expect(panel.locator('#account-usage')).toHaveText(/GitHub didn’t answer/);
+  await expect(panel.locator('.account-meter')).toBeHidden();
 
   await panel.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.locator('#toast')).toHaveText('Signed out of GitHub');
@@ -236,7 +247,7 @@ test('the GitHub account button shows the requests left this hour, what Repo Tre
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
-  test('Sign in is its own bubble at the top right, beside the repo card', async ({ page }) => {
+  test('Sign in is its own box at the top right, beside the repo card', async ({ page }) => {
     await serveRateLimit(page, 4812, 5000);
     await page.goto('./');
     await ready(page, 'vitejs/vite');
@@ -244,6 +255,8 @@ test.describe('on a phone', () => {
     await expect(bubble).toBeVisible();
     const at = (await bubble.boundingBox())!;
     const card = (await page.locator('#title').boundingBox())!;
+    // A rounded box like the repo card, not a circle.
+    expect(await bubble.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('14px');
     expect(at.y).toBeLessThan(card.y + card.height);
     expect(at.x).toBeGreaterThanOrEqual(card.x + card.width);
     expect(at.x + at.width).toBeLessThanOrEqual(page.viewportSize()!.width);

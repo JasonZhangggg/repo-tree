@@ -422,36 +422,14 @@ kbd {
     margin-left: auto;
   }
 }
-/* Signed in, the account button is the GitHub mark alone, with a dot; it opens the account panel. */
+/* Signed in, the account button is the GitHub mark alone, with a dot; it opens the account menu. */
 #signin[data-signed-in='true'] {
+  position: relative;
   width: 40px;
   padding: 0;
 }
 #signin[data-signed-in='true'] .label {
   display: none;
-}
-/* On a phone, Sign in or the account is its own round bubble at the top right, beside the repo
-   card (more-menu.ts moves it there). */
-#signin.bubble {
-  position: fixed;
-  z-index: 6;
-  top: calc(env(safe-area-inset-top, 0px) + 12px);
-  right: max(12px, env(safe-area-inset-right, 0px));
-  width: 48px;
-  height: 48px;
-  padding: 0;
-  border-radius: 999px;
-  background: var(--raised);
-}
-#signin.bubble .label {
-  display: none;
-}
-#signin.bubble svg {
-  width: 21px;
-  height: 21px;
-}
-#signin[data-signed-in='true'] {
-  position: relative;
 }
 #signin[data-signed-in='true']::after {
   content: '';
@@ -464,62 +442,190 @@ kbd {
   background: #2f9e57;
   box-shadow: 0 0 0 2px var(--raised);
 }
-#signin.bubble[data-signed-in='true'] {
+/* On a phone, Sign in or the account is its own box at the top right, as tall and as rounded as
+   the repo card beside it (more-menu.ts moves it there). */
+#signin.bubble {
   position: fixed;
+  z-index: 6;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: max(12px, env(safe-area-inset-right, 0px));
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 14px;
+}
+#signin.bubble .label {
+  display: none;
+}
+#signin.bubble svg {
+  width: 20px;
+  height: 20px;
 }
 #signin.bubble[data-signed-in='true']::after {
   top: 9px;
   right: 9px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #2f9e57;
-  box-shadow: 0 0 0 2px var(--raised);
 }
 body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
   right: calc(max(12px, env(safe-area-inset-right, 0px)) + 56px);
 }
-/* The account panel, under the GitHub account button (signin.ts places it). */
+/* The account menu, under the account button (signin.ts places it): who is signed in, the
+   requests left this hour over a meter, then a link to what Repo Tree can see, and Sign out. */
 .account {
   position: fixed;
   z-index: 40;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  width: min(290px, calc(100vw - 24px));
-  padding: 16px;
+  width: min(280px, calc(100vw - 24px));
+  padding: 6px;
   background: var(--raised);
-  border-radius: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
   box-shadow: var(--shadow-lift);
-  animation: pop 0.2s var(--ease);
+  transform-origin: top right;
+  animation: pop 0.18s var(--ease);
+  outline: none;
 }
 .account[hidden] {
   display: none;
 }
-.account .h {
-  margin: 0 0 4px;
+.account-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 4px;
+}
+.account-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 9px;
+  background: var(--wash);
+}
+.account-mark svg {
+  width: 18px;
+  height: 18px;
+}
+.account-who {
+  display: grid;
+  min-width: 0;
+  line-height: 1.25;
+}
+.account-who strong {
   font-weight: 650;
 }
+.account-who small {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.account-usage {
+  display: grid;
+  gap: 7px;
+  margin: 8px 4px 6px;
+  padding: 10px 10px 9px;
+  border-radius: 10px;
+  background: var(--wash);
+}
+.account-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
 .account-label {
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.account-count {
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.account[data-usage='failed'] .account-row {
+  display: grid;
+  gap: 2px;
+}
+.account[data-usage='failed'] .account-count {
+  font-weight: 500;
+  text-align: left;
+  color: var(--muted);
+}
+.account-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  overflow: hidden;
+}
+.account-meter i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: #2f9e57;
+  transition: width 0.3s var(--ease);
+}
+.account[data-low='true'] .account-meter i {
+  background: var(--danger);
+}
+.account:not([data-usage='read']) :is(.account-meter, .account-reset) {
+  display: none;
+}
+.account-reset {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
 }
-.account-usage {
-  margin: 0 0 4px;
-  font-size: 15px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+.account-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
 }
-.account .btn {
-  justify-content: center;
+.account-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
 }
-.account .note {
-  margin: 0;
+.account-item span {
+  flex: 1;
+}
+.account-item svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
   color: var(--muted);
-  font-size: 12.5px;
-  line-height: 1.45;
+}
+.account-item svg:last-child:not(:first-child) {
+  width: 14px;
+  height: 14px;
+  color: var(--faint);
+}
+.account-item:focus-visible {
+  background: var(--hover);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .account-item:hover {
+    background: var(--hover);
+  }
+}
+.account-item:active {
+  background: var(--wash);
 }
 /* The collapsed drawer's Color leaves by is a phone's; a desktop shows the side panel. */
 .quick {
@@ -1757,6 +1863,10 @@ h1 a[aria-disabled] {
   top: 12px;
   right: 12px;
 }
+/* A phone's drawer tab; a desktop's popover has the close button. */
+.settings-grip {
+  display: none;
+}
 .field {
   display: grid;
   gap: 8px;
@@ -2749,6 +2859,7 @@ body:has(.scrubber:not([hidden])) .toast {
   .results li {
     min-height: 48px;
   }
+  /* Settings is a drawer from the bottom edge, with a tab on top to drag or tap it closed. */
   .settings {
     top: auto;
     bottom: 0;
@@ -2757,8 +2868,30 @@ body:has(.scrubber:not([hidden])) .toast {
     width: auto;
     max-height: 60%;
     border-radius: 20px 20px 0 0;
+    padding-top: 0;
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+    overscroll-behavior: contain;
     animation: sheet 0.36s var(--ease-drawer);
+  }
+  .settings[data-dragging] {
+    animation: none;
+  }
+  .settings-grip {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    height: 26px;
+    margin: 0 -18px -12px;
+    padding: 0;
+    border: 0;
+    background: var(--raised);
+    touch-action: none;
+    cursor: grab;
+  }
+  .settings #settings-title {
+    touch-action: none;
   }
   /* iOS zooms the page into any focused field whose text is under 16px. */
   .repo input,
@@ -2777,8 +2910,7 @@ body:has(.scrubber:not([hidden])) .toast {
     min-height: 44px;
   }
   .settings .close {
-    top: 8px;
-    right: 8px;
+    display: none;
   }
   .toast {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 124px);

@@ -385,6 +385,10 @@ kbd {
 #more {
   display: none;
 }
+/* Desktop-only buttons on a phone (more-menu.ts): their settings live in Settings. */
+.phone-off {
+  display: none !important;
+}
 
 /* Title block: repo name, meta, load status, samples. */
 .title {
@@ -2462,7 +2466,7 @@ body:has(.scrubber:not([hidden])) .toast {
     bottom: calc(100% + 10px);
     z-index: 4;
     display: grid;
-    gap: 2px;
+    gap: 0;
     min-width: 210px;
     padding: 6px;
     background: var(--raised);
@@ -2476,7 +2480,7 @@ body:has(.scrubber:not([hidden])) .toast {
     align-items: center;
     text-decoration: none;
     width: 100%;
-    height: 48px;
+    height: 42px;
     justify-content: flex-start;
     gap: 12px;
     padding: 0 14px;

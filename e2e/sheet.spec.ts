@@ -104,7 +104,9 @@ test('the open sheet scrolls its content, and closes from it only at the top', a
   await expect(sheet(page)).toHaveAttribute('aria-expanded', 'false');
 });
 
-test('the phone row keeps four buttons and the rest sit behind More actions', async ({ page }) => {
+test('the phone row keeps four buttons and a short menu sits behind More actions', async ({
+  page,
+}) => {
   const row = page.locator('.controls > button:visible, .controls .tools > button:visible');
   await expect(row).toHaveCount(4);
   const more = page.getByRole('button', { name: 'More actions' });
@@ -113,16 +115,18 @@ test('the phone row keeps four buttons and the rest sit behind More actions', as
 
   await more.tap();
   await expect(more).toHaveAttribute('aria-expanded', 'true');
-  for (const name of ['Grow again', 'Spin', /Copy link/, 'Export PNG'])
+  for (const name of [/Copy link/, 'Export PNG'])
     await expect(menu.getByRole('button', { name })).toBeVisible();
   await expect(menu.getByRole('link', { name: 'Open on GitHub' })).toHaveAttribute(
     'href',
     'https://github.com/vitejs/vite',
   );
+  // Spin and Dark mode are switches in Settings; Grow again is for a desktop.
+  for (const name of ['Grow again', 'Spin', 'Dark mode'])
+    await expect(page.getByRole('button', { name })).toBeHidden();
 
-  await menu.getByRole('button', { name: 'Spin' }).tap();
+  await menu.getByRole('button', { name: /Copy link/ }).tap();
   await expect(menu).toBeHidden();
-  await expect(page.locator('#spin')).toHaveAttribute('aria-pressed', 'true');
 
   await more.tap();
   await page.keyboard.press('Escape');

@@ -48,3 +48,4 @@ Preconditions:
 - Without `ALLOW_LOCALHOST=1` (the stack sets it) the Worker refuses localhost origins with 403 `forbidden`.
 - The Worker counts uploads in its Ledger (in memory under Node), at most 2 a minute from one address. A journey that uploads more than twice a minute gets 429 `rate-limited` and the toast says the timeline was not shared.
 - The fake records `visitor` as the login for any token it issued, so the manifest's `by` is always `visitor` here.
+- Sign in with GitHub sits beside Settings on a desktop and in the More menu on a phone, only in a build with the history server. Signed in, tree loads and Actions runs carry the token (5,000 requests an hour), the button reads Sign out, and Settings shows the same choice with what sign-in lets Repo Tree see (`#signin-privacy`).

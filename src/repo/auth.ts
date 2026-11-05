@@ -1,8 +1,8 @@
 /**
  * Sign in with GitHub through the history server. The token lives in this tab only (memory and
  * sessionStorage, so a reload keeps it and closing the tab forgets it). It goes to GitHub, for
- * the requests that compute a history, and to the history server with an upload, and nowhere
- * else: never into a share link or localStorage. Signing out forgets it.
+ * every API read (trees, Actions runs, history), and to the history server with an upload or a
+ * git fetch, and nowhere else: never into a share link or localStorage. Signing out forgets it.
  */
 
 import { HISTORY_URL } from './history';
@@ -30,6 +30,20 @@ export function signedInToken(
   }
 }
 
+/** Told when this tab signs in or out. */
+const changes = new EventTarget();
+export function onAuthChange(listener: () => void): void {
+  changes.addEventListener('change', listener);
+}
+
+/**
+ * The token for a read of GitHub's API: the one pasted in Settings, which the visitor chose
+ * deliberately (and may reach private repos), else the signed-in one. Undefined for neither.
+ */
+export function githubToken(manual: string | undefined): string | undefined {
+  return manual || signedInToken() || undefined;
+}
+
 export function signOut(storage: Pick<Storage, 'removeItem'> | undefined = session()): void {
   held = null;
   try {
@@ -37,6 +51,7 @@ export function signOut(storage: Pick<Storage, 'removeItem'> | undefined = sessi
   } catch {
     // Blocked storage held no token either.
   }
+  changes.dispatchEvent(new Event('change'));
 }
 
 /**
@@ -74,6 +89,7 @@ export function signIn(
         } catch {
           // Signed in for this page only.
         }
+        changes.dispatchEvent(new Event('change'));
       }
       finish(token);
     };

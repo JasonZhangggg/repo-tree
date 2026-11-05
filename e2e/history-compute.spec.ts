@@ -21,6 +21,11 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(() => expect(errors).toEqual([]));
 
+/** Waits for the sign-in popup to close, which it may already have done. */
+const closed = async (popup: Page) => {
+  if (!popup.isClosed()) await popup.waitForEvent('close');
+};
+
 const dialog = (page: Page) => page.getByRole('dialog', { name: /timeline|history/i });
 
 async function open(page: Page, name = 'acme/widgets') {
@@ -62,8 +67,8 @@ test('signs in, computes in the browser, shares it, and opens the timeline', asy
   await open(page);
   await page.locator('#timeline').click();
   const popup = page.waitForEvent('popup');
-  await page.getByRole('button', { name: 'Sign in with GitHub' }).click();
-  await (await popup).waitForEvent('close');
+  await dialog(page).getByRole('button', { name: 'Sign in with GitHub' }).click();
+  await closed(await popup);
   await expect(page.getByRole('group', { name: 'Timeline' })).toBeVisible({ timeout: 60_000 });
   await expect(dialog(page)).toBeHidden();
   await expect(page.locator('#timeline-date')).not.toBeEmpty();
@@ -139,8 +144,54 @@ test('a signed-in visitor is offered to bring an out-of-date history up to date'
   expect(after.computedAt).toBeGreaterThan(before.computedAt);
 });
 
+test('the Sign in button signs in from anywhere, and GitHub reads then carry the token', async ({
+  page,
+}) => {
+  const sent: (string | undefined)[] = [];
+  page.on('request', (req) => {
+    if (req.url().startsWith('https://api.github.com/repos/acme/gadgets/git/trees/')) {
+      sent.push(req.headers()['authorization']);
+    }
+  });
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const button = page.locator('#signin');
+  await expect(button).toHaveAccessibleName('Sign in with GitHub');
+  await expect(button).toBeVisible();
+  const popup = page.waitForEvent('popup');
+  await button.click();
+  await closed(await popup);
+  await expect(page.locator('#toast')).toHaveText('Signed in with GitHub');
+  await expect(page.getByRole('button', { name: 'Sign out of GitHub' })).toBeVisible();
+
+  const input = page.getByLabel('GitHub repository');
+  await input.fill('acme/gadgets');
+  await input.press('Enter');
+  await ready(page, 'acme/gadgets');
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatch(/^Bearer \S+$/);
+
+  // Settings says what signing in lets Repo Tree see.
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.locator('#signin-privacy')).toContainText('public data only');
+  await expect(page.locator('#signin-privacy')).toContainText('never file contents');
+  await page.locator('#signin-settings').click();
+  await expect(page.locator('#toast')).toHaveText('Signed out of GitHub');
+  await expect(page.locator('#signin-settings')).toHaveText('Sign in with GitHub');
+  await expect(button).toHaveAccessibleName('Sign in with GitHub');
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test('Sign in heads the More menu', async ({ page }) => {
+    await page.goto('./');
+    await ready(page, 'vitejs/vite');
+    await page.getByRole('button', { name: 'More actions' }).tap();
+    const first = page.locator('#more-menu > :first-child');
+    await expect(first).toHaveAccessibleName('Sign in with GitHub');
+    await expect(first).toBeVisible();
+  });
 
   test('warns with the estimate before starting, and lets the visitor choose', async ({ page }) => {
     // A repo nobody computed yet (acme/widgets is shared by now).

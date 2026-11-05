@@ -1,4 +1,5 @@
 import { AGES, CHANGES } from '../timeline/facts';
+import { githubToken } from '../repo/auth';
 import { cachedRuns, cacheRuns } from '../load/cache';
 import { loadInWorker, type LoadSource } from '../load/load-in-worker';
 import { ciKey, fetchRuns, loadSampleRuns, type CiRun } from '../repo/ci';
@@ -70,17 +71,18 @@ export function createLoader(store: Store) {
     store.dispatch({ type: 'load', id, ref });
 
     const state = store.get();
-    const { hidden, token } = state.settings;
+    const { hidden } = state.settings;
+    const token = githubToken(state.settings.token);
     const quality = qualityOf(state);
     const sample = fresh ? undefined : sampleFor(ref);
     const source: LoadSource = sample
       ? { kind: 'sample', id: sample.id, base: new URL('./', location.href).href }
-      : { kind: 'github', ref, token: token || undefined, fresh };
+      : { kind: 'github', ref, token, fresh };
     const name = sample?.id ?? `${ref.owner}/${ref.repo}@${ref.ref ?? ''}`.toLowerCase();
     const key = `${name}|${hidden.join('/')}|${quality}`;
     const runsFor = (branch: string) => {
       if (runsInFlight && runsInFlight.key !== ciKey(ref, branch)) runsInFlight.abort.abort();
-      void loadRuns(ref, branch, { sample, token: token || undefined, fresh });
+      void loadRuns(ref, branch, { sample, token, fresh });
     };
     const branch = sample?.branch ?? ref.ref;
     if (branch !== undefined) runsFor(branch);
@@ -140,5 +142,20 @@ export function createLoader(store: Store) {
     store.dispatch({ type: 'cancel' });
   }
 
-  return { load, cancel };
+  /** Reads the repo on screen's Actions runs again, past the cache: after signing in, say. */
+  function refreshRuns() {
+    const { repo, settings } = store.get();
+    if (!repo) return;
+    const ref = repo.info.ref;
+    const sample = repo.sample ? sampleFor({ ...ref, ref: repo.info.branch }) : undefined;
+    if (runsInFlight?.key === ciKey(ref, repo.info.branch)) runsInFlight.abort.abort();
+    runsInFlight = null;
+    void loadRuns(ref, repo.info.branch, {
+      sample,
+      token: githubToken(settings.token),
+      fresh: true,
+    });
+  }
+
+  return { load, cancel, refreshRuns };
 }

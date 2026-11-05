@@ -255,14 +255,17 @@ test('dark mode turns the sky to night and the panels dark, keeping the leaf col
     );
   const colors = await legend();
   const day = isMobile ? 0 : await skyLuma(page);
+  /** The theme button on a desktop; on a phone, the Dark mode switch in Settings. */
   const toggle = async (name: string) => {
-    if (isMobile) await page.getByRole('button', { name: 'More actions' }).click();
-    await page.getByRole('button', { name }).click();
+    if (!isMobile) return page.getByRole('button', { name }).click();
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('switch', { name: 'Dark mode' }).click();
+    await page.getByRole('button', { name: 'Close settings' }).click();
   };
 
   await toggle('Dark mode');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect(page.locator('#theme')).toHaveAttribute('aria-label', 'Light mode');
+  if (!isMobile) await expect(page.locator('#theme')).toHaveAttribute('aria-label', 'Light mode');
   const stored = await page.evaluate(() => localStorage.getItem('repo-tree:settings'));
   expect(JSON.parse(stored ?? '{}').theme).toBe('dark');
   if (!isMobile) expect(await skyLuma(page), 'the night sky is dark').toBeLessThan(day - 0.4);

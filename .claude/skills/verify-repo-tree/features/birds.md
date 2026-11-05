@@ -10,14 +10,14 @@ Open pull requests into the branch on show perch as small low-poly birds on the 
 - `birds-card` opens `#pr-card` on a click or tap: title, number, author, draft, files and folder, any other PRs on the same folder (a possible conflict), how many of the open PRs show when not all do, and `Open pull request` to GitHub in a new tab.
 - `birds-budget` reads files for the six most recently updated PRs signed out and 24 signed in; signing in reads them again.
 - `birds-fail-soft` shows no birds and no error when the PR list is rate limited, errors or is unreachable.
-- `birds-off` hides or shows the birds from the `Hide PRs` / `Show PRs` button beside the tree (an icon button on a phone, its bird struck through while off) or the `Show PRs` switch in Settings, persisted with the other settings.
+- `birds-off` turns birds off with the `Show PRs` switch in Settings, persisted with the other settings.
 - `birds-timeline` hides the birds while the timeline is open: they are today's PRs.
 
 ## How to get to it (user POV)
 
 - Load any repo or sample whose branch has open PRs, and look at (or spin) the crown.
 - Hover or click a bird; on a phone, tap it.
-- Press `Hide PRs` beside the tree (the bird icon on a phone), or choose `Settings`, then the `Show PRs` switch.
+- Choose `Settings`, then the `Show PRs` switch.
 
 ## Driving it with drive.mjs
 

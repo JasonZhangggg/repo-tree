@@ -128,18 +128,3 @@ test('a rate-limited PR list leaves the tree with no birds and no error', async 
   await expect(page.locator('#status')).toBeEmpty();
   expect(await birdsOnScreen(page)).toEqual([]);
 });
-
-test('the PRs button beside the tree hides the birds and shows them again', async ({ page }) => {
-  await servePulls(page, 'vitejs/vite', VITE_PULLS);
-  await page.goto('./#/vitejs/vite');
-  await ready(page, 'vitejs/vite');
-  await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(VITE_PULLS.length);
-  const hide = page.getByRole('button', { name: 'Hide PRs' });
-  await expect(hide).toHaveAttribute('aria-pressed', 'true');
-  await hide.click();
-  await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(0);
-  const show = page.getByRole('button', { name: 'Show PRs' });
-  await expect(show).toHaveAttribute('aria-pressed', 'false');
-  await show.click();
-  await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(VITE_PULLS.length);
-});

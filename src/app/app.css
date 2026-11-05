@@ -1406,16 +1406,6 @@ h1 a[aria-disabled] {
 }
 
 /* Timeline: the button among the controls and the scrubber above them. */
-/* Show PRs: the bird is struck through while PRs are hidden. */
-#prs .off-slash {
-  display: none;
-}
-#prs[aria-pressed='false'] .off-slash {
-  display: inline;
-}
-#prs[aria-pressed='false'] svg {
-  color: var(--muted);
-}
 #timeline[aria-pressed='true'] {
   background: var(--accent);
   color: #fff;
@@ -2777,7 +2767,8 @@ body:has(.scrubber:not([hidden])) .toast {
     padding: 0;
     border-radius: 999px;
   }
-  .controls #settings-open {
+  .controls #settings-open,
+  .controls #theme {
     width: 44px;
   }
   .controls #more {

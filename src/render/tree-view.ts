@@ -64,7 +64,7 @@ import {
   SKY_VERTEX,
   treeUniforms,
 } from './shaders';
-import { createWeather, SUN_BEARING, weatherLight, weatherSky } from './weather';
+import { createWeather, MOONLIGHT, SUN_BEARING, weatherLight, weatherSky } from './weather';
 
 /** What a pixel shows: a folder's branch, or a rock lying for some of the root folder's files. */
 export type Picked = { folder: number; rock?: number };
@@ -152,6 +152,11 @@ export interface TreeView {
    * shows the palette's plain sky. Moving weather keeps the view rendering unless still.
    */
   setWeather(weather: Weather | null): void;
+  /**
+   * Dark mode: a night sky with stars, the moon in the sun's place and dimmer light of the same
+   * hue, so leaf colors keep their palette and glowing leaves stand out.
+   */
+  setNight(on: boolean): void;
   setQuality(quality: Quality): void;
   setSpin(on: boolean): void;
   setReducedMotion(on: boolean): void;
@@ -175,6 +180,7 @@ export type TreeViewOptions = {
   reducedMotion: boolean;
   ground: boolean;
   hotspots: boolean;
+  night: boolean;
 };
 
 const QUALITY: Record<Quality, { pixelRatio: number; shadowMap: number; antialias: boolean }> = {
@@ -315,11 +321,13 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const terrain = createGround();
   scene.add(terrain.land, terrain.cover);
   let groundOn = options.ground;
+  let night = options.night;
+  const moonlight = () => (night ? MOONLIGHT : { key: 1, sky: 1 });
   const weather = createWeather(camera);
   scene.add(...weather.objects);
   let weatherShown: Weather | null = null;
   /** The weather's sky, before a lightning flash brightens it. */
-  let skyColors = weatherSky(palette, null);
+  let skyColors = weatherSky(palette, null, night);
 
   const barkMaterial = barkShader(new MeshStandardMaterial({ roughness: 0.92, flatShading: true }));
   const leafMaterial = leafShader(
@@ -722,12 +730,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   /** The sky, the light and the weather's own objects for the palette, weather and quality. */
   const applyWeather = () => {
     const kind = weatherShown?.sky ?? null;
-    skyColors = weatherSky(palette, kind);
+    skyColors = weatherSky(palette, kind, night);
     const { center, edge } = skyColors;
     showFlash(0);
     treeUniforms.uFade.value = [0, 1, 2].map((i) => (center[i]! + edge[i]!) / 2) as Vec3;
-    key.intensity = LIGHT.key * weatherLight(kind).key;
-    weather.set({ sky: kind, palette, quality, still: weatherShown?.still ?? true });
+    key.intensity = LIGHT.key * weatherLight(kind).key * moonlight().key;
+    weather.set({ sky: kind, palette, quality, still: weatherShown?.still ?? true, night });
     requestRender();
   };
 
@@ -760,7 +768,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const [c, e] = [css(center), css(edge)];
     const background = `radial-gradient(120% 90% at 50% 40%, ${c}, color-mix(in srgb, ${c}, ${e} 28%) 45%, ${e})`;
     if (background !== painted) container.style.background = painted = background;
-    hemi.intensity = LIGHT.sky * weatherLight(weatherShown?.sky ?? null).sky * (1 + flash * 0.6);
+    hemi.intensity =
+      LIGHT.sky * weatherLight(weatherShown?.sky ?? null).sky * moonlight().sky * (1 + flash * 0.6);
   };
 
   const categories = () => leafCategories(shown!.model, colorBy, palette, facts);
@@ -984,6 +993,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       startGrowth();
     },
 
+    setNight(on) {
+      if (on === night) return;
+      night = on;
+      applyWeather();
+    },
     setGround(on) {
       groundOn = on;
       if (!shown) return;

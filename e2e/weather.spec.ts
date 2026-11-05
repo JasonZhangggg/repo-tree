@@ -238,3 +238,43 @@ test('a tap on the sun says what the sky stands for before leaving for CI', asyn
   await card.getByRole('button', { name: 'Not now' }).click();
   await expect(card).toBeHidden();
 });
+
+test('dark mode turns the sky to night and the panels dark, keeping the leaf colors', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const legend = () =>
+    page.evaluate(() =>
+      (
+        window as unknown as { __repoTree: { view: { legend(): { color: string }[] } } }
+      ).__repoTree.view
+        .legend()
+        .map((e) => e.color),
+    );
+  const colors = await legend();
+  const day = isMobile ? 0 : await skyLuma(page);
+  const toggle = async (name: string) => {
+    if (isMobile) await page.getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('button', { name }).click();
+  };
+
+  await toggle('Dark mode');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('#theme')).toHaveAttribute('aria-label', 'Light mode');
+  const stored = await page.evaluate(() => localStorage.getItem('repo-tree:settings'));
+  expect(JSON.parse(stored ?? '{}').theme).toBe('dark');
+  if (!isMobile) expect(await skyLuma(page), 'the night sky is dark').toBeLessThan(day - 0.4);
+  // Panels ease to their dark fill.
+  await expect
+    .poll(() => page.locator('.title').evaluate((el) => getComputedStyle(el).backgroundColor))
+    .not.toMatch(/^rgba?\(25[0-5], 25[0-5], 25[0-5]/);
+  expect(await legend(), 'leaf colors stay the palette’s').toEqual(colors);
+
+  await page.reload();
+  await ready(page, 'vitejs/vite');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await toggle('Light mode');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+});

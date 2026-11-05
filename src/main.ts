@@ -45,7 +45,7 @@ const store = createStore({
   selection: null,
   highlight: null,
   notice: null,
-  settings: parseSettings(stored),
+  settings: parseSettings(stored, matchMedia('(prefers-color-scheme: dark)').matches),
   autoQuality: autoQuality({
     pixelRatio: devicePixelRatio || 1,
     cores: navigator.hardwareConcurrency || 4,
@@ -69,6 +69,7 @@ const view = createTreeView(container, {
   reducedMotion: reducedMotion(initial.settings),
   ground: initial.settings.ground,
   hotspots: initial.settings.hotspots,
+  night: initial.settings.theme === 'dark',
 });
 const showWeather = (state: AppState) => {
   const weather = weatherOf(state);
@@ -209,6 +210,10 @@ store.subscribe((state, prev) => {
   if (s.colorBy !== prev.settings.colorBy) view.setColorBy(s.colorBy);
   if (factsOf(state) !== factsOf(prev) || state.repo !== prev.repo) view.setFacts(factsOf(state));
   if (s.hotspots !== prev.settings.hotspots) view.setHotspots(s.hotspots);
+  if (s.theme !== prev.settings.theme) {
+    view.setNight(s.theme === 'dark');
+    syncTheme(state);
+  }
   if (s.ground !== prev.settings.ground) {
     view.setGround(s.ground);
     reframe();
@@ -249,6 +254,28 @@ store.subscribe((state, prev) => {
   }
   syncSpinButton(state);
 });
+
+const themeButton = byId<HTMLButtonElement>('theme');
+const themeColor = document.querySelector('meta[name="theme-color"]');
+/** Dark mode marks the page for its CSS, and the button offers the other mode. */
+function syncTheme({ settings: s }: AppState) {
+  const dark = s.theme === 'dark';
+  document.documentElement.dataset.theme = s.theme;
+  themeColor?.setAttribute('content', dark ? '#0d111a' : '#f6f4f0');
+  const label = dark ? 'Light mode' : 'Dark mode';
+  themeButton.setAttribute('aria-label', label);
+  themeButton.querySelector('.label')!.textContent = label;
+  themeButton.querySelector('svg')!.innerHTML = dark
+    ? '<circle cx="12" cy="12" r="4" /><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" />'
+    : '<path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10Z" />';
+}
+syncTheme(store.get());
+themeButton.addEventListener('click', () =>
+  store.dispatch({
+    type: 'settings',
+    patch: { theme: store.get().settings.theme === 'dark' ? 'light' : 'dark' },
+  }),
+);
 
 const spinButton = byId<HTMLButtonElement>('spin');
 function syncSpinButton({ settings: s }: AppState) {
@@ -333,6 +360,8 @@ const placeTools = () => {
 phone.addEventListener('change', placeTools);
 placeTools();
 mountMoreMenu(phone);
+// Moving between the bar and the menu restores the label the button started with.
+phone.addEventListener('change', () => syncTheme(store.get()));
 
 /** A panel covers the union of its visible children, so a row holding two buttons covers just them. */
 function footprint(panel: HTMLElement, origin: DOMRect): Rect | null {

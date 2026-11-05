@@ -8,6 +8,8 @@ import {
   InstancedBufferGeometry,
   Mesh,
   MeshBasicMaterial,
+  Points,
+  PointsMaterial,
   MeshStandardMaterial,
   ShaderMaterial,
   SRGBColorSpace,
@@ -132,16 +134,34 @@ const FROZEN_AT = 37.3;
 /** How fast the deck eases to a new height when the tree or the view changes, per second. */
 const DECK_RATE = 2.5;
 
-/** The palette's sky center and edge with the weather mixed in, as sRGB. */
-export function weatherSky(palette: Palette, sky: Sky | null): { center: RGB; edge: RGB } {
+/**
+ * The night sky in dark mode, the same for every palette: deep blue behind the crown fading to
+ * near black at the corners. A weather's tint darkens `dim` of the way to `edge` at night.
+ */
+export const NIGHT = { center: '#1f2a44', edge: '#080b14', dim: 0.78 };
+
+/**
+ * The palette's sky center and edge with the weather mixed in, as sRGB; at `night` the night
+ * sky's instead, so leaf colors stay the palette's whatever the mode.
+ */
+export function weatherSky(
+  palette: Palette,
+  sky: Sky | null,
+  night = false,
+): { center: RGB; edge: RGB } {
   const look = LOOKS[sky ?? 'clear'];
-  const tint = srgb(look.sky.tint);
-  const mix = (hex: string, k: number) => srgb(hex).map((c, i) => c + (tint[i]! - c) * k) as RGB;
+  const toward = (from: RGB, to: RGB, k: number) => from.map((c, i) => c + (to[i]! - c) * k) as RGB;
+  const base = night ? NIGHT : palette.sky;
+  let tint = srgb(look.sky.tint);
+  if (night) tint = toward(tint, srgb(NIGHT.edge), NIGHT.dim);
   return {
-    center: mix(palette.sky.center, look.sky.center),
-    edge: mix(palette.sky.edge, look.sky.edge),
+    center: toward(srgb(base.center), tint, look.sky.center),
+    edge: toward(srgb(base.edge), tint, look.sky.edge),
   };
 }
+
+/** How much the key and hemisphere lights keep at night: moonlight, dim but the same hue. */
+export const MOONLIGHT = { key: 0.5, sky: 0.55 };
 
 /** How much of the palette's key and hemisphere light the weather lets through. */
 export const weatherLight = (sky: Sky | null) => LOOKS[sky ?? 'clear'].light;
@@ -198,6 +218,7 @@ export function createWeather(camera: PerspectiveCamera) {
   let quality: Quality = 'low';
   let builtFor: Quality | null = null;
   let still = false;
+  let night = false;
   let time = FROZEN_AT;
   let nextFlash = 2;
   let flashAt = -Infinity;
@@ -216,6 +237,8 @@ export function createWeather(camera: PerspectiveCamera) {
       uScale: { value: SUN.scale },
       uColor: { value: SUN_LAYERS.flatMap(() => [1, 1, 1]) },
       uAlpha: { value: SUN_LAYERS.map((l) => l.alpha) },
+      uMoon: { value: 0 },
+      uShade: { value: [0, 0, 0] },
     },
     transparent: true,
     depthWrite: false,
@@ -223,6 +246,19 @@ export function createWeather(camera: PerspectiveCamera) {
   });
   const sun = new Mesh(sunGeometry(), sunMaterial);
   sun.frustumCulled = false;
+
+  const starMaterial = new PointsMaterial({
+    size: 2,
+    sizeAttenuation: false,
+    vertexColors: true,
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+    fog: false,
+  });
+  const stars = new Points(starGeometry(), starMaterial);
+  stars.frustumCulled = false;
+  stars.renderOrder = -1;
 
   /** Per cloud: x, y (its underside), z and size, or size 0 while it is not out. */
   const clouds$ = { value: Array.from({ length: MAX_CLOUDS }, () => new Vector4()) };
@@ -308,15 +344,19 @@ export function createWeather(camera: PerspectiveCamera) {
   const apply = () => {
     if (!palette) return;
     const l = look();
-    const { center, edge } = weatherSky(palette, sky);
     const toward = (from: RGB, to: RGB, k: number) =>
       from.map((c, i) => c + (to[i]! - c) * k) as RGB;
-    const sunColor = srgb('#ffd45c');
-    sunMaterial.uniforms.uColor!.value = SUN_LAYERS.flatMap((s) =>
-      toward(center, sunColor, s.tone),
-    );
-    sunMaterial.uniforms.uAlpha!.value = SUN_LAYERS.map((s) => s.alpha * l.sun);
+    const { center, edge } = weatherSky(palette, sky, night);
+    const layers = night ? MOON_LAYERS : SUN_LAYERS;
+    const glow = srgb(night ? MOON.color : '#ffd45c');
+    const u$ = sunMaterial.uniforms;
+    u$.uColor!.value = layers.flatMap((s) => toward(center, glow, s.tone));
+    u$.uAlpha!.value = layers.map((s) => s.alpha * l.sun);
+    u$.uMoon!.value = night ? 1 : 0;
+    u$.uShade!.value = toward(center, glow, MOON.shade);
     sun.visible = l.sun > 0;
+    stars.visible = night;
+    starMaterial.opacity = STARS.through[sky ?? 'clear'];
 
     if (builtFor !== quality) {
       clouds.geometry.dispose();
@@ -325,7 +365,10 @@ export function createWeather(camera: PerspectiveCamera) {
     }
     clouds.visible = l.clouds.count > 0;
     clouds.geometry.setDrawRange(0, clouds.geometry.userData.ends[l.clouds.count] ?? 0);
-    cloudMaterial.color.setRGB(...toward(srgb(l.clouds.color), edge, 0.15), SRGBColorSpace);
+    cloudMaterial.color.setRGB(
+      ...toward(srgb(l.clouds.color), edge, night ? MOON.clouds : 0.15),
+      SRGBColorSpace,
+    );
 
     const snow = snowing();
     const kind = snow ? SNOW : RAIN;
@@ -412,7 +455,7 @@ export function createWeather(camera: PerspectiveCamera) {
 
   return {
     /** Objects to add to the scene, all in world space over the island. */
-    objects: [sun, clouds, fall, bolt],
+    objects: [stars, sun, clouds, fall, bolt],
     /**
      * The sun and each cloud out now, as a center and radius in world space, for telling a
      * tap on the sky: the sun to its halo, a cloud to its puffs.
@@ -432,8 +475,15 @@ export function createWeather(camera: PerspectiveCamera) {
     },
     /** Whether the weather moves, so the view keeps rendering. */
     animated,
-    set(next: { sky: Sky | null; palette: Palette; quality: Quality; still: boolean }) {
+    set(next: {
+      sky: Sky | null;
+      palette: Palette;
+      quality: Quality;
+      still: boolean;
+      night: boolean;
+    }) {
       sky = next.sky;
+      night = next.night;
       palette = next.palette;
       quality = next.quality;
       still = next.still;
@@ -489,7 +539,7 @@ export function createWeather(camera: PerspectiveCamera) {
       return flash;
     },
     dispose() {
-      for (const mesh of [sun, clouds, bolt, fall]) {
+      for (const mesh of [sun, stars, clouds, bolt, fall]) {
         mesh.geometry.dispose();
         mesh.material.dispose();
       }
@@ -507,6 +557,53 @@ const SUN_LAYERS = [
   { alpha: 0.4, tone: 0.8 },
   { alpha: 1, tone: 1 },
 ];
+/**
+ * The moon in dark mode takes the sun's place: no rays, a faint cool halo and glow, and a pale
+ * core lit from one side, `shade` of the way from the sky to its `color` on the dark side, so it
+ * reads as a fat crescent. Clouds turn `clouds` of the way to the night sky's edge.
+ */
+const MOON_LAYERS = [
+  { alpha: 0, tone: 0 },
+  { alpha: 0.08, tone: 0.5 },
+  { alpha: 0.1, tone: 0.65 },
+  { alpha: 1, tone: 1 },
+];
+const MOON = { color: '#eef1fa', shade: 0.16, clouds: 0.6 };
+/**
+ * Stars in dark mode: `count` points on a dome `radius` round the island, from `low` to `high`
+ * radians over the horizon, more of them low; `through` is how much of them each weather lets
+ * show past its clouds.
+ */
+const STARS = {
+  count: 360,
+  radius: 60,
+  low: 0.02,
+  high: 1.2,
+  through: { clear: 1, sunny: 1, cloudy: 0.75, rain: 0.35, storm: 0.2 } as Record<Sky, number>,
+};
+
+function starGeometry(): BufferGeometry {
+  const random = mulberry32(29);
+  const positions: number[] = [];
+  const colors: number[] = [];
+  for (let n = 0; n < STARS.count; n++) {
+    const around = random() * Math.PI * 2;
+    const up = STARS.low + (STARS.high - STARS.low) * random() ** 1.6;
+    const r = STARS.radius;
+    positions.push(
+      Math.cos(around) * Math.cos(up) * r,
+      Math.sin(up) * r,
+      Math.sin(around) * Math.cos(up) * r,
+    );
+    const bright = 0.35 + 0.65 * random() ** 2;
+    const warm = random() * 0.12;
+    colors.push(bright, bright * (1 - warm * 0.3), bright * (1 - warm));
+  }
+  return new BufferGeometry()
+    .setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
+    .setAttribute('color', new BufferAttribute(new Float32Array(colors), 3));
+}
+
 const SUN_RAYS = 12;
 /** The halo's and glow's radii, and the core's, in sun units. */
 const SUN_DISCS = [0.2, 0.135];
@@ -579,6 +676,8 @@ uniform float uTime;
 uniform float uScale;
 uniform vec3 uColor[4];
 uniform float uAlpha[4];
+uniform float uMoon;
+uniform vec3 uShade;
 varying vec3 vColor;
 varying float vAlpha;
 vec2 turn(vec2 p, float a) {
@@ -603,6 +702,11 @@ void main() {
     vec3 facing = normalize(mat3(modelViewMatrix) * n);
     float lit = clamp(0.55 + 0.45 * facing.z + 0.25 * facing.y - 0.15 * facing.x, 0.0, 1.0);
     vColor = uColor[3] * mix(0.86, 1.06, lit);
+    if (uMoon > 0.5) {
+      // The moon is lit from its upper left, toward the camera: a fat crescent of facets.
+      float side = clamp(0.5 - facing.x * 1.25 + facing.y * 0.35 + facing.z * 0.2, 0.0, 1.0);
+      vColor = mix(uShade, uColor[3] * mix(0.9, 1.04, lit), smoothstep(0.25, 0.6, side));
+    }
   } else {
     vec2 p = position.xy;
     if (layer == 0) {

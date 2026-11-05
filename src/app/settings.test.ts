@@ -6,6 +6,12 @@ describe('parseSettings', () => {
     expect(parseSettings(null)).toEqual(DEFAULT_SETTINGS);
   });
 
+  test("takes a first visit's theme from the system, then keeps the stored one", () => {
+    expect(parseSettings(null, true).theme).toBe('dark');
+    expect(parseSettings('{"theme":"light"}', true).theme).toBe('light');
+    expect(parseSettings('{"theme":"dusk"}').theme).toBe('light');
+  });
+
   test('falls back to the defaults on bad JSON', () => {
     expect(parseSettings('{"palette": "winter",')).toEqual(DEFAULT_SETTINGS);
     expect(parseSettings('"winter"')).toEqual(DEFAULT_SETTINGS);

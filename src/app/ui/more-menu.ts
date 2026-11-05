@@ -13,7 +13,7 @@ export function mountMoreMenu(phone: MediaQueryList): void {
   const menu = byId('more-menu');
   const timeline = byId('timeline');
   const settings = byId('settings-open');
-  const ids = ['grow', 'spin', 'share', 'export', 'theme'];
+  const ids = ['grow', 'spin', 'share', 'export', 'theme', 'signin'];
   const items = ids.map((id) => byId<HTMLButtonElement>(id));
   const desktopLabels = items.map((el) => el.querySelector('.label')?.textContent ?? null);
 
@@ -26,13 +26,16 @@ export function mountMoreMenu(phone: MediaQueryList): void {
     setOpen(false);
     items.forEach((el, i) => {
       const label = el.querySelector('.label');
+      // Only the buttons named in MENU_LABELS change label: others (theme, sign-in) keep theirs,
+      // which their own modules keep current.
+      const menuLabel = MENU_LABELS[ids[i]!];
       if (phone.matches) {
         menu.append(el);
-        if (label) label.textContent = MENU_LABELS[ids[i]!] ?? label.textContent;
+        if (label && menuLabel) label.textContent = menuLabel;
       } else {
         const anchor = i < 2 ? timeline : settings;
         anchor.before(el);
-        if (label) label.textContent = desktopLabels[i]!;
+        if (label && menuLabel) label.textContent = desktopLabels[i]!;
       }
     });
     // The way to the repo on GitHub, which the phone's repo row leaves to the menu, goes last.

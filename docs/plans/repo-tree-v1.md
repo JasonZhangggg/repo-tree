@@ -13,7 +13,7 @@ Each item is checked on the deployed build or the production `vite preview` buil
 3. The largest sample (about 100k files) loads with the main thread never blocked over 100 ms during generation, and orbiting holds at least 50 fps on the CI runner's software renderer at quality Low. The perf script prints both numbers.
 4. Hover highlights a folder subtree. Click pins a detail card with path crumbs and a link to the folder on GitHub. Search finds a file or folder and frames it.
 5. Settings persist across reloads. The URL alone restores repo and settings.
-6. API failures (not found, rate limited, truncated tree, offline) each show a specific message and a next step. A personal token can be added for private repos and higher limits. It stays in localStorage and is sent only to `api.github.com`.
+6. API failures (not found, rate limited, truncated tree, offline) each show a specific message and a next step. Signing in with GitHub (no scopes: public data only) raises the hourly limit from 60 per network address to 5,000 per visitor for every read; a rate limit offers it. A personal token can be added for private repos. It stays in localStorage and is sent only to `api.github.com`.
 7. CI runs typecheck, lint, unit tests, build and Playwright e2e on every PR. Merging to `main` deploys to GitHub Pages.
 8. Usable on a 390 px wide phone: tree framed, panels as a bottom sheet, touch orbit and tap to pin.
 
@@ -178,7 +178,11 @@ function parseHistory(body: unknown): History | null; // version and column alig
 function signIn(base?: string): Promise<string | null>; // popup to <base>/v1/auth/login (state HMAC-signed, no KV); the callback posts the token to this origin; kept in sessionStorage 'repo-tree:github-signin' (this tab only)
 function signedInToken(): string | null;
 function signOut(): void;
+function githubToken(manual: string | undefined): string | undefined; // the Settings token, else the signed-in one: every read of GitHub's API (tree, Actions runs, history) sends it
+function onAuthChange(listener: () => void): void; // this tab signed in or out
 // The sign-in token goes only in the Authorization header of requests to GitHub's API and the history Worker, never in a link.
+// app/ui/signin.ts: the Sign in with GitHub button beside Settings (in the More menu on a phone), hidden without HISTORY_URL; signed in, it signs out. Settings repeats it with what sign-in lets Repo Tree see.
+// app/errors.ts: describeError(error, ref, { hasToken, signedIn?, canSignIn? }); ErrorAction adds 'signin', offered for a rate limit when the build can sign in, and for a refused sign-in token (which is then forgotten).
 
 // repo/languages.ts  (table, not branching)
 type Lang = string & { __brand: 'Lang' };

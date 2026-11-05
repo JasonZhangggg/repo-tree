@@ -902,8 +902,9 @@ const JOURNEYS = {
       await page.getByRole('button', { name: 'Not now' }).click();
       await openTimeline('acme/widgets');
       const popup = page.waitForEvent('popup');
-      await page.getByRole('button', { name: /^Sign in/ }).click();
-      await (await popup).waitForEvent('close');
+      await dialog.getByRole('button', { name: /^Sign in/ }).click();
+      const signin = await popup;
+      if (!signin.isClosed()) await signin.waitForEvent('close');
       await expect(dialog.locator('progress')).toHaveAttribute('value', /^[1-9]\d?$/);
       await expect(dialog).toContainText(/\d+% · /);
       await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();

@@ -1,4 +1,6 @@
+import { onAuthChange, signOut, signedInToken } from '../../repo/auth';
 import { DEFAULT_FILTERS } from '../../repo/hierarchy';
+import { HISTORY_URL } from '../../repo/history';
 import { PALETTES } from '../../render/palette';
 import type { App } from '../app';
 import { byId, h, icon, ICONS } from '../dom';
@@ -351,6 +353,7 @@ export function mountSettings(app: App): {
         ),
         addFolder,
       ),
+      ...(HISTORY_URL ? [signInField()] : []),
       h(
         'div',
         { class: 'field', id: 'token-field' },
@@ -364,6 +367,49 @@ export function mountSettings(app: App): {
       ),
     );
   };
+
+  /** Sign in or out, with what signing in lets Repo Tree see: public data, never file contents. */
+  const signInField = () => {
+    const inside = signedInToken() !== null;
+    return h(
+      'div',
+      { class: 'field', id: 'signin-field' },
+      h('p', { class: 'h' }, 'GitHub sign-in'),
+      h(
+        'p',
+        { class: 'note' },
+        inside
+          ? 'Signed in: GitHub allows you 5,000 requests an hour for trees, CI weather and history.'
+          : 'Raises GitHub’s limit from 60 requests an hour, shared with your network, to 5,000 of your own: for trees, CI weather and history.',
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: inside ? 'btn' : 'btn dark',
+          id: 'signin-settings',
+          onclick: () => {
+            if (inside) {
+              signOut();
+              app.toast('Signed out of GitHub');
+            } else {
+              app.signIn();
+            }
+          },
+        },
+        inside ? 'Sign out' : 'Sign in with GitHub',
+      ),
+      h(
+        'p',
+        { class: 'note', id: 'signin-privacy' },
+        h('strong', {}, 'What Repo Tree can see. '),
+        'Sign-in asks GitHub for no permissions, so it reaches public data only: no private repos, and nothing it can change. Repo Tree reads file names, sizes and commit dates, never file contents. Your token stays in this tab and goes only to GitHub and the Repo Tree history server, which uses it to check uploads with GitHub and never stores it.',
+      ),
+    );
+  };
+  onAuthChange(() => {
+    if (!dialog.hidden) render(store.get());
+  });
 
   const focusAfter = (selector: string) =>
     queueMicrotask(() => dialog.querySelector<HTMLElement>(selector)?.focus());

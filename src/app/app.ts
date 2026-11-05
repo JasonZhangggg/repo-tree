@@ -20,6 +20,8 @@ export type App = {
   /** Previews a legend entry's highlight while the pointer is over it. */
   hoverCategory(label: string | null): void;
   openSettings(focus?: 'token' | 'hidden'): void;
+  /** Signs in with GitHub (from a click), then reads again what the old limit may have cost. */
+  signIn(): void;
   openSearch(): void;
   toast(message: string): void;
 };

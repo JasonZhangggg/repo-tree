@@ -21,6 +21,7 @@ import { mountCanvas } from './app/ui/canvas';
 import { mountHeader } from './app/ui/header';
 import { mountHint } from './app/ui/hint';
 import { mountMoreMenu } from './app/ui/more-menu';
+import { mountSignIn } from './app/ui/signin';
 import { mountSearch } from './app/ui/search-dialog';
 import { mountSettings } from './app/ui/settings-dialog';
 import { childrenOf, mountSide } from './app/ui/side';
@@ -108,6 +109,7 @@ const app: App = {
     applyHighlight();
   },
   openSettings: (focus) => settings.open(focus),
+  signIn: () => void signin.signIn(),
   openSearch: () => search.open(),
   toast(message) {
     const long = message.length > 120;
@@ -475,6 +477,7 @@ const timeline = mountTimeline(
   compute,
 );
 const settings = mountSettings(app);
+const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 
 const link = parseLink(location.hash);
 if (link) applyLink(link);

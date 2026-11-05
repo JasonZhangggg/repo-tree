@@ -4,6 +4,8 @@ import { parseRepoRef } from '../../repo/ref';
 import { PALETTES } from '../../render/palette';
 import { githubUrl, type App } from '../app';
 import { byId, fill, h, icon, ICONS } from '../dom';
+import { githubToken, signedInToken } from '../../repo/auth';
+import { HISTORY_URL } from '../../repo/history';
 import { describeError, type ErrorAction } from '../errors';
 import { compact, count, plural } from '../format';
 import { readRecent } from '../recent';
@@ -181,10 +183,12 @@ export function mountHeader(app: App): void {
 
   const runAction = (action: ErrorAction, state: AppState) => {
     if (action === 'retry' && state.load.phase === 'error') app.load(state.load.ref);
+    if (action === 'signin') app.signIn();
     if (action === 'token') app.openSettings('token');
     if (action === 'settings') app.openSettings('hidden');
   };
   const ACTION_LABEL: Record<ErrorAction, string> = {
+    signin: 'Sign in with GitHub',
     retry: 'Try again',
     token: 'Add a token',
     settings: 'Hidden folders',
@@ -234,7 +238,11 @@ export function mountHeader(app: App): void {
     }
     loadingId = null;
     if (load.phase === 'error') {
-      const copy = describeError(load.error, load.ref, !!state.settings.token);
+      const copy = describeError(load.error, load.ref, {
+        hasToken: !!githubToken(state.settings.token),
+        signedIn: !state.settings.token && signedInToken() !== null,
+        canSignIn: !!HISTORY_URL,
+      });
       status.replaceChildren(
         h(
           'div',

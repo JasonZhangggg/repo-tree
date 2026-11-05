@@ -600,8 +600,9 @@ test('on a phone a drag that starts on a label turns the tree', async ({ page, i
 test('the history button is dark, like the other primary action', async ({ page }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
-  const bg = await page.locator('#timeline').evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(bg).toBe('rgb(37, 34, 30)');
+  // Retried: the button turns from disabled to dark with a 0.15 s background transition, which
+  // can still be running when a quick first tree is ready.
+  await expect(page.locator('#timeline')).toHaveCSS('background-color', 'rgb(37, 34, 30)');
 });
 
 test('settings fit their panel without a sideways scroll', async ({ page }) => {

@@ -98,14 +98,14 @@ test('two PRs on one folder share its branch, and the card says they may conflic
   throw new Error('the pair never faced the camera');
 });
 
-test('Birds turn off in Settings', async ({ page, isMobile }) => {
+test('Show PRs turns birds off in Settings', async ({ page, isMobile }) => {
   test.skip(isMobile, 'Settings are the same on a phone');
   await servePulls(page, 'vitejs/vite', VITE_PULLS);
   await page.goto('./#/vitejs/vite');
   await ready(page, 'vitejs/vite');
   await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(VITE_PULLS.length);
   await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('switch', { name: /Birds/ }).click();
+  await page.getByRole('switch', { name: /Show PRs/ }).click();
   await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(0);
   expect(
     await page.evaluate(() => JSON.parse(localStorage.getItem('repo-tree:settings')!).birds),
@@ -127,4 +127,19 @@ test('a rate-limited PR list leaves the tree with no birds and no error', async 
   await ready(page, 'acme/limited');
   await expect(page.locator('#status')).toBeEmpty();
   expect(await birdsOnScreen(page)).toEqual([]);
+});
+
+test('the PRs button beside the tree hides the birds and shows them again', async ({ page }) => {
+  await servePulls(page, 'vitejs/vite', VITE_PULLS);
+  await page.goto('./#/vitejs/vite');
+  await ready(page, 'vitejs/vite');
+  await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(VITE_PULLS.length);
+  const hide = page.getByRole('button', { name: 'Hide PRs' });
+  await expect(hide).toHaveAttribute('aria-pressed', 'true');
+  await hide.click();
+  await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(0);
+  const show = page.getByRole('button', { name: 'Show PRs' });
+  await expect(show).toHaveAttribute('aria-pressed', 'false');
+  await show.click();
+  await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(VITE_PULLS.length);
 });

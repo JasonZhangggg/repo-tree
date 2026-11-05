@@ -4,7 +4,7 @@ import { byId } from '../dom';
 const MENU_LABELS: Record<string, string> = { share: 'Copy link', export: 'Export PNG' };
 
 /**
- * On a phone the bottom row keeps Timeline, Search and Settings, and a short menu behind
+ * On a phone the bottom row keeps Timeline, Show PRs, Search and Settings, and a short menu behind
  * `More actions` holds Copy link, Export PNG and Open on GitHub; Sign in, or the GitHub account
  * once signed in, is a bubble of its own at the top right. Grow again, Spin and
  * Dark mode, which the desktop shows as buttons, are left off the phone: Spin and Dark mode are

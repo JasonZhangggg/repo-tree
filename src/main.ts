@@ -262,6 +262,7 @@ store.subscribe((state, prev) => {
     history[moved ? 'pushState' : 'replaceState'](null, '', link);
   }
   syncSpinButton(state);
+  syncPrsButton(state);
 });
 
 const themeButton = byId<HTMLButtonElement>('theme');
@@ -299,6 +300,18 @@ syncSpinButton(store.get());
 const toggleSpin = () =>
   store.dispatch({ type: 'settings', patch: { spin: !store.get().settings.spin } });
 spinButton.addEventListener('click', toggleSpin);
+// Open PRs perch on the tree as birds; this shows or hides them, like the Settings switch.
+const prsButton = byId<HTMLButtonElement>('prs');
+function syncPrsButton({ settings: s }: AppState) {
+  const label = s.birds ? 'Hide PRs' : 'Show PRs';
+  prsButton.setAttribute('aria-pressed', String(s.birds));
+  prsButton.setAttribute('aria-label', label);
+  prsButton.querySelector('span')!.textContent = label;
+}
+syncPrsButton(store.get());
+prsButton.addEventListener('click', () =>
+  store.dispatch({ type: 'settings', patch: { birds: !store.get().settings.birds } }),
+);
 byId('grow').addEventListener('click', () => view.grow());
 mountHint();
 // iOS Safari ignores user-scalable=no; its own gesture events are the way to keep a pinch

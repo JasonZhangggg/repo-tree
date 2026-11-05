@@ -684,7 +684,7 @@ const JOURNEYS = {
     await step('off', async () => {
       await page.locator('#pr-card').getByRole('button', { name: 'Not now' }).click();
       await page.getByRole('button', { name: 'Settings' }).click();
-      await page.getByRole('switch', { name: /^Birds/ }).click();
+      await page.getByRole('switch', { name: /^Show PRs/ }).click();
       await expect.poll(async () => (await birdsOnScreen()).length).toBe(0);
       await page.getByRole('button', { name: 'Close settings' }).click();
       await settle(page);

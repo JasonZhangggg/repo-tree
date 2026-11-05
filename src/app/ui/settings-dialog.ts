@@ -325,7 +325,9 @@ export function mountSettings(app: App): {
         toggle('Weather', 'Shows CI from GitHub Actions', settings.weather, (weather) =>
           set({ weather }),
         ),
-        toggle('Birds', 'Shows open pull requests', settings.birds, (birds) => set({ birds })),
+        toggle('Show PRs', 'Open pull requests perch as birds', settings.birds, (birds) =>
+          set({ birds }),
+        ),
         toggle(
           'Growth animation',
           reducedMotion.matches ? 'Off: your system asks for reduced motion' : null,

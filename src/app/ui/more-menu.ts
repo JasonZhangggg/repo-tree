@@ -38,8 +38,10 @@ export function mountMoreMenu(phone: MediaQueryList): void {
         if (label && menuLabel) label.textContent = desktopLabels[i]!;
       }
     });
-    // The way to the repo on GitHub, which the phone's repo row leaves to the menu, goes last.
+    // The way to the repo on GitHub, which the phone's repo row leaves to the menu, goes last;
+    // signing in, which the rest depend on for GitHub's limit, goes first.
     menu.append(byId('open-github'));
+    if (phone.matches) menu.prepend(byId('signin'));
   };
 
   more.addEventListener('click', () => setOpen(menu.hidden !== false));

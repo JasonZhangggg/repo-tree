@@ -184,6 +184,15 @@ test('the Sign in button signs in from anywhere, and GitHub reads then carry the
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
+  test('Sign in heads the More menu', async ({ page }) => {
+    await page.goto('./');
+    await ready(page, 'vitejs/vite');
+    await page.getByRole('button', { name: 'More actions' }).tap();
+    const first = page.locator('#more-menu > :first-child');
+    await expect(first).toHaveAccessibleName('Sign in with GitHub');
+    await expect(first).toBeVisible();
+  });
+
   test('warns with the estimate before starting, and lets the visitor choose', async ({ page }) => {
     // A repo nobody computed yet (acme/widgets is shared by now).
     await open(page, 'acme/gadgets');

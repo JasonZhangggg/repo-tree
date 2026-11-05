@@ -46,7 +46,8 @@ export async function quietSettings(page: Page) {
 
 /**
  * Answers every Actions runs request with a sample's bundled runs, so a spec that opens samples
- * knows its sky (a sample reads its live CI first) and logs no failed request.
+ * knows its sky (a sample reads its live CI first), and every open PR list with none, so no
+ * birds land on what it measures. Either way it logs no failed request.
  */
 export async function serveSampleRuns(page: Page) {
   const SAMPLE_RUNS: Record<string, string> = {
@@ -67,6 +68,10 @@ export async function serveSampleRuns(page: Page) {
           })
         : route.abort('internetdisconnected');
     },
+  );
+  await page.route(
+    (url) => url.host === 'api.github.com' && url.pathname.endsWith('/pulls'),
+    (route) => route.fulfill({ headers: { 'access-control-allow-origin': '*' }, json: [] }),
   );
 }
 
@@ -112,3 +117,109 @@ export async function serveRuns(
       }),
   );
 }
+
+/** A stand-in open pull request: what the birds read from GitHub's list and its files. */
+export type StandInPull = {
+  number: number;
+  title: string;
+  author: string;
+  files: string[];
+  draft?: boolean;
+  base?: string;
+};
+
+/**
+ * Answers `name`'s open pull requests list and each one's files, updated an hour apart, newest
+ * first. A PR missing here answers its files with a 404.
+ */
+export async function servePulls(page: Page, name: string, pulls: StandInPull[]) {
+  const now = Date.now();
+  const cors = { 'access-control-allow-origin': '*' };
+  await page.route(
+    (url) => url.href.startsWith(`https://api.github.com/repos/${name}/pulls?`),
+    (route) =>
+      route.fulfill({
+        headers: cors,
+        json: pulls.map((p, i) => ({
+          number: p.number,
+          state: 'open',
+          title: p.title,
+          user: { login: p.author },
+          html_url: `https://github.com/${name}/pull/${p.number}`,
+          draft: p.draft ?? false,
+          updated_at: new Date(now - (i + 1) * 3_600_000).toISOString(),
+          base: { ref: p.base ?? 'main' },
+        })),
+      }),
+  );
+  await page.route(
+    (url) =>
+      url.href.startsWith(`https://api.github.com/repos/${name}/pulls/`) &&
+      url.pathname.endsWith('/files'),
+    (route) => {
+      const n = Number(new URL(route.request().url()).pathname.split('/').at(-2));
+      const pull = pulls.find((p) => p.number === n);
+      return route.fulfill(
+        pull
+          ? {
+              headers: cors,
+              json: pull.files.map((filename) => ({ filename, status: 'modified' })),
+            }
+          : { status: 404, headers: cors, json: { message: 'Not Found' } },
+      );
+    },
+  );
+}
+
+/** Open pull requests to perch on the vite sample: three authors, a draft, two on one folder. */
+export const VITE_PULLS: StandInPull[] = [
+  {
+    number: 2101,
+    title: 'Speed up the dependency optimizer’s cache check',
+    author: 'alice-dev',
+    files: [
+      'packages/vite/src/node/optimizer/index.ts',
+      'packages/vite/src/node/optimizer/scan.ts',
+      'packages/vite/src/node/optimizer/optimizer.ts',
+    ],
+  },
+  {
+    number: 2098,
+    title: 'Fix CSS url() rewriting in nested imports',
+    author: 'bo-codes',
+    files: ['packages/vite/src/node/plugins/css.ts', 'playground/css/__tests__/css.spec.ts'],
+  },
+  {
+    number: 2094,
+    title: 'Docs: explain server.warmup',
+    author: 'carmen',
+    files: ['docs/config/server-options.md', 'docs/guide/performance.md'],
+  },
+  {
+    number: 2090,
+    title: 'Add a Qwik template to create-vite',
+    author: 'alice-dev',
+    draft: true,
+    files: [
+      'packages/create-vite/template-qwik/package.json',
+      'packages/create-vite/template-qwik/src/main.tsx',
+      'packages/create-vite/src/index.ts',
+      'packages/create-vite/template-qwik/index.html',
+    ],
+  },
+  {
+    number: 2087,
+    title: 'Retry the optimizer when a dependency changes mid-scan',
+    author: 'dmitri',
+    files: [
+      'packages/vite/src/node/optimizer/index.ts',
+      'packages/vite/src/node/optimizer/scan.ts',
+    ],
+  },
+  {
+    number: 2083,
+    title: 'Bump the playground’s Vue',
+    author: 'bo-codes',
+    files: ['playground/vue/package.json', 'pnpm-lock.yaml', 'playground/vue-jsx/package.json'],
+  },
+];

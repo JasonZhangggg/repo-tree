@@ -2,7 +2,7 @@
 // Usage: node .claude/skills/verify-repo-tree/scripts/drive.mjs <command> [--port 4175]
 //          [--out dir] [--viewport desktop|phone|phone-390] [--scale 2] [--history]
 // Commands: launch, doctor, cleanup, or a journey: load-repo, explore, search, settings,
-// share-and-export, phone-layout, tree-sizes, timeline, weather, activity, changes, busiest,
+// share-and-export, phone-layout, tree-sizes, timeline, weather, birds, activity, changes, busiest,
 // history-compute.
 // `launch --history` starts e2e/history-stack.mjs instead (app, history Worker and fake GitHub
 // on port, port+1 and port+2), which the history-compute journey needs. Journeys save numbered screenshots and report.json in --out
@@ -22,7 +22,15 @@ import { parseArgs } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { expect } from '@playwright/test';
 import { chromium, devices } from 'playwright';
-import { failRepo, quietSettings, ready, serveRepo, serveRuns } from '../../../../e2e/github.ts';
+import {
+  failRepo,
+  quietSettings,
+  ready,
+  serveRepo,
+  servePulls,
+  serveRuns,
+  VITE_PULLS,
+} from '../../../../e2e/github.ts';
 
 process.chdir(new URL('../../../../', import.meta.url).pathname);
 const { positionals, values } = parseArgs({
@@ -623,6 +631,61 @@ const JOURNEYS = {
       await page.getByRole('button', { name: 'Settings' }).click();
       await page.getByRole('switch', { name: /^Weather/ }).click();
       await expect(chip).toBeHidden();
+      await page.getByRole('button', { name: 'Close settings' }).click();
+      await settle(page);
+    });
+  },
+
+  birds: async ({ page, step }) => {
+    const phone = viewport.startsWith('phone');
+    const birdsOnScreen = () => page.evaluate(() => window.__repoTree.view.birdsOnScreen());
+    /** Points at (or taps) each bird until one answers: birds behind the crown are hidden by it. */
+    const touchABird = async () => {
+      const box = await page.locator('#view').boundingBox();
+      for (const { x, y } of await birdsOnScreen()) {
+        if (phone) {
+          await page.touchscreen.tap(box.x + x, box.y + y);
+          if (await page.locator('#pr-card').isVisible()) return;
+        } else {
+          await page.mouse.move(box.x + x, box.y + y);
+          await page.waitForTimeout(300);
+          if (/^#\d+/.test((await page.locator('#tip').textContent()) ?? '')) return { x, y };
+        }
+      }
+      throw new Error('no bird answered');
+    };
+    await servePulls(page, 'vitejs/vite', VITE_PULLS);
+    let point;
+    await step('perched', async () => {
+      await page.goto(base);
+      await ready(page, 'vitejs/vite');
+      await expect.poll(async () => (await birdsOnScreen()).length).toBe(VITE_PULLS.length);
+      await settle(page);
+    });
+    if (!phone) {
+      await step('hover', async () => {
+        point = await touchABird();
+        await expect(page.locator('#tip')).toBeVisible();
+      });
+    }
+    await step('card', async () => {
+      if (phone) await touchABird();
+      else {
+        const box = await page.locator('#view').boundingBox();
+        await page.mouse.click(box.x + point.x, box.y + point.y);
+      }
+      const card = page.locator('#pr-card');
+      await expect(card).toBeVisible();
+      await expect(card.getByRole('link', { name: 'Open pull request' })).toHaveAttribute(
+        'href',
+        /^https:\/\/github\.com\/vitejs\/vite\/pull\/\d+$/,
+      );
+    });
+    await step('off', async () => {
+      await page.locator('#pr-card').getByRole('button', { name: 'Not now' }).click();
+      await page.getByRole('button', { name: 'Settings' }).click();
+      await page.getByRole('switch', { name: /^Birds/ }).click();
+      await expect.poll(async () => (await birdsOnScreen()).length).toBe(0);
       await page.getByRole('button', { name: 'Close settings' }).click();
       await settle(page);
     });

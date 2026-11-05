@@ -98,7 +98,7 @@ const BIRD: [Part, Vec3, Vec3, Vec3][] = (() => {
 })();
 export const BIRD_VERTICES = BIRD.length * 3;
 
-const BEAK = new Color('#e8a33a');
+const BEAK = new Color('#c9a062');
 const EYE = new Color('#1b1a18');
 
 /** How far around a bird's line out of the crown, in bird lengths, leaves count as in its way. */
@@ -212,14 +212,14 @@ export function birdGeometry(perches: readonly Perched[], idBase: number): Buffe
   const plumage = new Color();
   const wing = new Color();
   const breast = new Color();
-  const white = new Color('#ffffff');
+  const cream = new Color('#efe4d2');
   let v = 0;
   perches.forEach((p, b) => {
     const { at, look } = placed[b]!;
     const right: Vec3 = [-look[2], 0, look[0]];
     plumage.set(p.color);
     wing.copy(plumage).multiplyScalar(0.45);
-    breast.copy(plumage).lerp(white, 0.12);
+    breast.copy(plumage).lerp(cream, 0.3);
     const colors: Record<Part, Color> = { body: plumage, wing, breast, beak: BEAK, eye: EYE };
     for (const [part, ...corners] of BIRD) {
       const c = colors[part];

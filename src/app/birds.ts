@@ -2,19 +2,20 @@ import { pullsKey, perchOf, type OpenPull, type OpenPulls } from '../repo/pulls'
 import type { AppState } from './state';
 
 /**
- * Plumage, one per author: mostly cool and deep, so birds stand apart from autumn and spring
- * leaves, and readable against both the day and the night sky.
+ * Plumage, one per author: the muted browns, greys and dusky blues of real songbirds, so birds
+ * read as part of the scene rather than markers on it, and stay apart from bright leaves.
  */
 export const PLUMAGE = [
-  '#2a5bd7', // bluebird
-  '#0f9aa8', // kingfisher
-  '#7446c9', // martin
-  '#2a2c38', // blackbird
-  '#c62828', // cardinal
-  '#e6b31e', // goldfinch
+  '#7d5f48', // sparrow
+  '#5d6670', // slate junco
+  '#8c857c', // dove
+  '#566c86', // dusky bluebird
+  '#6c6e4c', // olive warbler
+  '#8a5848', // wren
+  '#3f4045', // starling
 ] as const;
 /** A draft is a fledgling: pale and not yet in its colors. */
-export const FLEDGLING = '#c9c3b8';
+export const FLEDGLING = '#cdc6bb';
 
 /** One open pull request perched on the folder it changes most (perchOf). */
 export type Bird = { pull: OpenPull; folder: number; color: string };

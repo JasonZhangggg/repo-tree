@@ -22,6 +22,7 @@ import { mountCanvas } from './app/ui/canvas';
 import { mountHeader } from './app/ui/header';
 import { mountHint } from './app/ui/hint';
 import { mountMoreMenu } from './app/ui/more-menu';
+import { mountQuick } from './app/ui/quick';
 import { mountSignIn } from './app/ui/signin';
 import { mountSearch } from './app/ui/search-dialog';
 import { mountSettings } from './app/ui/settings-dialog';
@@ -486,6 +487,7 @@ const timeline = mountTimeline(
 );
 const settings = mountSettings(app);
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
+mountQuick(app);
 
 const link = parseLink(location.hash);
 if (link) applyLink(link);

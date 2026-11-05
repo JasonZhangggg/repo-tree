@@ -521,6 +521,10 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
   font-size: 12.5px;
   line-height: 1.45;
 }
+/* The collapsed drawer's Color leaves by is a phone's; a desktop shows the side panel. */
+.quick {
+  display: none;
+}
 /* The More button and its menu exist only on a phone, where the menu holds the actions that
    don't fit the bottom row. */
 #more {
@@ -2476,6 +2480,48 @@ body:has(.scrubber:not([hidden])) .toast {
   }
   .side[data-open] .side-body {
     animation: rise 0.22s var(--ease);
+  }
+  /* The collapsed bar: title on the left, Color leaves by on the right, opening upward. Open,
+     the drawer has the full picker; pinned, the bar's right corner holds Clear selection. */
+  .quick {
+    display: block;
+    position: absolute;
+    top: 20px;
+    right: 14px;
+  }
+  .side[data-open] .quick,
+  .side[data-dragging] .quick,
+  .side:has(.sheet-clear:not([hidden])) .quick {
+    display: none;
+  }
+  .side:not([data-open], [data-dragging]):not(:has(.sheet-clear:not([hidden]))) .sheet-handle {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+  .side:not([data-open], [data-dragging]):not(:has(.sheet-clear:not([hidden]))) .peek {
+    justify-self: stretch;
+    justify-items: start;
+    margin-right: 136px;
+  }
+  .quick .pick {
+    width: auto;
+    min-height: 40px;
+    padding: 0 10px 0 12px;
+    gap: 6px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--wash);
+  }
+  .quick .pick .hint {
+    display: none;
+  }
+  .quick .pick-menu {
+    top: auto;
+    bottom: calc(100% + 8px);
+    left: auto;
+    right: 0;
+    width: min(300px, calc(100vw - 28px));
+    transform-origin: bottom right;
   }
   .sheet-handle {
     display: grid;

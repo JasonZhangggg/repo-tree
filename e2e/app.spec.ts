@@ -762,3 +762,32 @@ test('the desktop toolbar groups its actions, and Timeline leads the controls', 
   await expect(buttons.first()).toHaveAttribute('id', 'timeline');
   await expect(page.locator('.controls > .pill-btn.primary')).toHaveCount(1);
 });
+
+test('clearing a pin glides back to the whole tree; Reset view undoes a zoom', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const reset = page.getByRole('button', { name: 'Reset view' });
+  const home = (await settle(page)).distance;
+  await expect(reset).toBeHidden();
+
+  await page.locator('#search-open').click();
+  await page.keyboard.type('plugins');
+  await page.keyboard.press('Enter');
+  expect((await settle(page)).distance, 'glided to the pin').toBeLessThan(home * 0.8);
+  await expect(reset).toBeVisible();
+  await page.keyboard.press('Escape');
+  expect((await settle(page)).distance, 'back to the whole tree').toBeCloseTo(home, 1);
+  await expect(reset).toBeHidden();
+
+  test.skip(isMobile, 'a wheel zoom is a desktop gesture');
+  const view = page.viewportSize()!;
+  await page.mouse.move(view.width / 2, view.height / 2);
+  for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -240);
+  expect((await settle(page)).distance, 'zoomed in').toBeLessThan(home * 0.9);
+  await reset.click();
+  expect((await settle(page)).distance, 'reset').toBeCloseTo(home, 1);
+  await expect(reset).toBeHidden();
+});

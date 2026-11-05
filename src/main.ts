@@ -87,6 +87,8 @@ debug.view = view;
 const loader = createLoader(store);
 watchHistory(store);
 let hovered: number | null = null;
+/** Whether the camera glided to the pin on show, so clearing it glides back. */
+let framedPin = false;
 let hoveredCategory: string | null = null;
 let toastTimer = 0;
 const toastEl = byId('toast');
@@ -97,8 +99,16 @@ const app: App = {
   load: (ref, options) => void loader.load(ref, options),
   cancelLoad: () => loader.cancel(),
   select(selection, frame = false) {
+    const was = store.get().selection;
     store.dispatch({ type: 'select', selection });
-    if (selection && frame) view.frameFolder(selection.folder);
+    if (selection && frame) {
+      view.frameFolder(selection.folder);
+      framedPin = true;
+    } else if (!selection && was && framedPin) {
+      // Clearing a pin the camera glided to glides back to the whole tree.
+      view.frameFolder(0);
+    }
+    if (!selection) framedPin = false;
   },
   hover(folder) {
     hovered = folder;
@@ -300,6 +310,13 @@ const toggleSpin = () =>
   store.dispatch({ type: 'settings', patch: { spin: !store.get().settings.spin } });
 spinButton.addEventListener('click', toggleSpin);
 byId('grow').addEventListener('click', () => view.grow());
+/** Reset view shows once the camera has zoomed, panned or glided off the whole tree. */
+const resetButton = byId<HTMLButtonElement>('reset-view');
+resetButton.addEventListener('click', () => view.frameFolder(0));
+view.onFrame(() => {
+  const away = !view.atHome();
+  if (resetButton.hidden === away) resetButton.hidden = !away;
+});
 mountHint();
 // iOS Safari ignores user-scalable=no; its own gesture events are the way to keep a pinch
 // from zooming the page, so it zooms the tree alone.

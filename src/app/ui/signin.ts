@@ -37,7 +37,11 @@ export function mountSignIn(
   };
 
   const usage = h('p', { class: 'account-usage', id: 'account-usage', 'aria-live': 'polite' });
-  const seeing = h('p', { class: 'note', id: 'account-privacy', hidden: true }, PRIVACY);
+  const seeing = h(
+    'p',
+    { class: 'note', id: 'account-privacy', hidden: true },
+    PRIVACY[0]!.toUpperCase() + PRIVACY.slice(1),
+  );
   const seeButton = h(
     'button',
     {

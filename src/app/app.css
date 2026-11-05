@@ -422,7 +422,7 @@ kbd {
     margin-left: auto;
   }
 }
-/* Signed in, the account button is the GitHub mark alone; it opens the account panel. */
+/* Signed in, the account button is the GitHub mark alone, with a dot; it opens the account panel. */
 #signin[data-signed-in='true'] {
   width: 40px;
   padding: 0;
@@ -431,7 +431,7 @@ kbd {
   display: none;
 }
 /* On a phone, Sign in or the account is its own round bubble at the top right, beside the repo
-   card (more-menu.ts moves it there). A dot says you're signed in. */
+   card (more-menu.ts moves it there). */
 #signin.bubble {
   position: fixed;
   z-index: 6;
@@ -450,9 +450,24 @@ kbd {
   width: 21px;
   height: 21px;
 }
-#signin.bubble[data-signed-in='true']::after {
+#signin[data-signed-in='true'] {
+  position: relative;
+}
+#signin[data-signed-in='true']::after {
   content: '';
   position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2f9e57;
+  box-shadow: 0 0 0 2px var(--raised);
+}
+#signin.bubble[data-signed-in='true'] {
+  position: fixed;
+}
+#signin.bubble[data-signed-in='true']::after {
   top: 9px;
   right: 9px;
   width: 9px;

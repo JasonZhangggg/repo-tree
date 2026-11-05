@@ -122,9 +122,8 @@ test('the phone row keeps four buttons and a short menu sits behind More actions
     'https://github.com/vitejs/vite',
   );
   // Spin and Dark mode are switches in Settings; Grow again is for a desktop.
-  // (The drawer's quick switches carry the same names; this is about the row.)
   for (const name of ['Grow again', 'Spin', 'Dark mode'])
-    await expect(page.locator('.controls').getByRole('button', { name })).toBeHidden();
+    await expect(page.getByRole('button', { name })).toBeHidden();
 
   await menu.getByRole('button', { name: /Copy link/ }).tap();
   await expect(menu).toBeHidden();
@@ -137,20 +136,27 @@ test('the phone row keeps four buttons and a short menu sits behind More actions
   await expect(menu).toBeHidden();
 });
 
-test('the collapsed drawer holds quick switches for Dark mode and Spin', async ({ page }) => {
-  await expect(page.locator('#sheet-toggle')).toHaveAttribute('aria-expanded', 'false');
-  const quick = page.getByRole('group', { name: 'Quick settings' });
-  await expect(quick).toBeVisible();
-  const dark = quick.getByRole('button', { name: 'Dark mode' });
-  await expect(dark).toHaveAttribute('aria-pressed', 'false');
-  await dark.tap();
-  await expect(dark).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await dark.tap();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+test('the collapsed drawer bar picks Color leaves by, and hides it once open', async ({ page }) => {
+  await expect(sheet(page)).toHaveAttribute('aria-expanded', 'false');
+  const field = page.locator('#quick-color-pick');
+  await expect(field).toBeVisible();
+  await expect(field).toHaveAccessibleName('Color leaves by: Language');
+  const box = (await field.boundingBox())!;
+  const bar = (await sheet(page).boundingBox())!;
+  expect(box.y + box.height, 'in the bar').toBeLessThanOrEqual(bar.y + bar.height);
 
-  const spin = quick.getByRole('button', { name: 'Spin' });
-  const before = await spin.getAttribute('aria-pressed');
-  await spin.tap();
-  await expect(spin).toHaveAttribute('aria-pressed', before === 'true' ? 'false' : 'true');
+  await field.tap();
+  const menu = page.locator('#quick').getByRole('radiogroup', { name: 'Color leaves by' });
+  await expect(menu).toBeVisible();
+  const menuBox = (await menu.boundingBox())!;
+  expect(menuBox.y + menuBox.height, 'opens upward').toBeLessThanOrEqual(box.y);
+  await menu.getByRole('radio', { name: /Folder/ }).tap();
+  await expect(menu).toBeHidden();
+  await expect(field).toHaveAccessibleName('Color leaves by: Folder');
+  await expect(sheet(page)).toHaveAttribute('aria-expanded', 'false');
+
+  await sheet(page).tap();
+  await expect(sheet(page)).toHaveAttribute('aria-expanded', 'true');
+  await expect(field).toBeHidden();
+  await expect(page.locator('#side-color-pick')).toHaveAccessibleName('Color leaves by: Folder');
 });

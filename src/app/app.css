@@ -430,7 +430,7 @@ kbd {
 #signin[data-signed-in='true'] .label {
   display: none;
 }
-/* The drawer's quick switches are a phone's; a desktop has them in the toolbar. */
+/* The collapsed drawer's Color leaves by is a phone's; a desktop shows the side panel. */
 .quick {
   display: none;
 }
@@ -2382,42 +2382,47 @@ body:has(.scrubber:not([hidden])) .toast {
   .side[data-open] .side-body {
     animation: rise 0.22s var(--ease);
   }
-  /* Under the drawer's title, open or collapsed: Dark mode, Spin and GitHub sign-in. */
+  /* The collapsed bar: title on the left, Color leaves by on the right, opening upward. Open,
+     the drawer has the full picker; pinned, the bar's right corner holds Clear selection. */
   .quick {
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-    margin-top: -4px;
-    padding: 0 12px 12px;
+    display: block;
+    position: absolute;
+    top: 20px;
+    right: 14px;
   }
-  .quick-chip {
-    display: inline-flex;
-    align-items: center;
+  .side[data-open] .quick,
+  .side[data-dragging] .quick,
+  .side:has(.sheet-clear:not([hidden])) .quick {
+    display: none;
+  }
+  .side:not([data-open], [data-dragging]):not(:has(.sheet-clear:not([hidden]))) .sheet-handle {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+  .side:not([data-open], [data-dragging]):not(:has(.sheet-clear:not([hidden]))) .peek {
+    justify-self: stretch;
+    justify-items: start;
+    margin-right: 136px;
+  }
+  .quick .pick {
+    width: auto;
+    min-height: 40px;
+    padding: 0 10px 0 12px;
     gap: 6px;
-    min-height: 36px;
-    padding: 0 13px 0 11px;
     border: 0;
     border-radius: 999px;
     background: var(--wash);
-    color: var(--ink);
-    font-size: 14px;
-    font-weight: 550;
-    transition:
-      background 0.15s,
-      color 0.15s,
-      transform 0.15s var(--ease);
   }
-  .quick-chip svg {
-    width: 16px;
-    height: 16px;
+  .quick .pick .hint {
+    display: none;
   }
-  .quick-chip[aria-pressed='true'],
-  .quick-chip[data-signed-in='true'] {
-    background: var(--ink);
-    color: var(--on-ink);
-  }
-  .quick-chip:active {
-    transform: scale(var(--press));
+  .quick .pick-menu {
+    top: auto;
+    bottom: calc(100% + 8px);
+    left: auto;
+    right: 0;
+    width: min(300px, calc(100vw - 28px));
+    transform-origin: bottom right;
   }
   .sheet-handle {
     display: grid;

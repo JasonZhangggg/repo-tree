@@ -10,7 +10,7 @@ The scene's weather reflects the repo's recent GitHub Actions health on its defa
 - `weather-preview` shows any weather from a link's `wx=clear|sunny|cloudy|rain|storm`, which the chip calls a preview.
 - `weather-fail-soft` shows no weather and no chip when the runs endpoint is rate limited, errors or is unreachable.
 - `weather-off` turns weather off from Settings, persisted with the other settings.
-- `weather-motion` turns the sun's rays, breathes its halo and rolls its faceted core (sunny and cloudy), drifts clouds round the trunk, falls rain or snow and flashes lightning, and holds a still frame under reduced motion.
+- `weather-motion` turns the sun's rays, breathes its halo and rolls its faceted core (sunny and cloudy), drifts clouds round the trunk, falls rain or snow (always down, however long the page is open: unit test `a drop only ever falls`) and flashes lightning, and holds a still frame under reduced motion.
 - `weather-deck` floats the clouds and the sun above both the crown's top and the framed camera's height, so in the whole view they never cover the crown or its labels, for a sapling and for linux alike, on a desktop and a phone.
 
 ## How to get to it (user POV)

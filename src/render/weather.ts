@@ -232,6 +232,14 @@ export function createWeather(camera: PerspectiveCamera) {
   const random = mulberry32(7);
 
   const time$ = { value: time };
+  /**
+   * How far the rain or snow has fallen, in falls of the deck's height: summed frame by frame
+   * at the speed of the moment, so a drop never runs back up when its cloud bobs or drifts, the
+   * deck eases or the wind changes, however long the page is open.
+   */
+  const fallen$ = { value: 0 };
+  let fallSpeed = RAIN.speed;
+  const fallRate = () => fallSpeed / (deck.base + FALL.sink);
 
   const sunMaterial = new ShaderMaterial({
     vertexShader: SUN_VERTEX,
@@ -302,9 +310,9 @@ export function createWeather(camera: PerspectiveCamera) {
     fragmentShader: FALL_FRAGMENT,
     uniforms: {
       uTime: time$,
+      uFallen: fallen$,
       uClouds: clouds$,
       uCount: { value: 1 },
-      uSpeed: { value: RAIN.speed },
       uLength: { value: RAIN.length },
       uWidth: { value: RAIN.width },
       uWind: { value: 0 },
@@ -378,7 +386,7 @@ export function createWeather(camera: PerspectiveCamera) {
     const kind = snow ? SNOW : RAIN;
     const u = fallMaterial.uniforms;
     u.uCount!.value = Math.max(1, l.clouds.count);
-    u.uSpeed!.value = kind.speed * (snow ? 1 + l.wind * 2 : 1 + l.wind);
+    fallSpeed = kind.speed * (snow ? 1 + l.wind * 2 : 1 + l.wind);
     u.uLength!.value = kind.length;
     u.uWidth!.value = kind.width;
     u.uWind!.value = snow ? l.wind * 1.6 : l.wind;
@@ -389,6 +397,7 @@ export function createWeather(camera: PerspectiveCamera) {
       l.clouds.count > 0 ? Math.round(DROPS[quality] * l.fall * (snow ? FLAKES : 1)) : 0;
     fall.visible = drops > 0;
     (fall.geometry as InstancedBufferGeometry).instanceCount = drops;
+    if (still) fallen$.value = FROZEN_AT * fallRate();
     drift();
   };
 
@@ -527,6 +536,7 @@ export function createWeather(camera: PerspectiveCamera) {
       }
       time += dt;
       time$.value = time;
+      fallen$.value += dt * fallRate();
       const k = 1 - Math.exp(-DECK_RATE * dt);
       deck = {
         base: deck.base + (deckGoal.base - deck.base) * k,
@@ -836,7 +846,7 @@ attribute float aWhich;
 uniform vec4 uClouds[${MAX_CLOUDS}];
 uniform float uCount;
 uniform float uTime;
-uniform float uSpeed;
+uniform float uFallen;
 uniform float uLength;
 uniform float uWidth;
 uniform float uWind;
@@ -862,7 +872,9 @@ void main() {
   }
   float ground = uGround.x - uGround.y * pow(min(1.0, r / uRadius), 2.0);
   float height = top - ground;
-  float k = fract(aDrop.z + uTime * uSpeed * (0.8 + 0.4 * aDrop.w) / height);
+  // How far down its fall it is. Every drop takes about as long to fall as one from the deck's
+  // base to the island's middle would, so drops with further to go fall a little faster.
+  float k = fract(aDrop.z + uFallen * (0.8 + 0.4 * aDrop.w));
   float drop = k * height;
   vec3 head = vec3(at.x + uWind * drop, top - drop, at.y);
   head.x += uSnow * 0.12 * sin(uTime * 1.1 + aDrop.z * 40.0);

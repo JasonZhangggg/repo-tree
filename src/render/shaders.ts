@@ -130,10 +130,6 @@ vec3 offsetHSL(vec3 c, float dh, float dl) {
 }
 `;
 
-/** A hot leaf stands HOT_SIZE times as large about its stem, so a few read in a big crown. */
-const HOT_GROW = /* glsl */ `
-transformed = aBase + (transformed - aBase) * (1.0 + (HOT_SIZE - 1.0) * step(0.001, aHeat));
-`;
 /** A falling leaf tumbles about its stem as it drops and drifts, then shrinks away on the ground. */
 const FALL = /* glsl */ `
 if (aFall > 0.5 && uFall > 0.0) {
@@ -167,7 +163,7 @@ totalEmissiveRadiance += uGlowColor * (step(0.001, vHeat) * (0.55 + 0.45 * vHeat
 const CALM = /* glsl */ `
 if (uCalm > 0.5 && vHeat <= 0.0) {
   float l = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, mix(vec3(l), uFade, 0.35), CALM);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(l * 0.7), CALM);
 }
 `;
 
@@ -210,12 +206,11 @@ export const barkShader = <M extends Material>(m: M) =>
 export const leafShader = <M extends Material>(m: M, slots: number) =>
   hook(m, `leaf${slots}`, (shader) => {
     shader.vertexShader =
-      `#define SLOTS ${slots}\n#define HOT_SIZE 2.0\n` +
+      `#define SLOTS ${slots}\n` +
       LEAF_VERTEX +
       shader.vertexShader.replace(
         '#include <begin_vertex>',
         '#include <begin_vertex>\nvLeaf = offsetHSL(uSlots[int(aSlot)], aShade.x, aShade.y);\nvSlot = aSlot;\nvHeat = aHeat;\n' +
-          HOT_GROW +
           FALL,
       );
     shader.fragmentShader =
@@ -278,30 +273,36 @@ void main() {
 `;
 
 /**
- * The halo over each hot sprig: a soft additive disc `aSize` across (world units) at the sprig's
- * heart, as bright as its `aHeat` times the pulse `uGlow`. It grows in with its sprig, so it waits
- * for the sprig's birth on the timeline, and dims outside a pinned folder or a highlight.
+ * The glow around each hot leaf: a second copy of the leaves where only hot leaves draw, each
+ * SHELL times as large about its own heart (`aCenter`; hot leaves keep their size) and
+ * pushed a little away from the camera, so its own leaf covers its middle and the light spills
+ * past its edges. It is brightest at the leaf's heart (`aRim` 0) and fades to nothing at its
+ * rim (`aRim` 1), as bright as its `aHeat` times the pulse `uGlow`. Leaves nearer the camera
+ * still cover it. It grows, waits for its birth and dims with a pin or highlight like the leaf.
  */
-export const haloShader = <M extends Material>(m: M) =>
-  hook(m, 'halo', (shader) => {
+export const glowShader = <M extends Material>(m: M) =>
+  hook(m, 'glow', (shader) => {
     shader.vertexShader =
-      'attribute float aSize;\nattribute float aHeat;\nvarying float vHalo;\nuniform float uGlow;\n' +
-      shader.vertexShader.replace(
-        'gl_PointSize = size;',
-        'gl_PointSize = size * aSize * projectionMatrix[1][1] * grown();\nvHalo = aHeat * uGlow * HALO;',
-      );
+      '#define SHELL 3.2\n#define PUSH 0.6\n' +
+      'attribute float aHeat;\nattribute float aRim;\nattribute vec3 aCenter;\nuniform float uGlow;\nvarying float vGlow;\n' +
+      shader.vertexShader
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+float reach = length(aCenter - aBase);
+transformed = aHeat > 0.0 ? aCenter + (transformed - aCenter) * SHELL : vec3(0.0);
+vGlow = aHeat > 0.0 ? (1.0 - aRim) * (0.55 + 0.45 * aHeat) * uGlow * GLOW_GAIN : 0.0;`,
+        )
+        .replace(
+          '#include <project_vertex>',
+          '#include <project_vertex>\nmvPosition.xyz += normalize(mvPosition.xyz) * reach * PUSH;\ngl_Position = projectionMatrix * mvPosition;',
+        );
+    shader.vertexShader = '#define GLOW_GAIN 2.0\n' + shader.vertexShader;
     shader.fragmentShader =
-      'varying float vHalo;\nuniform vec2 uSel;\nuniform float uCategory;\n' +
+      'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\n' +
       shader.fragmentShader.replace(
-        '#include <map_particle_fragment>',
-        /* glsl */ `
-vec2 disc = gl_PointCoord * 2.0 - 1.0;
-float r2 = dot(disc, disc);
-if (r2 > 1.0) discard;
-diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.72, 0.28), 0.35 * exp(-r2 * 10.0));
-diffuseColor.a *= vHalo * (exp(-r2 * 4.5) - exp(-4.5)) / (1.0 - exp(-4.5));
-if (${OUTSIDE} || uCategory >= 0.0) diffuseColor.a *= 0.25;
-`,
+        'vec4 diffuseColor = vec4( diffuse, opacity );',
+        `vec4 diffuseColor = vec4( diffuse, opacity * clamp(vGlow, 0.0, 1.0) );
+if (${OUTSIDE} || uCategory >= 0.0) diffuseColor.a *= 0.25;`,
       );
-    shader.vertexShader = '#define HALO 0.55\n' + shader.vertexShader;
   });

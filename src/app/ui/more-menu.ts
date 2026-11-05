@@ -35,12 +35,14 @@ export function mountMoreMenu(phone: MediaQueryList): void {
         if (label) label.textContent = desktopLabels[i]!;
       }
     });
+    // The way to the repo on GitHub, which the phone's repo row leaves to the menu, goes last.
+    menu.append(byId('open-github'));
   };
 
   more.addEventListener('click', () => setOpen(menu.hidden !== false));
   // Each action closes the menu once its own handler has run.
   menu.addEventListener('click', (event) => {
-    if ((event.target as Element).closest('button')) setOpen(false);
+    if ((event.target as Element).closest('button, a')) setOpen(false);
   });
   document.addEventListener('pointerdown', (event) => {
     const target = event.target as Element;

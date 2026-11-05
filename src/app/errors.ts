@@ -14,8 +14,8 @@ export function describeError(error: AppError, ref: RepoRef, hasToken: boolean):
       return {
         title: `Can’t find ${name(ref)}`,
         body: hasToken
-          ? 'Check the owner, name and branch. Your token may not have access to this repository.'
-          : 'Check the owner, name and branch. If it is private, add a GitHub token in Settings.',
+          ? 'Check the name and branch. Your token may lack access.'
+          : 'Check the name and branch. Private? Add a GitHub token.',
         actions: hasToken ? ['retry'] : ['token'],
       };
     case 'rate-limited':
@@ -24,38 +24,38 @@ export function describeError(error: AppError, ref: RepoRef, hasToken: boolean):
         body: `It resets at ${time(error.resetAt)}. ${
           hasToken
             ? 'Your token’s hourly limit is used up too.'
-            : 'A GitHub token raises the limit from 60 to 5,000 requests an hour.'
+            : 'A GitHub token raises it from 60 to 5,000 an hour.'
         }`,
         actions: hasToken ? ['retry'] : ['token', 'retry'],
       };
     case 'unauthorized':
       return {
         title: 'GitHub rejected your token',
-        body: 'The token in Settings is invalid or expired. Replace it, or remove it to browse public repositories.',
+        body: 'It’s invalid or expired. Replace it, or remove it for public repos.',
         actions: ['token'],
       };
     case 'network':
       return navigator.onLine
         ? {
             title: 'Can’t reach GitHub',
-            body: 'The request failed or returned something unexpected. Check your connection and try again.',
+            body: 'Check your connection and try again.',
             actions: ['retry'],
           }
         : {
             title: 'You’re offline',
-            body: 'Connect to the internet and try again. The bundled samples still work offline.',
+            body: 'The bundled samples still work.',
             actions: ['retry'],
           };
     case 'empty':
       return {
         title: `Nothing to grow in ${name(ref)}`,
-        body: 'The repository has no files, or every folder in it is hidden in Settings.',
+        body: 'It has no files, or Settings hides every folder.',
         actions: ['settings'],
       };
     case 'unexpected':
       return {
         title: 'The tree could not be grown',
-        body: 'Something went wrong while building it. Try again, or try another repository.',
+        body: 'Something went wrong. Try again, or another repo.',
         actions: ['retry'],
       };
   }

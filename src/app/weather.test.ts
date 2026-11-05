@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { ciHealth, type CiRun } from '../repo/ci';
-import { describeWeather } from './weather';
+import { describeWeather, shortVerdict } from './weather';
 
 const HOUR = 3_600_000;
 const NOW = Date.parse('2026-11-04T12:00:00Z');
@@ -20,6 +20,13 @@ describe('describeWeather', () => {
     expect(copy('xxxxx.')).toEqual({ verdict: 'CI failing', detail: 'last 5 runs failed' });
     expect(copy('')).toEqual({ verdict: 'No recent CI runs', detail: '' });
     expect(copy('.')).toEqual({ verdict: 'CI passing', detail: '1 of 1 recent run' });
+  });
+
+  test('every verdict has a short form that still says CI', () => {
+    expect(shortVerdict('CI passing')).toBe('CI passing');
+    expect(shortVerdict('CI mostly passing')).toBe('CI mostly ok');
+    expect(shortVerdict('No recent CI runs')).toBe('No CI runs');
+    expect(shortVerdict('Weather preview')).toBe('Preview');
   });
 
   test('a preview claims nothing about CI', () => {

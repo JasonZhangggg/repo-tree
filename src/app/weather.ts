@@ -12,6 +12,15 @@ const SKY_NAME: Record<Sky, string> = {
   storm: 'storm',
 };
 
+const SHORT: Record<string, string> = {
+  'CI mostly passing': 'CI mostly ok',
+  'No recent CI runs': 'No CI runs',
+  'Weather preview': 'Preview',
+};
+
+/** The verdict in a few characters, for the phone's one-line repo row. */
+export const shortVerdict = (verdict: string) => SHORT[verdict] ?? verdict;
+
 /**
  * Says what the weather stands for. With no health it is a preview from a link, which claims
  * nothing about the repo's CI.

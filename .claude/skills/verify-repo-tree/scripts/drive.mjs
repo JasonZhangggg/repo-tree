@@ -171,6 +171,10 @@ async function doctor() {
 }
 
 const enter = async (page, text) => {
+  // On a phone the repo field folds into the repo row until its GitHub button opens it.
+  if (await page.getByLabel('GitHub repository').isHidden()) {
+    await page.getByRole('button', { name: 'Change repository' }).click();
+  }
   await page.getByLabel('GitHub repository').fill(text);
   await page.getByLabel('GitHub repository').press('Enter');
 };
@@ -273,7 +277,7 @@ const JOURNEYS = {
       );
       await enter(page, 'acme/partial');
       await ready(page, 'acme/partial');
-      await expect(page.locator('#status')).toContainText('Showing part of this repository');
+      await expect(page.locator('#status')).toContainText('Partial tree');
     });
     await step('unreachable', async () => {
       await enter(page, 'acme/offline');
@@ -390,7 +394,8 @@ const JOURNEYS = {
       await expect(page).toHaveURL(/palette=winter/);
     });
     await step('color-by', async () => {
-      await radio('Top-level folder').click();
+      await page.locator('#color-pick').click();
+      await radio('Folder').click();
       await expect(page).toHaveURL(/colorBy=folder/);
       await expect(page.locator('#legend-title')).toHaveText('Leaf colors by folder');
     });
@@ -639,6 +644,7 @@ const JOURNEYS = {
     });
     await step('changes', async () => {
       await page.getByRole('button', { name: 'Settings' }).click();
+      await page.locator('#color-pick').click();
       await page.getByRole('radio', { name: 'Changes' }).click();
       await expect(page).toHaveURL(/colorBy=changes/);
       await page.getByRole('button', { name: 'Close settings' }).click();
@@ -689,6 +695,7 @@ const JOURNEYS = {
     });
     await step('activity', async () => {
       await page.getByRole('button', { name: 'Settings' }).click();
+      await page.locator('#color-pick').click();
       await page.getByRole('radio', { name: 'Activity' }).click();
       await page.getByRole('button', { name: 'Close settings' }).click();
       await inLegend(async () => {
@@ -799,6 +806,7 @@ const JOURNEYS = {
     });
     await step('owner', async () => {
       await page.getByRole('button', { name: 'Settings' }).click();
+      await page.locator('#color-pick').click();
       await page.getByRole('radio', { name: 'Owner' }).click();
       await page.getByRole('button', { name: 'Close settings' }).click();
       await inLegend(async () => {

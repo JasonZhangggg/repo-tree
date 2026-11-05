@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { failRepo, quietSettings, ready, serveRepo } from './github';
 import { treePixels } from './pixels';
-import { chooseAction, settle } from './view';
+import { chooseAction, openRepoField, settle } from './view';
 
 test.use({ reducedMotion: 'reduce' });
 
@@ -14,6 +14,7 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(() => expect(errors).toEqual([]));
 
 async function enterRepo(page: Page, text: string) {
+  await openRepoField(page);
   await page.getByLabel('GitHub repository').fill(text);
   await page.getByLabel('GitHub repository').press('Enter');
 }
@@ -46,6 +47,7 @@ test('the repo suggestions show small icons beside readable names', async ({ pag
   );
   await page.goto('./');
   await ready(page, 'vitejs/vite');
+  await openRepoField(page);
   await page.getByLabel('GitHub repository').focus();
   const rows = page.locator('.suggest button');
   await expect(rows).toHaveCount(4);
@@ -81,7 +83,7 @@ test('a missing repo says so and keeps the tree on screen', async ({ page }) => 
   await enterRepo(page, 'acme/missing');
 
   await expect(page.getByRole('alert')).toContainText('Can’t find acme/missing');
-  await expect(page.getByRole('alert')).toContainText('add a GitHub token');
+  await expect(page.getByRole('alert')).toContainText('Add a GitHub token');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('vitejs/vite');
 
   await page.getByRole('button', { name: 'Add a token' }).click();
@@ -166,7 +168,8 @@ test("labels the big top-level folders, then a pinned folder's own subfolders", 
   await expect(pills.locator('span')).toHaveText(['playground/', 'packages/', 'docs/']);
   await expect(page.locator('#labels .pill.major')).toHaveCount(2);
 
-  await page.locator('#labels .pill', { hasText: 'packages' }).click();
+  // Forced: on a touch screen a label lets gestures through to the tree, which picks the tap.
+  await page.locator('#labels .pill', { hasText: 'packages' }).click({ force: true });
   await expectPinned(page, 'vite/packages');
   const subs = page.locator('#labels .pill.sub span');
   await expect(subs.first()).toHaveText('vite/');
@@ -505,6 +508,7 @@ test('a tapped suggestion loads its repo even when tapping does not focus button
   );
   await page.goto('./');
   await ready(page, 'vitejs/vite');
+  await openRepoField(page);
   const input = page.getByLabel('GitHub repository');
   await input.click();
   const row = page.locator('#suggest button', { hasText: 'torvalds/linux' });
@@ -517,8 +521,121 @@ test('a tapped suggestion loads its repo even when tapping does not focus button
 test('Grow with an empty field offers the list instead of an error', async ({ page }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
+  await openRepoField(page);
   await page.getByRole('button', { name: 'Grow', exact: true }).click();
   await expect(page.locator('#suggest')).toBeVisible();
   await expect(page.getByLabel('GitHub repository')).toBeFocused();
   await expect(page.locator('#repo-error')).toBeEmpty();
+});
+
+test('on a phone the repo field folds into the repo row', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'the desktop keeps the field and the title apart');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const input = page.getByLabel('GitHub repository');
+  await expect(input).toBeHidden();
+  const row = (await page.locator('#title').boundingBox())!;
+  expect(row.height, 'one row').toBeLessThan(60);
+  await page.getByRole('button', { name: 'Change repository' }).click();
+  await expect(input).toBeFocused();
+  await expect(page.locator('#suggest')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(input).toBeHidden();
+  await expect(page.locator('#title')).toBeVisible();
+  // The name opens the field as well; the branch chip is the link to GitHub.
+  await page.locator('#repo-link').click();
+  await expect(input).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#repo-meta .branch')).toHaveAttribute(
+    'href',
+    'https://github.com/vitejs/vite/tree/main',
+  );
+});
+
+test('on a phone a drag that starts on a label turns the tree', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'labels take the pointer on desktop, for hover');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const pill = page.locator('#labels .pill', { hasText: 'playground' });
+  const box = (await pill.boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  const before = await page.evaluate(() =>
+    JSON.stringify((window as unknown as { __repoTree: { labels: unknown } }).__repoTree.labels),
+  );
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  for (let i = 1; i <= 8; i++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: x + i * 15, y }],
+    });
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        JSON.stringify(
+          (window as unknown as { __repoTree: { labels: unknown } }).__repoTree.labels,
+        ),
+      ),
+    )
+    .not.toBe(before);
+  // A drag, not a tap: nothing is pinned.
+  await expect(page.locator('#sheet-toggle')).toContainText('Folders and leaf colors');
+  // Nor does a touch screen select text or zoom the page.
+  const style = await page.evaluate(() => {
+    const s = getComputedStyle(document.body);
+    return [s.userSelect || s.webkitUserSelect, s.touchAction];
+  });
+  expect(style).toEqual(['none', 'pan-x pan-y']);
+});
+
+test('the history button is dark, like the other primary action', async ({ page }) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const bg = await page.locator('#timeline').evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(bg).toBe('rgb(37, 34, 30)');
+});
+
+test('settings fit their panel without a sideways scroll', async ({ page }) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const panel = page.locator('#settings');
+  await expect(panel).toBeVisible();
+  const [scroll, client] = await panel.evaluate((el) => [el.scrollWidth, el.clientWidth]);
+  expect(scroll, 'no content past the right edge').toBeLessThanOrEqual(client);
+});
+
+test('Color leaves by is a dropdown: it opens, picks, and Escape closes only the menu', async ({
+  page,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const pick = page.locator('#color-pick');
+  const menu = page.getByRole('radiogroup', { name: 'Color leaves by' });
+  await expect(pick).toHaveAccessibleName('Color leaves by: Language');
+  await expect(menu).toBeHidden();
+
+  await pick.click();
+  await expect(menu).toBeVisible();
+  await expect(pick).toHaveAttribute('aria-expanded', 'true');
+  await expect(menu.getByRole('radio', { name: /Language/ })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(page.locator('#settings')).toBeVisible();
+  await expect(pick).toBeFocused();
+
+  await pick.click();
+  await menu.getByRole('radio', { name: /Folder/ }).click();
+  await expect(page).toHaveURL(/colorBy=folder/);
+  await expect(menu).toBeHidden();
+  await expect(page.locator('#color-pick')).toHaveAccessibleName('Color leaves by: Folder');
+
+  // A press elsewhere in the panel closes it too.
+  await page.locator('#color-pick').click();
+  await page.getByRole('heading', { name: 'Settings' }).click();
+  await expect(menu).toBeHidden();
 });

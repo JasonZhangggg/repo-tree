@@ -9,7 +9,7 @@ import { compact, count, plural } from '../format';
 import { readRecent } from '../recent';
 import { SAMPLES } from '../samples';
 import { weatherOf, type AppState } from '../state';
-import { describeWeather } from '../weather';
+import { describeWeather, shortVerdict } from '../weather';
 
 const STEPS: { step: LoadStep; label: string }[] = [
   { step: 'fetch', label: 'Fetching' },
@@ -28,6 +28,25 @@ export function mountHeader(app: App): void {
   const status = byId('status');
   const samples = byId('samples');
   const weatherChip = byId<HTMLAnchorElement>('weather');
+  const switcher = byId<HTMLButtonElement>('repo-switch');
+
+  /** On a phone the repo field folds into the repo row, and this button opens it there. */
+  const setOpen = (open: boolean) => {
+    document.body.toggleAttribute('data-repo-open', open);
+    switcher.setAttribute('aria-expanded', String(open));
+  };
+  const openField = () => {
+    setOpen(true);
+    input.focus();
+  };
+  switcher.addEventListener('click', openField);
+  // On a phone the name opens the field too; the branch chip is the way to GitHub there.
+  const phone = matchMedia('(max-width: 760px)');
+  link.addEventListener('click', (event) => {
+    if (!phone.matches) return;
+    event.preventDefault();
+    openField();
+  });
 
   const setInvalid = (message: string) => {
     error.textContent = message;
@@ -130,14 +149,18 @@ export function mountHeader(app: App): void {
     // iOS sends the click after pointerup and touchend, so check a moment later whether
     // focus really left before closing.
     setTimeout(() => {
-      if (!form.contains(document.activeElement)) closeSuggest();
+      if (form.contains(document.activeElement)) return;
+      closeSuggest();
+      setOpen(false);
     }, 400);
   };
   addEventListener('pointerup', release);
   addEventListener('pointercancel', release);
   form.addEventListener('focusout', (event) => {
     if (pressing) return;
-    if (!form.contains(event.relatedTarget as Node | null)) closeSuggest();
+    if (form.contains(event.relatedTarget as Node | null)) return;
+    closeSuggest();
+    setOpen(false);
   });
 
   samples.replaceChildren(
@@ -267,11 +290,11 @@ export function mountHeader(app: App): void {
             h(
               'div',
               {},
-              h('strong', {}, 'Showing part of this repository'),
+              h('strong', {}, 'Partial tree'),
               h(
                 'p',
                 {},
-                `GitHub cut the file list short at ${count(repo.info.files)} files, so some folders are missing from the tree.`,
+                `GitHub stopped at ${count(repo.info.files)} files, so some folders are missing.`,
               ),
             ),
             h(
@@ -307,14 +330,26 @@ export function mountHeader(app: App): void {
       return;
     }
     link.removeAttribute('aria-disabled');
-    link.href = githubUrl(repo.info.ref);
+    link.href = byId<HTMLAnchorElement>('open-github').href = githubUrl(repo.info.ref);
     link.title = 'Open on GitHub';
     const { folders } = repo.index;
     const langs = repo.index.langs.filter((l) => l !== 'Other').length;
     const dot = (cls = 'dot') => h('span', { class: cls, 'aria-hidden': 'true' }, '·');
     fill(
       meta,
-      h('span', { class: 'branch', title: 'Branch' }, icon(...ICONS.branch), repo.info.branch),
+      h(
+        'a',
+        {
+          // On a phone the default branch goes unsaid; a branch asked for by link still shows.
+          class: repo.info.ref.ref === undefined ? 'branch default' : 'branch',
+          href: githubUrl(repo.info.ref, repo.info.branch),
+          target: '_blank',
+          rel: 'noopener',
+          title: `Open ${repo.info.branch} on GitHub`,
+        },
+        icon(...ICONS.branch),
+        h('span', {}, repo.info.branch),
+      ),
       h(
         'button',
         {
@@ -336,7 +371,7 @@ export function mountHeader(app: App): void {
           )
         : null,
       repo.sample ? dot('dot opt') : null,
-      h('span', {}, plural(folders.files[0]!, 'file')),
+      h('span', { class: 'files' }, plural(folders.files[0]!, 'file')),
       dot('dot opt'),
       h('span', { class: 'opt' }, plural(folders.files.length - 1, 'folder')),
       dot('dot opt'),
@@ -373,6 +408,7 @@ export function mountHeader(app: App): void {
       weatherChip,
       icon(...ICONS[glyph]),
       h('strong', {}, verdict),
+      h('b', { class: 'short', 'aria-hidden': 'true' }, shortVerdict(verdict)),
       detail && h('span', {}, detail),
     );
   };

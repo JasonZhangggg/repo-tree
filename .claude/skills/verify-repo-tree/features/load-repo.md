@@ -36,7 +36,7 @@ Preconditions:
 - **Sample.** Choose the `dotfiles` sample button. Step `sample-button`. `body[data-ready="mathiasbynens/dotfiles"]` is set.
 - **Invalid text.** Enter `not a repo`. Step `invalid-input`. `#repo-error` reads `Use owner/repo, like vitejs/vite, or paste a GitHub URL.`
 - **GitHub URL.** Enter `https://github.com/acme/widgets`. Step `github-url`. The tree grows, `#repo-meta` shows `36 files` and the URL hash is `#/acme/widgets?branch=main...`.
-- **Truncated.** Enter `acme/partial`, whose stand-in tree has `truncated: true`. Step `truncated`. `#status` shows `Showing part of this repository`.
+- **Truncated.** Enter `acme/partial`, whose stand-in tree has `truncated: true`. Step `truncated`. `#status` shows `Partial tree`.
 - **Unreachable.** Enter `acme/offline` with every API call aborted. Step `unreachable`. The alert in `#status` reads `Can’t reach GitHub` and the heading still reads `acme/partial`.
 - **Rate limit.** Enter `acme/limited` with a 403 and `x-ratelimit-remaining: 0`. Step `rate-limited`. The alert says the rate limit is used up and names the reset time.
 - **Not found.** Enter `acme/missing` with a 404. Step `not-found`. The alert reads `Can’t find acme/missing`. Choosing `Add a token` opens Settings with focus in `GitHub token`.

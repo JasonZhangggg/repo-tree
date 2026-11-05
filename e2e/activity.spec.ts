@@ -28,6 +28,9 @@ async function openLegend(page: Page) {
 
 /** The share of the page that is tree, with every panel and label made see-through. */
 async function treeShare(page: Page) {
+  // A pointer resting on a legend color highlights it and fades the rest, so park it in a corner.
+  const box = page.viewportSize()!;
+  await page.mouse.move(box.width - 4, box.height - 4);
   await settle(page);
   const veil = await page.addStyleTag({
     content: '.bar, .title, .side, .controls, #labels { opacity: 0 !important }',
@@ -55,6 +58,7 @@ test('Activity colors leaves by their last change, and dead wood drops its leave
   const inLeaf = await treeShare(page);
 
   await page.getByRole('button', { name: 'Settings' }).click();
+  await page.locator('#color-pick').click();
   await page.getByRole('radio', { name: 'Activity' }).click();
   await expect(page).toHaveURL(/colorBy=activity/);
   await expect(
@@ -69,7 +73,8 @@ test('Activity colors leaves by their last change, and dead wood drops its leave
   }
   await expect(legendNote(page)).toHaveText(/^Last change, as of Nov 2026\./);
   const bare = await treeShare(page);
-  expect(bare, 'dead wood leaves are gone').toBeLessThan(inLeaf * 0.9);
+  // A sprig is dead wood only when all its files are, so few sprigs drop: about 6% of the tree here.
+  expect(bare, 'dead wood leaves are gone').toBeLessThan(inLeaf * 0.97);
 
   await legendEntry(page, 'Dead wood').click();
   await expect(legendNote(page)).toHaveText(/^Dead wood · [\d,]+ files$/);

@@ -19,7 +19,7 @@ A user grows a tree from a bundled sample or from any GitHub repository named as
 ## How to get to it (user POV)
 
 - Open the app with no hash.
-- Choose `dotfiles`, `vite` or `linux` in the sample buttons under the repo title.
+- Open the repo field (the repo card's GitHub mark or name) and choose `dotfiles`, `vite` or `linux` in its suggestion list.
 - Focus the `owner/repo or GitHub URL` input to see suggestions.
 - Type a repo or paste a URL into the input and press Enter or choose `Grow`.
 - Open a link with a `#/owner/repo` hash.
@@ -33,7 +33,7 @@ Preconditions:
 - Each GitHub step installs its own stand-in. `acme/widgets` and `acme/partial` serve the dotfiles sample (36 files) through `serveRepo`.
 
 - **First visit.** Open `/`. Step `first-visit`. The heading reads `vitejs/vite` and `body[data-ready="vitejs/vite"]` is set.
-- **Sample.** Choose the `dotfiles` sample button. Step `sample-button`. `body[data-ready="mathiasbynens/dotfiles"]` is set.
+- **Sample.** Open the repo field and choose the `mathiasbynens/dotfiles` suggestion. Step `sample-button`. `body[data-ready="mathiasbynens/dotfiles"]` is set.
 - **Invalid text.** Enter `not a repo`. Step `invalid-input`. `#repo-error` reads `Use owner/repo, like vitejs/vite, or paste a GitHub URL.`
 - **GitHub URL.** Enter `https://github.com/acme/widgets`. Step `github-url`. The tree grows, `#repo-meta` shows `36 files` and the URL hash is `#/acme/widgets?branch=main...`.
 - **Truncated.** Enter `acme/partial`, whose stand-in tree has `truncated: true`. Step `truncated`. `#status` shows `Partial tree`.

@@ -179,7 +179,7 @@ async function doctor() {
 }
 
 const enter = async (page, text) => {
-  // On a phone the repo field folds into the repo row until its GitHub button opens it.
+  // The repo field folds into the repo card until its GitHub mark or the name opens it.
   if (await page.getByLabel('GitHub repository').isHidden()) {
     await page.getByRole('button', { name: 'Change repository' }).click();
   }
@@ -258,10 +258,8 @@ const JOURNEYS = {
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('vitejs/vite');
     });
     await step('sample-button', async () => {
-      await page
-        .getByRole('group', { name: 'Sample repositories' })
-        .getByRole('button', { name: /dotfiles/ })
-        .click();
+      await page.getByRole('button', { name: 'Change repository' }).click();
+      await page.locator('#suggest button', { hasText: 'mathiasbynens/dotfiles' }).click();
       await ready(page, 'mathiasbynens/dotfiles');
     });
     await step('invalid-input', async () => {

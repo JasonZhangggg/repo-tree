@@ -281,8 +281,11 @@ test('the tree frames beside the panels, not under them', async ({ page, isMobil
   await ready(page, 'torvalds/linux');
   await settle(page);
   const panels = [await boxOf(page, '.title'), await boxOf(page, '#overview')];
+  // Labels may sit over a panel's edge, so they go too: at once, since #labels fades its opacity
+  // and a later rule shows it, which a plain `opacity: 0` here would lose to.
   await page.addStyleTag({
-    content: '.bar, .title, .side, .controls, #labels { opacity: 0 }',
+    content:
+      '.bar, .title, .side, .controls, #labels { opacity: 0 !important; transition: none !important }',
   });
   const { share, hits } = await treePixels(page, undefined, panels);
   expect(share, 'share of the page that is tree').toBeGreaterThan(0.01);

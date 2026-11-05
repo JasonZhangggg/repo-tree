@@ -289,6 +289,7 @@ interface TreeView {
   legend(): LegendEntry[];
   setHighlight(h: { range: [number, number] } | { category: string } | null): void; // fades nodes outside the id range, or bark and every leaf outside the legend entry with that label, drained to grey while that entry's own leaves deepen (a per-leaf slot test in the shader)
   frameFolder(folder: number): void; // eases the camera onto the folder's leaves, never nearer than half the distance that frames the tree on show nor further than the stage; 0 frames the stage
+  atHome(): boolean; // the camera frames the whole stage: aimed at it, or within a few percent of it after an orbit; Reset view shows when false
   setInsets(insets: { top: number; right: number; bottom: number; left: number }): void; // CSS px the panels cover; the tree frames into the rest
   pickAt(x: number, y: number): { folder: number; rock?: number; bird?: number } | null; // folder, rock or bird under a CSS pixel of the container; a rock's folder is 0, a bird's its perch
   skyAt(x: number, y: number): boolean; // whether a CSS pixel of the container lands on the sun or a cloud (each a disc at least 22 px across)

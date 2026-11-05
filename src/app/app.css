@@ -1538,6 +1538,9 @@ body:not([data-shell]) :is(.bar, .title) {
     background: var(--ink-hover);
   }
 }
+.reset-view {
+  animation: pop 0.18s var(--ease);
+}
 .help {
   margin: 0 0 0 6px;
   color: var(--muted);

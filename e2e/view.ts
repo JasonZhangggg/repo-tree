@@ -39,10 +39,11 @@ export async function settle(page: Page): Promise<Stats> {
   return statsOf(page);
 }
 
-/** On a phone the repo field folds into the repo row; this opens it there, if it is folded. */
+/** The repo field folds into the repo card once a repo is on show; this opens it, if it is folded. The
+ * switch is the stable handle: the name button is named "Change repository" too while it is empty. */
 export async function openRepoField(page: Page) {
   if (await page.getByLabel('GitHub repository').isHidden()) {
-    await page.getByRole('button', { name: 'Change repository' }).click();
+    await page.locator('#repo-switch').click();
   }
 }
 

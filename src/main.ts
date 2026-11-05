@@ -88,6 +88,8 @@ debug.view = view;
 const loader = createLoader(store);
 watchHistory(store);
 let hovered: number | null = null;
+/** Whether the camera glided to the pin on show, so clearing it glides back. */
+let framedPin = false;
 let hoveredCategory: string | null = null;
 let toastTimer = 0;
 const toastEl = byId('toast');
@@ -98,8 +100,16 @@ const app: App = {
   load: (ref, options) => void loader.load(ref, options),
   cancelLoad: () => loader.cancel(),
   select(selection, frame = false) {
+    const was = store.get().selection;
     store.dispatch({ type: 'select', selection });
-    if (selection && frame) view.frameFolder(selection.folder);
+    if (selection && frame) {
+      view.frameFolder(selection.folder);
+      framedPin = true;
+    } else if (!selection && was && framedPin) {
+      // Clearing a pin the camera glided to glides back to the whole tree.
+      view.frameFolder(0);
+    }
+    if (!selection) framedPin = false;
   },
   hover(folder) {
     hovered = folder;
@@ -301,6 +311,13 @@ const toggleSpin = () =>
   store.dispatch({ type: 'settings', patch: { spin: !store.get().settings.spin } });
 spinButton.addEventListener('click', toggleSpin);
 byId('grow').addEventListener('click', () => view.grow());
+/** Reset view shows once the camera has zoomed, panned or glided off the whole tree. */
+const resetButton = byId<HTMLButtonElement>('reset-view');
+resetButton.addEventListener('click', () => view.frameFolder(0));
+view.onFrame(() => {
+  const away = !view.atHome();
+  if (resetButton.hidden === away) resetButton.hidden = !away;
+});
 mountHint();
 // iOS Safari ignores user-scalable=no; its own gesture events are the way to keep a pinch
 // from zooming the page, so it zooms the tree alone.
@@ -404,16 +421,17 @@ const panels = [
   controls,
   byId('settings'),
 ];
-/** Content width of a title card with a name and counts as long as torvalds/linux's. */
-const TITLE_ROOM = 460;
 /**
- * On a desktop the title card and the side panel grow with the repo's name and lists. Framing
- * reserves room for a typical title and the side panel's whole column, so repos frame into the
- * same region and their islands show at one size.
+ * On a desktop the repo card and the side panel grow with the repo's name and lists. Framing
+ * reserves the card's whole column (its widest, as the CSS caps it with --col) and the side
+ * panel's whole column, so repos frame into the same region and their islands show at one size.
  */
 function reserved(panel: HTMLElement, rect: Rect, origin: DOMRect): Rect {
   if (phone.matches) return rect;
-  if (panel === title) return { ...rect, right: Math.max(rect.right, rect.left + TITLE_ROOM) };
+  if (panel === title) {
+    const col = Math.min(520, origin.width * 0.42);
+    return { ...rect, right: Math.max(rect.right, rect.left + col) };
+  }
   if (panel === side) return { ...rect, bottom: origin.height };
   return rect;
 }

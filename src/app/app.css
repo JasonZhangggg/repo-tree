@@ -124,9 +124,6 @@ body {
     pointer-events: none;
   }
 }
-.repo-switch {
-  display: none;
-}
 [hidden] {
   display: none !important;
 }
@@ -650,80 +647,175 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
   display: none !important;
 }
 
-/* Title block: repo name, meta, load status, samples. */
+/* The repo card: the GitHub mark and the repo's name (each opens the repo field in the card's
+   place), CI weather, then the branch and counts, and any load status under them. One compact
+   card at the top left, so the tree has the room below it. */
 .title {
   position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + 84px);
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
   left: max(var(--edge), env(safe-area-inset-left, 0px));
-  width: var(--col);
+  width: max-content;
+  min-width: min(340px, var(--col));
+  max-width: var(--col);
   display: grid;
-  gap: 10px;
-  justify-items: start;
+  /* The name keeps its width first; the CI chip takes what is left, and its detail goes on a
+     narrow screen. */
+  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr);
+  grid-template-areas:
+    'switch name weather'
+    'switch meta meta'
+    'status status status';
+  align-items: center;
+  gap: 2px 10px;
   z-index: 2;
-  padding: 16px 18px;
+  padding: 8px 12px 8px 8px;
   background: var(--card);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border-radius: 16px;
+  border-radius: 14px;
   box-shadow: var(--shadow);
 }
-.title:not(:has(a[href], [aria-disabled])) {
+.title:not([data-repo]) {
   display: none;
 }
+/* Until a repo is on show the field stands alone; then it folds into the card. */
+body:has(#title[data-repo]):not([data-repo-open]) .repo {
+  display: none;
+}
+body[data-repo-open] .title {
+  visibility: hidden;
+}
+.repo-switch {
+  grid-area: switch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  width: 40px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--muted);
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.repo-switch svg {
+  width: 20px;
+  height: 20px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .repo-switch:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
+}
 h1 {
+  grid-area: name;
   margin: 0;
-  font-size: 28px;
+  font-size: 19px;
   font-weight: 650;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
-  max-width: 100%;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  min-width: 0;
 }
-h1 a {
-  color: inherit;
-  text-decoration: none;
+h1 button {
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
   max-width: 100%;
-  border-radius: 6px;
+  margin: 0;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  transition: background 0.15s;
 }
-h1 a span {
+h1 button span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-h1 a svg {
+h1 button svg {
   width: 16px;
   height: 16px;
-  color: var(--muted);
   flex: none;
-  opacity: 0;
-  transform: translate(-3px, 2px);
-  transition:
-    opacity 0.15s,
-    transform 0.15s var(--ease);
-}
-h1 a:focus-visible svg {
-  opacity: 1;
-  transform: translate(0, 0);
+  color: var(--muted);
+  stroke-width: 2;
 }
 @media (hover: hover) and (pointer: fine) {
-  h1 a:hover svg {
-    opacity: 1;
-    transform: translate(0, 0);
+  h1 button:hover {
+    background: var(--hover);
+  }
+  h1 button:hover svg {
+    color: var(--ink);
   }
 }
-h1 a[aria-disabled] {
+.title[data-loading] h1 {
   color: var(--muted);
 }
+/* Nothing to list under the name until the first tree is in. */
+.title[data-loading] .meta {
+  display: none;
+}
+.title > .weather {
+  grid-area: weather;
+  justify-self: end;
+  min-width: 0;
+  margin: 0 0 0 6px;
+}
+.title > .weather strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 1100px) {
+  .title > .weather span {
+    display: none;
+  }
+}
+/* The side panel lists the languages; a wide screen has room to count them here too. */
+@media (max-width: 1600px) {
+  .title .meta .langs {
+    display: none;
+  }
+}
+/* A small laptop or a tablet keeps the card to two rows: the branch, file count and GitHub link. */
+@media (max-width: 1100px) {
+  .title .meta .opt {
+    display: none;
+  }
+}
+.title > .meta {
+  grid-area: meta;
+  padding-left: 4px;
+}
+.title > #status {
+  grid-area: status;
+}
+.title > #status > .status {
+  margin: 8px 0 2px;
+}
+/* While the first tree loads there is no meta row, so the card is one line until progress shows. */
+.title[data-loading] {
+  grid-template-areas:
+    'switch name weather'
+    'status status status';
+}
+.meta .gh {
+  margin-left: -2px;
+}
 .meta {
-  margin: -2px 0 0;
+  margin: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 7px;
   color: var(--muted);
-  font-size: 13.5px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .meta:empty {
@@ -898,7 +990,24 @@ h1 a[aria-disabled] {
   animation: rise 0.22s var(--ease);
 }
 .status.loading {
-  animation: rise 0.22s 0.15s var(--ease) both;
+  /* Held back a beat so a quick load never flashes it, but folded shut while it waits, so the
+     card never holds an empty box. */
+  animation: unfold 0.26s 0.15s var(--ease) backwards;
+  overflow: hidden;
+}
+@keyframes unfold {
+  from {
+    opacity: 0;
+    max-height: 0;
+    padding-block: 0;
+    margin-block: 0;
+  }
+  to {
+    max-height: 120px;
+  }
+}
+#status {
+  min-width: 0;
 }
 #status:empty {
   display: none;
@@ -984,7 +1093,11 @@ h1 a[aria-disabled] {
 }
 .steps {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  gap: 4px 6px;
   align-items: center;
   font-size: 12.5px;
   color: var(--muted);
@@ -1026,12 +1139,45 @@ h1 a[aria-disabled] {
   display: block;
   height: 100%;
   width: calc(var(--done) * 100%);
-  background: var(--accent);
+  /* A light sweeps along the bar, so a slow fetch never looks stuck. */
+  background: linear-gradient(
+      90deg,
+      transparent 0 30%,
+      color-mix(in srgb, #fff 55%, transparent) 50%,
+      transparent 70% 100%
+    )
+    0 0 / 200% 100% var(--accent);
   border-radius: 2px;
   transition: width 0.4s var(--ease);
+  animation: sweep 1.3s linear infinite;
+}
+@keyframes sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+/* The header shows once the script has decided between the field and a repo's name, so the
+   empty field never flashes up on a link to a repo. */
+body:not([data-shell]) :is(.bar, .title) {
+  visibility: hidden;
 }
 
 /* Side panel: pinned detail, folders, legend. A bottom sheet on phones. */
+/* Before the first tree there is nothing to list: the desktop panel waits, then fades in. */
+@media (min-width: 761px) {
+  body:has(#title[data-loading]) .side {
+    opacity: 0;
+    visibility: hidden;
+  }
+  .side {
+    transition:
+      opacity 0.3s var(--ease),
+      visibility 0.3s;
+  }
+}
 .side {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 84px);
@@ -1391,6 +1537,9 @@ h1 a[aria-disabled] {
   .pill-btn.primary:hover {
     background: var(--ink-hover);
   }
+}
+.reset-view {
+  animation: pop 0.18s var(--ease);
 }
 .help-keys {
   display: inline-flex;
@@ -2498,6 +2647,11 @@ body:has(.scrubber:not([hidden])) .toast {
   .tool kbd {
     display: none;
   }
+  /* Search is a plain icon button here, like its neighbors, not an empty field. */
+  #search-open {
+    min-width: 40px;
+    justify-content: center;
+  }
   .tool {
     padding: 0;
     width: 40px;
@@ -2520,7 +2674,7 @@ body:has(.scrubber:not([hidden])) .toast {
     height: 48px;
   }
   /* One card up top: the repo row, whose GitHub button opens the repo field in its place. */
-  body:has(.title :is(a[href], [aria-disabled])):not([data-repo-open]) .bar {
+  body:has(#title[data-repo]):not([data-repo-open]) .bar {
     display: none;
   }
   body[data-repo-open] .title {
@@ -2539,8 +2693,8 @@ body:has(.scrubber:not([hidden])) .toast {
     background: none;
     color: var(--muted);
   }
-  /* The name opens the repo field here, so it drops the off-site arrow; the branch links out. */
-  h1 a svg {
+  /* The More menu holds Open on GitHub on a phone. */
+  .meta .gh {
     display: none;
   }
   .repo-switch svg {
@@ -2557,6 +2711,8 @@ body:has(.scrubber:not([hidden])) .toast {
     left: max(12px, env(safe-area-inset-left, 0px));
     right: max(12px, env(safe-area-inset-right, 0px));
     width: auto;
+    min-width: 0;
+    max-width: none;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -2577,12 +2733,12 @@ body:has(.scrubber:not([hidden])) .toast {
     white-space: nowrap;
     font-size: 12.5px;
   }
-  .meta .opt,
-  #samples {
+  .meta .opt {
     display: none;
   }
   /* Icon and a few words, so it reads as CI status rather than a light-mode toggle. */
-  .weather {
+  .weather,
+  .title > .weather {
     order: 2;
     flex: none;
     margin: 0;
@@ -2639,6 +2795,17 @@ body:has(.scrubber:not([hidden])) .toast {
     width: 100%;
     gap: 8px;
     padding: 9px 10px;
+  }
+  /* Progress sits in the repo card itself, under a hairline, not in a box of its own. */
+  .status.loading {
+    gap: 7px;
+    padding: 8px 4px 2px;
+    background: none;
+    border-radius: 0;
+    box-shadow: 0 -1px 0 var(--line);
+  }
+  .status.loading .btn {
+    height: 32px;
   }
   .status strong {
     font-size: 13.5px;

@@ -152,6 +152,12 @@ export interface TreeView {
   setHighlight(highlight: Highlight | null): void;
   /** Glides the camera to a folder in context; the root folder (0) frames the whole tree. */
   frameFolder(folder: number): void;
+  /**
+   * Whether the camera frames the whole tree: aimed at it, or left within a few percent of where
+   * that aim puts it. Orbiting alone keeps it home; a zoom, a pan or a pinned folder's glide
+   * takes it away.
+   */
+  atHome(): boolean;
   /** Frames the tree into the part of the container the insets leave free, easing there. */
   setInsets(insets: Insets): void;
   /** The folder or rock under a point in CSS pixels relative to the container, from a GPU id pass. */
@@ -1212,6 +1218,16 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     setHighlight(next) {
       highlight = next;
       showHighlight();
+    },
+
+    atHome() {
+      if (!shown || aim?.kind === 'tree') return true;
+      if (aim) return false;
+      const whole = frameTree(stage(groundOn), camera.aspect, SKY_LIFT);
+      const far = distanceOf(whole.position, whole.target);
+      const t = controls.target;
+      const off = Math.hypot(t.x - whole.target[0], t.y - whole.target[1], t.z - whole.target[2]);
+      return off < far * 0.03 && Math.abs(camera.position.distanceTo(t) - far) < far * 0.04;
     },
 
     frameFolder(folder) {

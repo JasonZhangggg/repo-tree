@@ -205,6 +205,8 @@ const MIN_FREE = 0.2;
 const SLOTS = PALETTES.autumn.leaves.length + 1;
 /** The hottest leaf's glow, and how it breathes: down to PULSE_LOW of it over PULSE_MS. */
 const GLOW = 0.7;
+/** At night the glow shines this much brighter, against the dark. */
+const NIGHT_GLOW = 1.25;
 const PULSE_LOW = 0.6;
 const PULSE_MS = 2800;
 /** While only the pulse moves, frames come this far apart: a slow glow needs few. */
@@ -317,6 +319,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   let groundOn = options.ground;
   let night = options.night;
   const moonlight = () => (night ? MOONLIGHT : { key: 1, sky: 1, fill: 1 });
+  const glowPeak = () => GLOW * (night ? NIGHT_GLOW : 1);
   const weather = createWeather(camera);
   scene.add(...weather.objects);
   let weatherShown: Weather | null = null;
@@ -555,7 +558,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   const glowAt = (now: number) =>
-    GLOW * (PULSE_LOW + (1 - PULSE_LOW) * (0.5 + 0.5 * Math.cos((now / PULSE_MS) * 2 * Math.PI)));
+    glowPeak() *
+    (PULSE_LOW + (1 - PULSE_LOW) * (0.5 + 0.5 * Math.cos((now / PULSE_MS) * 2 * Math.PI)));
 
   /**
    * Writes each leaf's heat (`aHeat`): its sprig's, while the leaves show Changes. The busiest few
@@ -576,7 +580,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     }
     shown.leaves.geometry.setAttribute('aHeat', new BufferAttribute(heat, 1));
     placeGlow();
-    treeUniforms.uGlow.value = glowing === 0 ? 0 : reducedMotion ? GLOW : glowAt(performance.now());
+    treeUniforms.uGlow.value =
+      glowing === 0 ? 0 : reducedMotion ? glowPeak() : glowAt(performance.now());
     requestRender();
   };
 
@@ -1011,6 +1016,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       if (on === night) return;
       night = on;
       applyWeather();
+      if (glowing > 0) {
+        treeUniforms.uGlow.value = reducedMotion ? glowPeak() : glowAt(performance.now());
+      }
     },
     setGround(on) {
       groundOn = on;
@@ -1163,7 +1171,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     setReducedMotion(on) {
       reducedMotion = on;
       if (glowing > 0) {
-        treeUniforms.uGlow.value = on ? GLOW : glowAt(performance.now());
+        treeUniforms.uGlow.value = on ? glowPeak() : glowAt(performance.now());
         requestRender();
       }
       if (on && growingNow) {

@@ -42,7 +42,7 @@ import {
 import { LIGHT, litColor } from './color';
 import { AGES, ageBand, CHANGES, changeBand, DEAD, type Facts } from '../timeline/facts';
 import { ownerCategories } from '../timeline/owners';
-import { birdGeometry, BIRD_SIZE, onCrown, placeBirds, type Perched } from './birds';
+import { birdGeometry, BIRD_SIZE, perchOnCrown, type Perched } from './birds';
 import { createGround } from './ground';
 import {
   DEAD_BLEACH,
@@ -56,6 +56,8 @@ import {
 import {
   ALWAYS,
   barkShader,
+  birdShader,
+  birdUniforms,
   growing,
   glowShader,
   leafShader,
@@ -224,6 +226,11 @@ const PULSE_LOW = 0.6;
 const PULSE_MS = 2800;
 /** While only the pulse moves, frames come this far apart: a slow glow needs few. */
 const PULSE_FRAME_MS = 70;
+/**
+ * While nothing else moves, the breeze and the birds draw at about 30 fps: they move slowly, and
+ * a scene that is only swaying should not cost a full frame rate.
+ */
+const ALIVE_FRAME_MS = 33;
 /** How long dead-wood leaves take to fall when they drop. */
 const FALL_MS = 2600;
 /** A leaf is six triangles of its own three vertices each (grow.ts `leaf`). */
@@ -254,6 +261,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   let colorBy = options.colorBy;
   let facts: Facts | null = null;
   let reducedMotion = options.reducedMotion;
+  birdUniforms.uBirdMotion.value = reducedMotion ? 0 : 1;
+  treeUniforms.uWind.value = reducedMotion ? 0 : 1;
+  birdUniforms.uBirdSize.value = BIRD_SIZE;
   /** Sprigs glowing now; the pulse runs only while some do. */
   let glowing = 0;
   let pulseTimer = 0;
@@ -354,7 +364,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       toneMapped: false,
     }),
   );
-  const birdMaterial = growing(
+  const birdMaterial = birdShader(
     new MeshStandardMaterial({
       vertexColors: true,
       flatShading: true,
@@ -363,8 +373,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     }),
   );
   const birdMesh = new Mesh(new BufferGeometry(), birdMaterial);
-  birdMesh.customDepthMaterial = depthMaterial;
-  birdMesh.castShadow = true;
+  // Birds move every frame and the shadow map is drawn only when the tree changes, so they cast none.
   birdMesh.frustumCulled = false;
   birdMesh.visible = false;
   scene.add(birdMesh);
@@ -376,7 +385,14 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const pickMaterial = new ShaderMaterial({
     vertexShader: PICK_VERTEX,
     fragmentShader: PICK_FRAGMENT,
-    uniforms: { uGrow: treeUniforms.uGrow, uTime: treeUniforms.uTime, uSpan: treeUniforms.uSpan },
+    uniforms: {
+      uGrow: treeUniforms.uGrow,
+      uTime: treeUniforms.uTime,
+      uSpan: treeUniforms.uSpan,
+      uWindTime: treeUniforms.uWindTime,
+      uWind: treeUniforms.uWind,
+      uWindHeight: treeUniforms.uWindHeight,
+    },
     side: DoubleSide,
     toneMapped: false,
   });
@@ -559,6 +575,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     }
     const pulsing = glowing > 0 && !reducedMotion;
     if (pulsing) treeUniforms.uGlow.value = glowAt(now);
+    // The breeze and the birds keep the scene alive while motion is allowed.
+    const alive = !!shown && !reducedMotion;
+    if (alive) {
+      treeUniforms.uWindTime.value = now / 1000;
+      birdUniforms.uBirdTime.value = now / 1000;
+    }
     showFlash(weather.tick(dt));
     if (weather.animated()) busy = true;
 
@@ -580,9 +602,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     if (busy) requestRender();
     else {
       lastFrame = 0;
-      if (pulsing) {
+      if (pulsing || alive) {
         clearTimeout(pulseTimer);
-        pulseTimer = window.setTimeout(requestRender, PULSE_FRAME_MS);
+        pulseTimer = window.setTimeout(requestRender, alive ? ALIVE_FRAME_MS : PULSE_FRAME_MS);
       }
     }
   };
@@ -703,8 +725,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   /**
-   * Rebuilds the birds on the tree on show: each on its folder's label anchor, at the crown's
-   * surface, facing along it. Hidden while the timeline shows the past.
+   * Rebuilds the birds on the tree on show: each standing on top of the crown, on a leaf of its
+   * folder nearest the folder's anchor (perchOnCrown). Hidden while the timeline shows the past.
    */
   const perchBirds = () => {
     birdMesh.geometry.dispose();
@@ -712,18 +734,18 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     birdSpots = [];
     birdMesh.visible = false;
     if (!shown || !birdPerches || birdPerches.length === 0) return requestRender();
-    const { anchors, nodes, rocks } = shown.model;
-    const perches: Perched[] = onCrown(
-      birdPerches.map(({ folder, color }) => {
-        const at: Vec3 = [anchors[3 * folder]!, anchors[3 * folder + 1]!, anchors[3 * folder + 2]!];
-        return { at, out: [at[0], 0, at[2]], color };
-      }),
-      shown.model.leaves.position,
+    const { anchors, nodes, rocks, folders, leaves } = shown.model;
+    const spots = perchOnCrown(
+      birdPerches.map(({ folder }) => ({
+        anchor: [anchors[3 * folder]!, anchors[3 * folder + 1]!, anchors[3 * folder + 2]!] as Vec3,
+        range: [folders.range[2 * folder]!, folders.range[2 * folder + 1]!] as const,
+      })),
+      leaves,
     );
+    const perches: Perched[] = spots.map((spot, i) => ({ ...spot, color: birdPerches![i]!.color }));
     birdMesh.geometry = birdGeometry(perches, nodes.folder.length + rocks.length);
-    birdSpots = placeBirds(perches).map(({ at }) => at);
+    birdSpots = spots.map(({ at }) => at);
     birdMesh.visible = births === null;
-    renderer.shadowMap.needsUpdate = true;
     requestRender();
   };
 
@@ -1057,6 +1079,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       barren = false;
       fallStart = -1;
       treeUniforms.uFloor.value = model.bounds.min[1];
+      treeUniforms.uWindHeight.value = Math.max(1, model.bounds.max[1]);
       applyBirths(null);
       // Perches name the last tree's folders: the caller gives this tree's.
       birdPerches = null;
@@ -1246,6 +1269,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
     setReducedMotion(on) {
       reducedMotion = on;
+      birdUniforms.uBirdMotion.value = on ? 0 : 1;
+      treeUniforms.uWind.value = on ? 0 : 1;
+      requestRender();
       if (glowing > 0) {
         treeUniforms.uGlow.value = on ? glowPeak() : glowAt(performance.now());
         requestRender();

@@ -124,19 +124,25 @@ function crosses(p1: Point, p2: Point, q1: Point, q2: Point): boolean {
 }
 
 /** Which folders to label, and how prominently. */
-export type LabelPick = { folder: number; files: number; tier: 'major' | 'top' | 'sub' };
+export type LabelPick = {
+  folder: number;
+  files: number;
+  tier: 'major' | 'top' | 'sub' | 'pin';
+};
 
 const TOP = { max: 7, least: 3, share: 0.02, major: 0.15 };
 const SUB = { max: 6, least: 2, share: 0.04 };
 
 /**
  * Top-level folders holding at least 2% of the tree's files get labels, at most 7 and at least
- * 3; those over 15% are major. With a folder pinned, its biggest subfolders get labels too.
+ * 3; those over 15% are major. With a folder pinned, its biggest subfolders get labels too, and
+ * the pinned folder its own, so a small folder deep in the crown can be found.
  */
 export function pickLabels(
   tops: ReadonlyArray<{ folder: number; files: number }>,
   children: ReadonlyArray<{ folder: number; files: number }>,
   pinnedFiles: number,
+  pinned?: number,
 ): LabelPick[] {
   const total = tops.reduce((sum, t) => sum + t.files, 0) || 1;
   const keep = <T extends { files: number }>(
@@ -154,6 +160,9 @@ export function pickLabels(
   }));
   for (const { folder, files } of keep(children, pinnedFiles || 1, SUB)) {
     if (!picked.some((p) => p.folder === folder)) picked.push({ folder, files, tier: 'sub' });
+  }
+  if (pinned !== undefined && pinned !== 0 && !picked.some((p) => p.folder === pinned)) {
+    picked.push({ folder: pinned, files: pinnedFiles, tier: 'pin' });
   }
   return picked;
 }

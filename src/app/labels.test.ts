@@ -106,4 +106,11 @@ describe('pickLabels', () => {
     const subs = pickLabels(tops, children, 300).filter((p) => p.tier === 'sub');
     expect(subs.map((p) => p.folder)).toEqual([7, 8]);
   });
+
+  test('labels a pinned folder deep in the crown, but not one already labeled', () => {
+    const deep = pickLabels(tops, [], 4, 42).filter((p) => p.tier === 'pin');
+    expect(deep).toEqual([{ folder: 42, files: 4, tier: 'pin' }]);
+    expect(pickLabels(tops, [], 600, 1).filter((p) => p.tier === 'pin')).toEqual([]);
+    expect(pickLabels(tops, [], 0, 0).filter((p) => p.tier === 'pin')).toEqual([]);
+  });
 });

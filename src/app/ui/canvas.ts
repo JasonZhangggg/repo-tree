@@ -205,6 +205,20 @@ export function mountCanvas(app: App): {
     app.select(picked === null || !repo ? null : selectionOf(repo, picked));
   });
 
+  // A double click glides to the branch under it (the first click pinned it), or back out to
+  // the whole tree from empty sky.
+  container.addEventListener('dblclick', (event) => {
+    const repo = store.get().repo;
+    if (!repo) return;
+    const rect = container.getBoundingClientRect();
+    const picked = view.pickAt(event.clientX - rect.left, event.clientY - rect.top);
+    if (picked?.bird !== undefined) return;
+    if (picked && picked.folder !== 0) app.select(selectionOf(repo, picked), true);
+    else if (!picked && !view.skyAt(event.clientX - rect.left, event.clientY - rect.top)) {
+      view.frameFolder(0);
+    }
+  });
+
   /**
    * A stem is its own element, moved, turned and stretched by transform alone: resizing a stem
    * drawn inside its pill repainted the pill every spin frame, about a sixth of each frame's cost.
@@ -265,6 +279,7 @@ export function mountCanvas(app: App): {
       repo.tree.labels,
       childrenOf(repo, pinned),
       pinned === null ? 0 : repo.index.folders.files[pinned]!,
+      pinned ?? undefined,
     );
     const pinnedPath = pinned === null ? null : repo.tree.folders.path[pinned]!;
     const aside = (folder: number) => {

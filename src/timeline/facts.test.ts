@@ -193,6 +193,22 @@ describe('historyFacts on vitejs/vite', () => {
     expect(bands.size, 'vite has busy and quiet twigs').toBeGreaterThan(2);
   });
 
+  test('a glowing sprig sits at its hottest file on the gradient, so Constantly shows', () => {
+    const { sprigs } = tree;
+    let constantly = 0;
+    for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
+      const files = Array.from(sprigs.files.subarray(sprigs.file[s]!, sprigs.file[s + 1]!));
+      const levels = files.map((f) => changeLevel(facts.fileChurn[f]!));
+      const mean = levels.reduce((a, b) => a + b, 0) / Math.max(1, levels.length);
+      const hot = files.filter((f) => facts.fileHeat[f]! > 0);
+      const hottest = Math.max(0, ...hot.map((f) => changeLevel(facts.fileChurn[f]!)));
+      expect(facts.sprigChangeLevel[s]).toBeCloseTo(Math.max(mean, hottest), 5);
+      // The legend's Constantly highlight takes slots within half a stop of 0.
+      if (CHANGES.length - 1 - facts.sprigChangeLevel[s]! <= 0.5) constantly++;
+    }
+    expect(constantly, 'some twigs take the darkest stop').toBeGreaterThan(0);
+  });
+
   test('a branch is as fresh as the newest file on it or beyond it', () => {
     const newest = facts.fileChanged.reduce((a, b) => Math.max(a, b), -Infinity);
     expect(facts.nodeChanged[0]).toBe(newest);

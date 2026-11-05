@@ -85,7 +85,12 @@ export type Facts = {
   fileChurn: Uint32Array;
   /** Per sprig, the CHANGES band most of its files are in. */
   sprigChangeBand: Uint8Array;
-  /** Per sprig, the mean `changeLevel` of its files: where its leaves sit on the gradient. */
+  /**
+   * Per sprig, where its leaves sit on the Changes gradient: the mean `changeLevel` of its files,
+   * or, for a sprig holding a busiest file (Facts.hot), its hottest file's level when that is higher. A sprig
+   * stands for many files on a big tree, so a mean alone would bury the busiest in quiet
+   * neighbours and nothing would ever reach the darkest stop; the glowing leaves take it.
+   */
   sprigChangeLevel: Float32Array;
   /** Per TreeModel folder, the CHANGES band most of the files under it are in. */
   folderChangeBand: Uint8Array;
@@ -184,16 +189,19 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
     tally.fill(0);
     changeTally.fill(0);
     let newest = -Infinity;
+    let hottest = 0;
     for (let k = sprigs.file[s]!; k < sprigs.file[s + 1]!; k++) {
       const file = sprigs.files[k]!;
       tally[fileBand[file]!]! += 1;
       changeTally[fileChangeBand[file]!]! += 1;
       newest = Math.max(newest, fileChanged[file]!);
       sprigHeat[s] = Math.max(sprigHeat[s]!, fileHeat[file]!);
-      sprigChangeLevel[s] = sprigChangeLevel[s]! + changeLevel(fileChurn[file]!);
+      const level = changeLevel(fileChurn[file]!);
+      sprigChangeLevel[s] = sprigChangeLevel[s]! + level;
+      if (fileHeat[file]! > 0) hottest = Math.max(hottest, level);
     }
     const files = sprigs.file[s + 1]! - sprigs.file[s]!;
-    if (files > 0) sprigChangeLevel[s] = sprigChangeLevel[s]! / files;
+    if (files > 0) sprigChangeLevel[s] = Math.max(sprigChangeLevel[s]! / files, hottest);
     sprigBand[s] = most(tally, 0);
     sprigChangeBand[s] = most(changeTally, 0);
     const twig = leaves.nodeId[sprigs.vertex[s]!]!;

@@ -11,7 +11,7 @@ Settings' `Color leaves by` has a `Changes` choice that colors leaves by how oft
 
 ## How to get to it (user POV)
 
-- Choose `Settings`, then `Color leaves by`, then `Changes`.
+- Choose `Changes` in the side panel's `Color leaves by` row, or `Settings`, then `Color leaves by`, then `Changes`.
 - Open a link with `colorBy=changes` (and `hl=<band>`).
 
 ## Driving it with drive.mjs

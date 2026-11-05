@@ -33,7 +33,7 @@ test('Owner colors each top-level folder by who to ask, and its card names them'
 
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.locator('#color-pick').click();
-  await page.getByRole('radio', { name: 'Owner' }).click();
+  await page.locator('#settings').getByRole('radio', { name: 'Owner' }).click();
   await expect(page).toHaveURL(/colorBy=owner/);
   await expect(page.getByText(/^Each top-level folder takes its owner/)).toBeVisible();
   await page.keyboard.press('Escape');

@@ -4,28 +4,8 @@ import type { App } from '../app';
 import { byId, h, icon, ICONS } from '../dom';
 import { COLOR_BYS, PALETTE_IDS, QUALITIES, type Settings } from '../settings';
 import type { AppState } from '../state';
+import { COLOR_BY_HINT, COLOR_BY_ICON, COLOR_BY_LABEL } from './color-by';
 
-const COLOR_BY_LABEL = {
-  language: 'Language',
-  folder: 'Folder',
-  activity: 'Activity',
-  changes: 'Changes',
-  owner: 'Owner',
-};
-const COLOR_BY_HINT = {
-  language: 'File type',
-  folder: 'Top-level folder',
-  activity: 'Last change',
-  changes: 'How often it changed',
-  owner: 'Code owner',
-};
-const COLOR_BY_ICON = {
-  language: ICONS.code,
-  folder: ICONS.folder,
-  activity: ICONS.clock,
-  changes: ICONS.pulse,
-  owner: ICONS.person,
-};
 const QUALITY_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' };
 const FOLDER_NAME = /^[^/\\]{1,100}$/;
 

@@ -59,7 +59,7 @@ test('Activity colors leaves by their last change, and dead wood drops its leave
 
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.locator('#color-pick').click();
-  await page.getByRole('radio', { name: 'Activity' }).click();
+  await page.locator('#settings').getByRole('radio', { name: 'Activity' }).click();
   await expect(page).toHaveURL(/colorBy=activity/);
   await expect(
     page.getByText(/^From commit history: how recently each file changed/),

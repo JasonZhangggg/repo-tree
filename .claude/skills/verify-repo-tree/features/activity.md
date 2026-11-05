@@ -13,7 +13,7 @@ Settings' `Color leaves by` has a third choice, `Activity`, that colors leaves b
 
 ## How to get to it (user POV)
 
-- Choose `Settings`, then `Color leaves by`, then `Activity`.
+- Choose `Activity` in the side panel's `Color leaves by` row, or `Settings`, then `Color leaves by`, then `Activity`.
 - Open a link with `colorBy=activity` (and `hl=<band>`).
 
 ## Driving it with drive.mjs

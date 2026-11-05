@@ -615,7 +615,7 @@ test('Color leaves by is a dropdown: it opens, picks, and Escape closes only the
   await ready(page, 'vitejs/vite');
   await page.getByRole('button', { name: 'Settings' }).click();
   const pick = page.locator('#color-pick');
-  const menu = page.getByRole('radiogroup', { name: 'Color leaves by' });
+  const menu = page.locator('#settings').getByRole('radiogroup', { name: 'Color leaves by' });
   await expect(pick).toHaveAccessibleName('Color leaves by: Language');
   await expect(menu).toBeHidden();
 
@@ -638,4 +638,41 @@ test('Color leaves by is a dropdown: it opens, picks, and Escape closes only the
   await page.locator('#color-pick').click();
   await page.getByRole('heading', { name: 'Settings' }).click();
   await expect(menu).toBeHidden();
+});
+
+test('Color leaves by is one click away in the side panel', async ({ page }) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await openLegend(page);
+  const modes = page.locator('#overview').getByRole('radiogroup', { name: 'Color leaves by' });
+  await expect(modes.getByRole('radio')).toHaveText([
+    'Language',
+    'Folder',
+    'Activity',
+    'Changes',
+    'Owner',
+  ]);
+  await expect(modes.getByRole('radio', { name: 'Language' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  const box = (await modes.boundingBox())!;
+  const panel = (await page.locator('#overview').boundingBox())!;
+  expect(box.x + box.width, 'the row fits the panel').toBeLessThanOrEqual(panel.x + panel.width);
+
+  await modes.getByRole('radio', { name: 'Changes' }).click();
+  await expect(page).toHaveURL(/colorBy=changes/);
+  await expect(page.locator('#legend-title')).toHaveText('Leaf colors by changes');
+  await expect(modes.getByRole('radio', { name: 'Changes' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+
+  // A radio group: arrows move the choice, and Settings agrees.
+  await modes.getByRole('radio', { name: 'Changes' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page).toHaveURL(/colorBy=owner/);
+  await expect(modes.getByRole('radio', { name: 'Owner' })).toBeFocused();
+  const stored = await page.evaluate(() => localStorage.getItem('repo-tree:settings'));
+  expect(JSON.parse(stored!).colorBy).toBe('owner');
 });

@@ -382,7 +382,7 @@ const JOURNEYS = {
   },
 
   settings: async ({ page, step }) => {
-    const radio = (name) => page.getByRole('radio', { name });
+    const radio = (name) => page.locator('#settings').getByRole('radio', { name });
     await step('open', async () => {
       await page.goto(base);
       await ready(page, 'vitejs/vite');
@@ -645,7 +645,7 @@ const JOURNEYS = {
     await step('changes', async () => {
       await page.getByRole('button', { name: 'Settings' }).click();
       await page.locator('#color-pick').click();
-      await page.getByRole('radio', { name: 'Changes' }).click();
+      await page.locator('#settings').getByRole('radio', { name: 'Changes' }).click();
       await expect(page).toHaveURL(/colorBy=changes/);
       await page.getByRole('button', { name: 'Close settings' }).click();
       await inLegend(async () => {
@@ -696,7 +696,7 @@ const JOURNEYS = {
     await step('activity', async () => {
       await page.getByRole('button', { name: 'Settings' }).click();
       await page.locator('#color-pick').click();
-      await page.getByRole('radio', { name: 'Activity' }).click();
+      await page.locator('#settings').getByRole('radio', { name: 'Activity' }).click();
       await page.getByRole('button', { name: 'Close settings' }).click();
       await inLegend(async () => {
         await expect(page.locator('#legend-title')).toHaveText('Leaf colors by activity');
@@ -806,7 +806,7 @@ const JOURNEYS = {
     await step('owner', async () => {
       await page.getByRole('button', { name: 'Settings' }).click();
       await page.locator('#color-pick').click();
-      await page.getByRole('radio', { name: 'Owner' }).click();
+      await page.locator('#settings').getByRole('radio', { name: 'Owner' }).click();
       await page.getByRole('button', { name: 'Close settings' }).click();
       await inLegend(async () => {
         await expect(page.locator('#legend-title')).toHaveText('Leaf colors by owner');

@@ -676,7 +676,12 @@ export function mountSide(app: App): void {
           ? null
           : h(
               'button',
-              { type: 'button', class: 'btn', onclick: () => view.frameFolder(folder) },
+              // Through select, so clearing the pin later glides back out.
+              {
+                type: 'button',
+                class: 'btn',
+                onclick: () => app.select(store.get().selection, true),
+              },
               'Zoom in',
             ),
       ),

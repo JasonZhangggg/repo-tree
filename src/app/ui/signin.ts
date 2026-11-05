@@ -4,7 +4,7 @@ import type { App } from '../app';
 import { byId } from '../dom';
 
 /**
- * The Sign in with GitHub button, beside Settings (in the More menu on a phone). Signing in lifts
+ * The Sign in with GitHub button, last in the toolbar (in the More menu on a phone). Signing in lifts
  * GitHub's hourly limit from 60 requests per network address to 5,000 per visitor, for trees, CI
  * weather and history alike; signed in, the same button signs out. Hidden when this build has no
  * history server, which is what signs visitors in.

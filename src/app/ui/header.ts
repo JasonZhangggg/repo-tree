@@ -356,7 +356,8 @@ export function mountHeader(app: App): void {
     link.title = 'Open on GitHub';
     const { folders } = repo.index;
     const langs = repo.index.langs.filter((l) => l !== 'Other').length;
-    const dot = (cls = 'dot') => h('span', { class: cls, 'aria-hidden': 'true' }, '·');
+    // Not `.dot`: that class is the label anchors' dot, absolutely placed.
+    const sep = (cls = 'sep') => h('span', { class: cls, 'aria-hidden': 'true' }, '·');
     fill(
       meta,
       h(
@@ -392,11 +393,11 @@ export function mountHeader(app: App): void {
             'snapshot',
           )
         : null,
-      repo.sample ? dot('dot opt') : null,
+      repo.sample ? sep('sep opt') : null,
       h('span', { class: 'files' }, plural(folders.files[0]!, 'file')),
-      dot('dot opt'),
+      sep('sep opt'),
       h('span', { class: 'opt' }, plural(folders.files.length - 1, 'folder')),
-      dot('dot opt'),
+      sep('sep opt'),
       h('span', { class: 'opt' }, plural(langs, 'language')),
     );
     for (const button of samples.querySelectorAll('button')) {

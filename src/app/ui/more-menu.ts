@@ -13,8 +13,7 @@ const MENU_LABELS: Record<string, string> = { share: 'Copy link', export: 'Expor
 export function mountMoreMenu(phone: MediaQueryList): void {
   const more = byId<HTMLButtonElement>('more');
   const menu = byId('more-menu');
-  const settings = byId('settings-open');
-  /** Into the menu on a phone, in this order; back before Settings on a desktop. */
+  /** Into the menu on a phone, in this order; back into the toolbar on a desktop. */
   const moved = ['signin', 'share', 'export'].map((id) => byId<HTMLButtonElement>(id));
   const desktopLabels = moved.map((el) => el.querySelector('.label')?.textContent ?? null);
   /** Desktop only. */
@@ -36,8 +35,9 @@ export function mountMoreMenu(phone: MediaQueryList): void {
         menu.append(el);
         if (label && menuLabel) label.textContent = menuLabel;
       } else {
-        // Desktop order: Share, PNG, (theme), Sign in, then Settings.
-        (el.id === 'signin' ? settings : byId('theme')).before(el);
+        // Desktop: Share and PNG share one group; Sign in stands last, after the view group.
+        if (el.id === 'signin') more.before(el);
+        else byId('share-group').append(el);
         if (label && menuLabel) label.textContent = desktopLabels[i]!;
       }
     });

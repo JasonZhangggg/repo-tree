@@ -107,7 +107,7 @@ test('the open sheet scrolls its content, and closes from it only at the top', a
 test('the phone row keeps four buttons and a short menu sits behind More actions', async ({
   page,
 }) => {
-  const row = page.locator('.controls > button:visible, .controls .tools > button:visible');
+  const row = page.locator('.controls > button:visible, .controls .tools button:visible');
   await expect(row).toHaveCount(4);
   const more = page.getByRole('button', { name: 'More actions' });
   const menu = page.getByRole('group', { name: 'More actions' });

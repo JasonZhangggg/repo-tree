@@ -1,6 +1,7 @@
 import type { CiRun } from '../repo/ci';
 import type { Snapshot } from '../repo/github';
 import type { History } from '../repo/history';
+import type { OpenPulls } from '../repo/pulls';
 
 const DB = 'repo-tree';
 const STORE = 'snapshots';
@@ -69,3 +70,10 @@ export const cachedHistory = async (key: string) =>
   (await cached<StoredHistory>(`history:${key}`, HISTORY_FRESH_MS))?.history;
 export const cacheHistory = (key: string, history: History) =>
   cache<StoredHistory>(`history:${key}`, { history, fetchedAt: Date.now() });
+
+type StoredPulls = { pulls: OpenPulls; fetchedAt: number };
+/** Open pull requests fetched within the last ten minutes, like Actions runs. */
+export const cachedPulls = async (key: string) =>
+  (await cached<StoredPulls>(`pulls:${key}`, RUNS_FRESH_MS))?.pulls;
+export const cachePulls = (key: string, pulls: OpenPulls) =>
+  cache<StoredPulls>(`pulls:${key}`, { pulls, fetchedAt: Date.now() });

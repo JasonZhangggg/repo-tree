@@ -6,6 +6,7 @@ import { distanceOf, frameTree, stage } from './render/framing';
 import { createTreeView } from './render/tree-view';
 import { parseRepoRef, type RepoRef } from './repo/ref';
 import { nameOf, type App } from './app/app';
+import { birdsOf } from './app/birds';
 import { debug } from './app/debug';
 import { byId } from './app/dom';
 import { count } from './app/format';
@@ -52,6 +53,7 @@ const store = createStore({
     cores: navigator.hardwareConcurrency || 4,
   }),
   ci: {},
+  pulls: {},
   preview: null,
   timeline: null,
   history: null,
@@ -206,6 +208,10 @@ store.subscribe((state, prev) => {
     reframe();
     container.setAttribute('aria-label', describe(state));
     if (!state.repo.sample && repoKey(state) !== repoKey(prev)) rememberRecent(debug.repo);
+  }
+  const birds = birdsOf(state);
+  if (birds !== birdsOf(prev) || state.repo !== prev.repo) {
+    view.setBirds(birds && birds.map(({ folder, color }) => ({ folder, color })));
   }
   if (s.palette !== prev.settings.palette) view.setPalette(s.palette);
   if (s.colorBy !== prev.settings.colorBy) view.setColorBy(s.colorBy);

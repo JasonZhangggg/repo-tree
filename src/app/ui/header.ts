@@ -158,6 +158,20 @@ export function mountHeader(app: App): void {
   };
   addEventListener('pointerup', release);
   addEventListener('pointercancel', release);
+  // iOS Safari keeps a field focused when the tap lands on something that can't take focus, like
+  // the tree's canvas, so no focusout comes. A press anywhere outside closes the field itself.
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      const target = event.target as Element;
+      if (target.closest('#repo-form, #repo-switch, #repo-link')) return;
+      if (!document.body.hasAttribute('data-repo-open') && suggest.hidden) return;
+      if (form.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+      closeSuggest();
+      setOpen(false);
+    },
+    true,
+  );
   form.addEventListener('focusout', (event) => {
     if (pressing) return;
     if (form.contains(event.relatedTarget as Node | null)) return;

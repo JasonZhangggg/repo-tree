@@ -548,7 +548,7 @@ test('the repo field folds into the repo card', async ({ page, isMobile }) => {
   const row = (await page.locator('#title').boundingBox())!;
   // A phone's card is one row; a desktop's two, the name over the branch and counts.
   expect(row.height, 'a compact card').toBeLessThan(isMobile ? 60 : 90);
-  await page.getByRole('button', { name: 'Change repository' }).click();
+  await page.locator('#repo-switch').click();
   await expect(input).toBeFocused();
   await expect(page.locator('#suggest')).toBeVisible();
   await page.keyboard.press('Escape');
@@ -573,7 +573,7 @@ test('on a phone a tap on the tree closes the repo field', async ({ page, isMobi
     .locator('#view')
     .evaluate((view) => view.addEventListener('mousedown', (event) => event.preventDefault()));
   const input = page.getByLabel('GitHub repository');
-  await page.getByRole('button', { name: 'Change repository' }).click();
+  await page.locator('#repo-switch').click();
   await expect(input).toBeFocused();
   await expect(page.locator('#suggest')).toBeVisible();
 

@@ -11,6 +11,7 @@ import {
   ageBand,
   CHANGES,
   changeBand,
+  changeLevel,
   DEAD,
   historyFacts,
   HOT_FLOOR,
@@ -46,6 +47,27 @@ describe('changeBand', () => {
     expect(changeBand(500)).toBe(0);
     // Sprig and folder majorities count four bands, as for AGES.
     expect(CHANGES.length).toBe(AGES.length);
+  });
+});
+
+describe('changeLevel', () => {
+  test('climbs from 0 to the last band, with band edges halfway between stops', () => {
+    expect(changeLevel(0)).toBe(0);
+    expect(changeLevel(3)).toBeCloseTo(0.5);
+    expect(changeLevel(10)).toBeCloseTo(1.5);
+    expect(changeLevel(30)).toBeCloseTo(2.5);
+    expect(changeLevel(100)).toBeCloseTo(3);
+    expect(changeLevel(5000)).toBe(3);
+  });
+  test('rounds to the file band, counted from the quiet end', () => {
+    for (let churn = 0; churn < 200; churn++) {
+      expect(CHANGES.length - 1 - Math.round(changeLevel(churn))).toBe(changeBand(churn));
+    }
+  });
+  test('rises with every change', () => {
+    for (let churn = 1; churn <= 100; churn++) {
+      expect(changeLevel(churn)).toBeGreaterThan(changeLevel(churn - 1));
+    }
   });
 });
 
@@ -163,6 +185,10 @@ describe('historyFacts on vitejs/vite', () => {
     }
     const all = index.files.paths.map((_, i) => i);
     expect(facts.folderChangeBand[0]).toBe(majority(all));
+    for (const level of facts.sprigChangeLevel) {
+      expect(level).toBeGreaterThanOrEqual(0);
+      expect(level).toBeLessThanOrEqual(CHANGES.length - 1);
+    }
     const bands = new Set(facts.sprigChangeBand);
     expect(bands.size, 'vite has busy and quiet twigs').toBeGreaterThan(2);
   });

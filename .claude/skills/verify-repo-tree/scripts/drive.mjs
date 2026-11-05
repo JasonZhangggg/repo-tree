@@ -2,7 +2,7 @@
 // Usage: node .claude/skills/verify-repo-tree/scripts/drive.mjs <command> [--port 4175]
 //          [--out dir] [--viewport desktop|phone|phone-390] [--scale 2] [--history]
 // Commands: launch, doctor, cleanup, or a journey: load-repo, explore, search, settings,
-// share-and-export, phone-layout, tree-sizes, timeline, weather, activity, changes, hotspots,
+// share-and-export, phone-layout, tree-sizes, timeline, weather, activity, changes, busiest,
 // history-compute.
 // `launch --history` starts e2e/history-stack.mjs instead (app, history Worker and fake GitHub
 // on port, port+1 and port+2), which the history-compute journey needs. Journeys save numbered screenshots and report.json in --out
@@ -727,7 +727,7 @@ const JOURNEYS = {
     });
   },
 
-  hotspots: async ({ page, step }) => {
+  busiest: async ({ page, step }) => {
     const sheet = page.locator('#sheet-toggle');
     /** On a phone the side panel waits in the sheet: opens it for `check`, then closes it again. */
     const inSide = async (check) => {
@@ -737,27 +737,24 @@ const JOURNEYS = {
       if (phone) await sheet.click();
     };
     const note = page.locator('#hot-note');
+    const glowing = () => page.evaluate(() => window.__repoTree.view.stats().glowing);
     await step('vite', async () => {
       await page.goto(`${base}#/vitejs/vite`);
       await ready(page, 'vitejs/vite');
       await expect(page.locator('#hot')).toBeHidden();
+      expect(await glowing()).toBe(0);
       await settle(page);
     });
-    await step('hotspots-on', async () => {
-      await page.getByRole('button', { name: 'Settings' }).click();
-      await page.getByRole('switch', { name: /^Hotspots/ }).check();
-      await page.getByRole('button', { name: 'Close settings' }).click();
-      const stored = await page.evaluate(() => localStorage.getItem('repo-tree:settings'));
-      expect(JSON.parse(stored ?? '{}').hotspots).toBe(true);
+    await step('changes', async () => {
+      await page.goto(`${base}#/vitejs/vite?colorBy=changes`);
+      await ready(page, 'vitejs/vite');
       await inSide(async () => {
         await expect(note).toHaveText(/^The [\d,]+ busiest files glow, from commit history\.$/);
         await expect(page.locator('#hot-files button').first()).toContainText(
           '…/vite/package.json',
         );
       });
-      await expect
-        .poll(() => page.evaluate(() => window.__repoTree.view.stats().glowing))
-        .toBeGreaterThan(0);
+      await expect.poll(glowing).toBeGreaterThan(0);
       await settle(page);
     });
     await step('pin-hot-file', async () => {
@@ -771,21 +768,23 @@ const JOURNEYS = {
     await step('with-activity', async () => {
       await page.goto(`${base}#/vitejs/vite?colorBy=activity`);
       await ready(page, 'vitejs/vite');
-      await inSide(() => expect(note).toHaveText(/busiest files glow/));
+      await expect(page.locator('#hot')).toBeHidden();
+      expect(await glowing()).toBe(0);
       await settle(page);
     });
     await step('linux', async () => {
-      await page.goto(`${base}#/torvalds/linux?colorBy=language`);
+      await page.goto(`${base}#/torvalds/linux?colorBy=changes`);
       await ready(page, 'torvalds/linux');
       await inSide(() => expect(note).toHaveText(/^The [\d,]+ busiest files glow/));
       await settle(page);
     });
     await step('no-history', async () => {
+      await page.goto(`${base}#/vitejs/vite?colorBy=changes`);
       await serveRepo(page, 'acme/widgets');
       await enter(page, 'acme/widgets');
       await ready(page, 'acme/widgets');
       await inSide(() => expect(note).toHaveText('History is unavailable for this repo.'));
-      expect(await page.evaluate(() => window.__repoTree.view.stats().glowing)).toBe(0);
+      expect(await glowing()).toBe(0);
     });
   },
 

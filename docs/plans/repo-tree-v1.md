@@ -240,8 +240,8 @@ function loadInWorker(request: LoadRequest, progress: LoadProgress, signal: Abor
 // render/palette.ts  (table)
 type PaletteId = 'autumn' | 'spring' | 'summer' | 'winter';
 type ColorBy = 'language' | 'folder' | 'activity' | 'changes' | 'owner'; // activity, changes and owner need the history (timeline/facts.ts); without it leaves keep language colors
-// Palette.ages: hex[4], one per AGES band from the palette's own leaves (liveliest for this month, oldest for 1 to 3 years, and dead wood's legend grey); Palette.changes: hex[4], one per CHANGES band, deepest for the busiest down to palest
-const DEAD_BARK: hex; // bark of a branch whose every file is dead wood
+// Every color mode uses only the chosen palette's colors, no greys. Palette.ages: hex[4], one per AGES band, all from the palette's own leaves (liveliest for this month down to a withered one for dead wood, which falling leaves show); Palette.changes: hex[4], the Changes gradient's stops, one per CHANGES band, from the palette's own leaves, darkest for the busiest down to lightest
+const DEAD_BLEACH = 0.45; // bark of a branch whose every file is dead wood: the palette's bark mixed this far toward its sky edge
 type Palette = { id: PaletteId; name: string; bark: hex; sky: { center: hex; edge: hex }; shadow: hex;
   light: { key: hex; sky: hex; ground: hex }; leaves: hex[] /* 9, same length in every palette */; rest: hex; precip: 'rain' | 'snow' /* what falls from a rain or storm sky */;
   ground: { grass: hex; meadow: hex; dirt: hex; soil: hex; stone: hex; rock: hex; cap: hex; blade: hex; flowers: hex[] /* none hides them */; litter: boolean; blades: number /* share of tufts shown */ } };
@@ -252,16 +252,16 @@ type LegendEntry = { color: hex; label: string; files: number };
 function leafMapping(categories: { label: string; files: number }[], p: Palette): { slotOf: number[]; legend: LegendEntry[] };
 
 // render/tree-view.ts  (three.js, owns GPU state, the canvas and the orbit controls)
-function createTreeView(container: HTMLElement, options: { quality: Quality; palette: PaletteId; colorBy: ColorBy; spin: boolean; reducedMotion: boolean; ground: boolean; hotspots: boolean }): TreeView;
+function createTreeView(container: HTMLElement, options: { quality: Quality; palette: PaletteId; colorBy: ColorBy; spin: boolean; reducedMotion: boolean; ground: boolean }): TreeView;
 interface TreeView {
   setTree(model: TreeModel): void; // frames the stage (tallest tree on the island), grows unless reduced motion
   grow(): void; // replays the growth of the tree on show
   setTimeline(births: { nodes: Float32Array; sprigs: Float32Array } | null): void; // timeline progress each node and sprig appears at (aBorn per vertex), or the whole tree
   setTime(cursor: number): void; // uTime: elements grow in as it crosses aBorn plus their aT window scaled to SPAN; labels wait for their branch
   setPalette(id: PaletteId): void; // recolors without regrowing
-  setColorBy(by: ColorBy): void; // language, top-level folder, or activity, changes or owner once setFacts gave the history. Changes: each sprig takes its sprigChangeBand's Palette.changes color; activity takes Palette.ages, so both follow setPalette. Owner: each top-level folder's leaves take its Facts.owners owner, ranked by files through leafMapping like folders (owners shared across folders share a slot, the rest share the last)
-  setFacts(facts: Facts | null): void; // the history laid over the tree on show; setTree clears it. Activity: each sprig takes its AGES band's color, dead-wood sprigs are born never (no pass draws them) unless that band is highlighted; when they drop, unless motion is reduced, they first fall (aFall per vertex, uFall 0..1 over FALL_MS: tumble down to uFloor and shrink away), then are born never; dead branches (newest file 3+ years old) take DEAD_BARK
-  setHotspots(on: boolean): void; // once setFacts gave the history, each leaf of a sprig with sprigHeat glows (aHeat per vertex): keeping its size, its color mostly an ember amber, self-lit by uGlowColor emission by heat times uGlow; the other leaves calm to a dim gray (uCalm), and a glow that spills past each hot leaf's edges (a second mesh of only the hot leaves' triangles, each SHELL times as large about its heart aCenter and pushed back from the camera so its own leaf covers its middle, fading from heart to rim by aRim, depth-tested and unlit, grown in with the leaf's aT and aBorn) shines by aHeat times uGlow. uGlow pulses gently (frames every PULSE_FRAME_MS while only the pulse moves), steady under reduced motion
+  setColorBy(by: ColorBy): void; // language, top-level folder, or activity, changes or owner once setFacts gave the history. Changes: each sprig's aSlot is CHANGES.length - 1 - sprigChangeLevel, a fraction the leaf shader blends between the two Palette.changes stops either side of it (a gradient), and its busiest files glow (below); activity takes Palette.ages, so both follow setPalette. Owner: each top-level folder's leaves take its Facts.owners owner, ranked by files through leafMapping like folders (owners shared across folders share a slot, the rest share the last)
+  setFacts(facts: Facts | null): void; // the history laid over the tree on show; setTree clears it. Activity: each sprig takes its AGES band's color, dead-wood sprigs are born never (no pass draws them) unless that band is highlighted; when they drop, unless motion is reduced, they first fall (aFall per vertex, uFall 0..1 over FALL_MS: tumble down to uFloor and shrink away), then are born never; dead branches (newest file 3+ years old) take the bleached bark (DEAD_BLEACH)
+  // Busiest files (Changes only, no setting): once setFacts gave the history and the leaves show Changes, each leaf of a sprig with sprigHeat glows (aHeat per vertex) at its own size and color, self-lit by its own color (vLeaf) times heat times uGlow, with a glow that spills past each hot leaf's edges (a second mesh of only the hot leaves' triangles, a vertex color of its leaf's gradient color lifted to GLOW_SATURATION and GLOW_LIGHTNESS, each SHELL times as large about its heart aCenter and pushed back from the camera so its own leaf covers its middle, fading from heart to rim by aRim, depth-tested and unlit, grown in with the leaf's aT and aBorn) shining by aHeat times uGlow. uGlow pulses gently (frames every PULSE_FRAME_MS while only the pulse moves), steady under reduced motion
   legend(): LegendEntry[];
   setHighlight(h: { range: [number, number] } | { category: string } | null): void; // fades nodes outside the id range, or bark and every leaf outside the legend entry with that label, drained to grey while that entry's own leaves deepen (a per-leaf slot test in the shader)
   frameFolder(folder: number): void; // eases the camera onto the folder's leaves, never nearer than half the distance that frames the tree on show nor further than the stage; 0 frames the stage
@@ -275,7 +275,7 @@ interface TreeView {
   setLabelFolders(folders: readonly number[] | null): void; // which folders' anchors onFrame reports; null (and every setTree) means the top-level folders
   onFrame(listener: (info: { growth: number; labels: { folder: number; x: number; y: number; visible: boolean; front: boolean; depth: number }[]; crown: { x: number; y: number; rx: number; ry: number } }) => void): () => void; // visible: grown, in front of the camera, inside the free region; front: on the near side of the crown; depth: 0 facing the camera to 1 straight behind the trunk; crown: the crown's outline on screen, as an ellipse
   snapshotPNG(scale: number): Promise<Blob>;
-  stats(): { renders: number; distance: number; calls: number; triangles: number; geometries: number; textures: number; glowing: number }; // distance: camera to orbit target; glowing: hot sprigs
+  stats(): { renders: number; distance: number; calls: number; triangles: number; geometries: number; textures: number; glowing: number }; // distance: camera to orbit target; glowing: sprigs glowing as busiest files (Changes only)
   dispose(): void;
 }
 
@@ -291,16 +291,16 @@ type Selection = { folder: number; file?: number }; // indices into the shown re
 type AppState = { load: LoadState; repo: Repo | null; selection: Selection | null; highlight: string | null; notice: 'truncated' | null; settings: Settings; autoQuality: Quality;
   ci: Record<string /* ciKey */, readonly CiRun[] | null /* could not be read */>; preview: Sky | null /* from a link's wx */;
   timeline: number | null /* the date (ms) the open timeline settled on; null while closed */;
-  history: HistoryFacts | null /* loaded once needsHistory(state) (activity or owner colors, or hotspots); a new repo clears it */ };
+  history: HistoryFacts | null /* loaded once needsHistory(state) (activity, changes or owner colors); a new repo clears it */ };
 type HistoryFacts = { repo: Repo; status: 'loading' } | { repo: Repo; status: 'ready'; facts: Facts } | { repo: Repo; status: 'missing' | 'unavailable' };
 // app/history-facts.ts watchHistory(store): reads the stored history (historySource(repo).load, never a compute) a microtask after the change that asked, and dispatches { type: 'history' }.
-function needsHistory(state: AppState): boolean; // colorBy activity, changes or owner, or hotspots on
+function needsHistory(state: AppState): boolean; // colorBy activity, changes or owner
 function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null; // null with weather off, before runs arrive or when they failed
 // highlight is a legend label. A pin and a highlight never coexist: picking one drops the other, and switching colorBy drops the highlight.
 // A loaded link's hl must name a legend entry, except an activity band or (by owner) any name: those wait for the history.
 
 // app/settings.ts  (localStorage 'repo-tree:settings'; each malformed field falls back to its default)
-type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Quality; spin: boolean; labels: boolean; growAnim: boolean; ground: boolean; weather: boolean; hotspots: boolean /* default false */; hidden: string[]; token: string };
+type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Quality; spin: boolean; labels: boolean; growAnim: boolean; ground: boolean; weather: boolean; hidden: string[]; token: string };
 // 'auto' starts from devicePixelRatio and hardwareConcurrency, then steps down once if the first 2 s after growth render under 30 fps.
 // The token is sent only by fetchSnapshot, which only calls api.github.com.
 
@@ -342,10 +342,12 @@ function changeBand(churn: number): number;
 type Facts = { asOf: number /* History.computedAt */; fileChanged: Float64Array /* per RepoIndex file; files the history lacks count as asOf */;
   sprigBand: Uint8Array; folderBand: Uint8Array /* the band most files are in, the fresher on a tie */; nodeChanged: Float64Array /* newest file on the node or beyond it */;
   sprigChangeBand: Uint8Array; folderChangeBand: Uint8Array /* the CHANGES band most files are in, the busier on a tie */;
+  sprigChangeLevel: Float32Array /* mean changeLevel of its files: its place on the Changes gradient */;
   fileChurn: Uint32Array /* per RepoIndex file: History.files churn + commits, 0 when the history lacks it */; fileHeat: Float32Array /* 0, or HOT_FLOOR..1 for a hotspot */;
   sprigHeat: Float32Array /* its hottest file's */; hot: Uint32Array /* hotspot files, hottest first */;
   owners: Owners /* historyOwners(history) */ };
 function historyFacts(history: History, tree: TreeModel, index: RepoIndex): Facts;
+function changeLevel(churn: number): number; // 0 (never changed) to CHANGES.length - 1 (LEVEL_TOP = 100 or more), log scale; band edges (atLeast) fall halfway between stops, so CHANGES.length - 1 - round(level) is changeBand
 const HOT_SHARE = 0.04, HOT_SPRIGS = 0.05, HOT_MIN = 6, HOT_FLOOR = 0.35;
 function hotspots(churn: Uint32Array, sprigOf: Int32Array /* -1: off the leaves (root rocks) */, sprigCount: number): { heat: Float32Array; hot: Uint32Array };
 // Takes the busiest leaf files (churn >= HOT_MIN) a whole tie at a time while within HOT_SHARE of all files and HOT_SPRIGS of the sprigs (at least one tie); heat runs linearly from HOT_FLOOR at the cut to 1 at the top.

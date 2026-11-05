@@ -44,7 +44,7 @@ import { AGES, ageBand, CHANGES, changeBand, DEAD, type Facts } from '../timelin
 import { ownerCategories } from '../timeline/owners';
 import { createGround } from './ground';
 import {
-  DEAD_BARK,
+  DEAD_BLEACH,
   leafMapping,
   PALETTES,
   type ColorBy,
@@ -125,11 +125,6 @@ export interface TreeView {
    * tree clears it. Activity colors need it; without it they fall back to language.
    */
   setFacts(facts: Facts | null): void;
-  /**
-   * Hot leaves glow warm once `setFacts` gave the history: each sprig by its hottest file's heat,
-   * over any leaf color, pulsing gently unless reduced motion is on.
-   */
-  setHotspots(on: boolean): void;
   /** What each leaf color stands for under the current palette and color-by. */
   legend(): LegendEntry[];
   /**
@@ -174,7 +169,6 @@ export type TreeViewOptions = {
   spin: boolean;
   reducedMotion: boolean;
   ground: boolean;
-  hotspots: boolean;
 };
 
 const QUALITY: Record<Quality, { pixelRatio: number; shadowMap: number; antialias: boolean }> = {
@@ -213,8 +207,9 @@ const PULSE_FRAME_MS = 70;
 const FALL_MS = 2600;
 /** A leaf is six triangles of its own three vertices each (grow.ts `leaf`). */
 const LEAF_VERTICES = 18;
-/** The glow's warm amber, in sRGB. */
-const GLOW_COLOR = '#ff8f0f';
+/** A glow takes its leaf's hue, this saturated and at least this light, so it reads as light. */
+const GLOW_SATURATION = 0.9;
+const GLOW_LIGHTNESS = 0.62;
 /** A birth past any cursor: the element never shows. */
 const NEVER = ALWAYS * 4;
 
@@ -238,7 +233,6 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   let colorBy = options.colorBy;
   let facts: Facts | null = null;
   let reducedMotion = options.reducedMotion;
-  let hotspots = options.hotspots;
   /** Sprigs glowing now; the pulse runs only while some do. */
   let glowing = 0;
   let pulseTimer = 0;
@@ -329,7 +323,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const depthMaterial = growing(new MeshDepthMaterial());
   const glowMaterial = glowShader(
     new MeshBasicMaterial({
-      color: GLOW_COLOR,
+      vertexColors: true,
       transparent: true,
       depthWrite: false,
       side: DoubleSide,
@@ -555,15 +549,18 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const glowAt = (now: number) =>
     GLOW * (PULSE_LOW + (1 - PULSE_LOW) * (0.5 + 0.5 * Math.cos((now / PULSE_MS) * 2 * Math.PI)));
 
-  /** Writes each leaf's heat (`aHeat`): its sprig's, while hotspots are on and the history is in. */
+  /**
+   * Writes each leaf's heat (`aHeat`): its sprig's, while the leaves show Changes. The busiest few
+   * (Facts.hot) glow a little in their own color, pulsing gently unless reduced motion is on.
+   */
   const applyHeat = () => {
     if (!shown) return;
     const { leaves, sprigs } = shown.model;
     const heat = new Float32Array(leaves.nodeId.length);
     glowing = 0;
-    if (hotspots && facts) {
+    if (byChanges()) {
       for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
-        const h = facts.sprigHeat[s]!;
+        const h = facts!.sprigHeat[s]!;
         if (h <= 0) continue;
         heat.fill(h, sprigs.vertex[s]!, sprigs.vertex[s + 1]!);
         glowing++;
@@ -572,7 +569,6 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     shown.leaves.geometry.setAttribute('aHeat', new BufferAttribute(heat, 1));
     placeGlow();
     treeUniforms.uGlow.value = glowing === 0 ? 0 : reducedMotion ? GLOW : glowAt(performance.now());
-    treeUniforms.uCalm.value = glowing === 0 ? 0 : 1;
     requestRender();
   };
 
@@ -606,6 +602,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const id = new Float32Array(count);
     const births = new Float32Array(count);
     const heats = new Float32Array(count);
+    const colors = new Float32Array(3 * count);
+    const slotOf = shown.leaves.geometry.getAttribute('aSlot')?.array as Float32Array | undefined;
+    const slots = treeUniforms.uSlots.value;
+    const tint = new Color();
+    const next = new Color();
+    const hsl = { h: 0, s: 0, l: 0 };
     const rim = new Float32Array(count);
     const p = leaves.position;
     let w = 0;
@@ -614,6 +616,13 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         const to = Math.min(end, from + LEAF_VERTICES);
         const c = [0, 0, 0];
         for (let v = from; v < to; v++) for (let i = 0; i < 3; i++) c[i]! += p[3 * v + i]!;
+        // The leaf's own color on the gradient, lifted bright so its glow reads as light.
+        const at = slotOf?.[from] ?? 0;
+        const lo = Math.min(Math.floor(at), SLOTS - 1);
+        const hi = Math.min(lo + 1, SLOTS - 1);
+        tint.fromArray(slots, 3 * lo).lerp(next.fromArray(slots, 3 * hi), at - Math.floor(at));
+        tint.getHSL(hsl);
+        tint.setHSL(hsl.h, Math.max(hsl.s, GLOW_SATURATION), Math.max(hsl.l, GLOW_LIGHTNESS));
         for (let v = from; v < to; v++, w++) {
           for (let i = 0; i < 3; i++) {
             position[3 * w + i] = p[3 * v + i]!;
@@ -625,6 +634,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
           id[w] = leaves.nodeId[v]!;
           births[w] = born?.[v] ?? 0;
           heats[w] = heat[v]!;
+          tint.toArray(colors, 3 * w);
           rim[w] = (v - from) % 3 === 2 ? 0 : 1;
         }
       }
@@ -637,7 +647,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       .setAttribute('aId', new BufferAttribute(id, 1))
       .setAttribute('aBorn', new BufferAttribute(births, 1))
       .setAttribute('aHeat', new BufferAttribute(heats, 1))
-      .setAttribute('aRim', new BufferAttribute(rim, 1));
+      .setAttribute('aRim', new BufferAttribute(rim, 1))
+      .setAttribute('color', new BufferAttribute(colors, 3));
     if (!glow) {
       glow = new Mesh(geometry, glowMaterial);
       glow.frustumCulled = false;
@@ -797,7 +808,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       slots.push(c.r, c.g, c.b);
     }
     treeUniforms.uSlots.value = slots;
-    treeUniforms.uDeadBark.value = new Color(DEAD_BARK).toArray() as [number, number, number];
+    treeUniforms.uDeadBark.value = new Color(palette.bark)
+      .lerp(new Color(palette.sky.edge), DEAD_BLEACH)
+      .toArray() as [number, number, number];
   };
 
   const applyColorBy = () => {
@@ -809,7 +822,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     if (byChanges()) {
       const { vertex } = model.sprigs;
       for (let s = 0; s + 1 < vertex.length; s++) {
-        slot.fill(facts!.sprigChangeBand[s]!, vertex[s]!, vertex[s + 1]!);
+        slot.fill(CHANGES.length - 1 - facts!.sprigChangeLevel[s]!, vertex[s]!, vertex[s + 1]!);
       }
     } else if (byActivity()) {
       const { vertex } = model.sprigs;
@@ -1025,11 +1038,6 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     setFacts(next) {
       facts = next;
       applyColorBy();
-    },
-
-    setHotspots(on) {
-      hotspots = on;
-      applyHeat();
     },
 
     legend() {

@@ -146,11 +146,15 @@ test('Settings opens as a drawer from the bottom, with a tab to drag or tap it c
   await expect(settings).toBeHidden();
 });
 
-test('the phone row keeps four buttons and a short menu sits behind More actions', async ({
+test('the phone row keeps five buttons, Dark mode left of Search, and a short menu sits behind More actions', async ({
   page,
 }) => {
   const row = page.locator('.controls > button:visible, .controls .tools button:visible');
-  await expect(row).toHaveCount(4);
+  await expect(row).toHaveCount(5);
+  const theme = (await page.getByRole('button', { name: 'Dark mode' }).boundingBox())!;
+  const search = (await page.locator('#search-open').boundingBox())!;
+  expect(theme.x + theme.width, 'Dark mode sits left of Search').toBeLessThanOrEqual(search.x);
+  expect(theme.width).toBe(search.width);
   const more = page.getByRole('button', { name: 'More actions' });
   const menu = page.getByRole('group', { name: 'More actions' });
   await expect(menu).toBeHidden();
@@ -163,8 +167,8 @@ test('the phone row keeps four buttons and a short menu sits behind More actions
     'href',
     'https://github.com/vitejs/vite',
   );
-  // Spin and Dark mode are switches in Settings; Grow again is for a desktop.
-  for (const name of ['Grow again', 'Spin', 'Dark mode'])
+  // Spin is a switch in Settings; Grow again is for a desktop.
+  for (const name of ['Grow again', 'Spin'])
     await expect(page.getByRole('button', { name })).toBeHidden();
 
   await menu.getByRole('button', { name: /Copy link/ }).tap();

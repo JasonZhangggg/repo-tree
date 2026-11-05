@@ -2767,7 +2767,8 @@ body:has(.scrubber:not([hidden])) .toast {
     padding: 0;
     border-radius: 999px;
   }
-  .controls #settings-open {
+  .controls #settings-open,
+  .controls #theme {
     width: 44px;
   }
   .controls #more {

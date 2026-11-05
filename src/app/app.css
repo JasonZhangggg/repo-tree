@@ -430,6 +430,10 @@ kbd {
 #signin[data-signed-in='true'] .label {
   display: none;
 }
+/* The drawer's quick switches are a phone's; a desktop has them in the toolbar. */
+.quick {
+  display: none;
+}
 /* The More button and its menu exist only on a phone, where the menu holds the actions that
    don't fit the bottom row. */
 #more {
@@ -2377,6 +2381,43 @@ body:has(.scrubber:not([hidden])) .toast {
   }
   .side[data-open] .side-body {
     animation: rise 0.22s var(--ease);
+  }
+  /* The drawer opens on quick switches: Dark mode, Spin and GitHub sign-in. */
+  .quick {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    padding: 2px 0 12px;
+  }
+  .quick-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 40px;
+    padding: 0 14px 0 12px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--wash);
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 550;
+    transition:
+      background 0.15s,
+      color 0.15s,
+      transform 0.15s var(--ease);
+  }
+  .quick-chip svg {
+    width: 17px;
+    height: 17px;
+  }
+  .quick-chip[aria-pressed='true'],
+  .quick-chip[data-signed-in='true'] {
+    background: var(--ink);
+    color: var(--on-ink);
+  }
+  .quick-chip:active {
+    transform: scale(var(--press));
   }
   .sheet-handle {
     display: grid;

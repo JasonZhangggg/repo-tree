@@ -135,3 +135,21 @@ test('the phone row keeps four buttons and a short menu sits behind More actions
   await page.locator('#view').tap({ position: { x: 40, y: 300 } });
   await expect(menu).toBeHidden();
 });
+
+test('the drawer opens on quick switches for Dark mode and Spin', async ({ page }) => {
+  await page.locator('#sheet-toggle').tap();
+  const quick = page.getByRole('group', { name: 'Quick settings' });
+  await expect(quick).toBeVisible();
+  const dark = quick.getByRole('button', { name: 'Dark mode' });
+  await expect(dark).toHaveAttribute('aria-pressed', 'false');
+  await dark.tap();
+  await expect(dark).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await dark.tap();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+
+  const spin = quick.getByRole('button', { name: 'Spin' });
+  const before = await spin.getAttribute('aria-pressed');
+  await spin.tap();
+  await expect(spin).toHaveAttribute('aria-pressed', before === 'true' ? 'false' : 'true');
+});

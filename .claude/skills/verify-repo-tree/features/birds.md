@@ -4,7 +4,8 @@ Open pull requests into the branch on show perch as small low-poly birds on the 
 
 ## Sub-features
 
-- `birds-perch` puts each PR on the deepest folder holding over half its changed files (`perchOf`), on that folder's anchor moved out to the crown's surface, so it shows against the sky. PRs on one folder sit in a row.
+- `birds-perch` puts each PR on the deepest folder holding over half its changed files (`perchOf`) and stands it on a leaf at the top of the crown nearest that folder's anchor (`perchOnCrown`), so it shows against the sky and never floats. PRs on one folder stand side by side.
+- `birds-alive` unless motion is reduced: each bird pecks, glances, ruffles its wings, flicks its tail and hops on its own clock, every half minute or so flies a short hop out and back, and sways with the crown in the breeze. Under reduced motion every bird holds still.
 - `birds-tip` shows `#<number> <title>` and its author in the hover tooltip, and highlights the perch folder, on a desktop.
 - `birds-card` opens `#pr-card` on a click or tap: title, number, author, draft, files and folder, any other PRs on the same folder (a possible conflict), how many of the open PRs show when not all do, and `Open pull request` to GitHub in a new tab.
 - `birds-budget` reads files for the six most recently updated PRs signed out and 24 signed in; signing in reads them again.
@@ -37,4 +38,5 @@ Preconditions:
 - The tree is small in the whole view, and birds are under two leaves long: crop or zoom a screenshot to show them, and spin or drag to bring a bird on the far side round.
 - Open PRs are cached in IndexedDB for ten minutes per `owner/repo@branch`, like CI runs. Use a new repo name per case.
 - A sample reads its PRs live; none are bundled, so with `api.github.com` aborted (every journey) a sample has no birds unless the step serves some.
+- Journeys run with reduced motion, so birds hold still in them. To see them move, open the build with motion allowed; under the software renderer frames come slowly, so slow the page's clock to make a smooth capture.
 - `api.github.com` is unreachable from this sandbox, so the PR endpoints have only been exercised through the stand-in.

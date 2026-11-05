@@ -1,15 +1,13 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three';
 import type { Vec3 } from '../grow/grow';
 
-/** A bird to perch: where it sits, which way is out from the trunk there, and its plumage. */
+/** A bird on the crown: where its feet are, which way is out from the trunk there, its plumage. */
 export type Perched = { at: Vec3; out: Vec3; color: string };
 
 /** A bird's length, beak to tail, in world units: under two leaves. */
 export const BIRD_SIZE = 0.27;
-/** Birds sharing a twig sit this many bird lengths apart along it. */
-const SPACING = 1;
-/** How far past the crown's surface a bird sits, in bird lengths: its feet among the tips. */
-const LIFT_OUT = 0;
+/** The crown's top is read on a grid of cells this many bird lengths wide; a bird takes one. */
+const CELL = 0.9;
 /** Birds grow in over the last part of the tree's growth, out of their perch. */
 export const BIRD_T: [number, number] = [0.82, 1];
 
@@ -100,112 +98,94 @@ export const BIRD_VERTICES = BIRD.length * 3;
 
 const BEAK = new Color('#c9a062');
 const EYE = new Color('#1b1a18');
-
-/** How far around a bird's line out of the crown, in bird lengths, leaves count as in its way. */
-const BAND = 0.5;
-/** A bird leaves the crown this steeply: up and out, so it sits on the crown's shoulder. */
-const CLIMB = 1.1;
-/** A bird settles onto the highest leaf within this many bird lengths under it. */
-const SETTLE = 0.6;
+const HEAD: Vec3 = [0.3, 0.42, 0];
 
 /**
- * Moves each perch out of the crown to its surface, along a line rising up and out from it:
- * past every leaf (xyz in `leaves`) within BAND of that line. A bird then sits on the outermost
- * leaves, where the sky shows behind it, instead of buried among them.
+ * How each vertex moves (birdShader): 0 with the body, 1 with the head (it pecks and glances),
+ * 2 and 3 with the right and left wing (they flutter, and flap in flight), 4 with the tail.
  */
-export function onCrown(perches: readonly Perched[], leaves: Float32Array): Perched[] {
-  const rays = perches.map((p) => {
-    const len = Math.hypot(p.out[0], p.out[2]);
-    const out: Vec3 = len > 1e-6 ? [p.out[0] / len, 0, p.out[2] / len] : [1, 0, 0];
-    const n = Math.hypot(1, CLIMB);
-    const dir: Vec3 = [out[0] / n, CLIMB / n, out[2] / n];
-    return { p, out, dir, reach: 0, hit: p.at };
-  });
-  const band = (BAND * BIRD_SIZE) ** 2;
-  for (let v = 0; v < leaves.length; v += 3) {
-    const x = leaves[v]!;
-    const y = leaves[v + 1]!;
-    const z = leaves[v + 2]!;
-    for (const ray of rays) {
-      const dx = x - ray.p.at[0];
-      const dy = y - ray.p.at[1];
-      const dz = z - ray.p.at[2];
-      const along = dx * ray.dir[0] + dy * ray.dir[1] + dz * ray.dir[2];
-      if (along <= ray.reach) continue;
-      const off = dx * dx + dy * dy + dz * dz - along * along;
-      if (off > band) continue;
-      ray.reach = along;
-      ray.hit = [x, y, z];
+const MOVES: number[] = BIRD.flatMap(([part, ...corners]) =>
+  corners.map(([x, y, z]) => {
+    if (part === 'beak' || part === 'eye') return 1;
+    if (part === 'wing') {
+      if (x <= -0.45 || (z === 0 && x < -0.2)) return 4;
+      return z > 0 ? 2 : 3;
     }
+    return Math.hypot(x - HEAD[0], y - HEAD[1], z - HEAD[2]) < 0.15 ? 1 : 0;
+  }),
+);
+
+type Leaves = { position: Float32Array; nodeId: Float32Array };
+
+/**
+ * Where each bird stands: on top of the crown, on a leaf with nothing above it. The crown's top
+ * is read on a grid (CELL); a bird takes the free cell nearest its folder's anchor whose top
+ * leaf is one of that folder's (node ids `range`), or failing that the free cell nearest the
+ * anchor. A taken cell and the cells around it are left to no other bird, so none overlap.
+ */
+export function perchOnCrown(
+  birds: readonly { anchor: Vec3; range: readonly [number, number] }[],
+  leaves: Leaves,
+): { at: Vec3; out: Vec3 }[] {
+  const cell = CELL * BIRD_SIZE;
+  const tops = new Map<string, { i: number; j: number; at: Vec3; node: number }>();
+  const { position, nodeId } = leaves;
+  for (let v = 0; v < nodeId.length; v++) {
+    const x = position[3 * v]!;
+    const y = position[3 * v + 1]!;
+    const z = position[3 * v + 2]!;
+    const i = Math.floor(x / cell);
+    const j = Math.floor(z / cell);
+    const key = `${i},${j}`;
+    const top = tops.get(key);
+    if (!top || y > top.at[1]) tops.set(key, { i, j, at: [x, y, z], node: nodeId[v]! });
   }
-  // Then down onto the highest leaf under each, so none hovers over a gap in the crown.
-  const spots = rays.map(({ p, dir, reach }) => ({
-    at: [p.at[0] + dir[0] * reach, p.at[1] + dir[1] * reach, p.at[2] + dir[2] * reach] as Vec3,
-    floor: -Infinity,
-  }));
-  const under = (SETTLE * BIRD_SIZE) ** 2;
-  for (let v = 0; v < leaves.length; v += 3) {
-    const y = leaves[v + 1]!;
-    for (const spot of spots) {
-      if (y > spot.at[1] || y <= spot.floor) continue;
-      const dx = leaves[v]! - spot.at[0];
-      const dz = leaves[v + 2]! - spot.at[2];
-      if (dx * dx + dz * dz <= under) spot.floor = y;
+  const taken = new Set<string>();
+  const cells = [...tops.values()];
+  return birds.map(({ anchor, range: [lo, hi] }) => {
+    const free = cells.filter((c) => !taken.has(`${c.i},${c.j}`));
+    const near = (c: (typeof cells)[number]) =>
+      (c.at[0] - anchor[0]) ** 2 + (c.at[2] - anchor[2]) ** 2;
+    const own = free.filter((c) => c.node >= lo && c.node <= hi);
+    const pool = own.length ? own : free.length ? free : cells;
+    let best = pool[0];
+    for (const c of pool) if (best && near(c) < near(best)) best = c;
+    if (!best) return { at: anchor, out: [anchor[0], 0, anchor[2]] };
+    for (let di = -1; di <= 1; di++) {
+      for (let dj = -1; dj <= 1; dj++) taken.add(`${best.i + di},${best.j + dj}`);
     }
-  }
-  // With no leaf under it, the bird sits on the leaf that stopped it, which lay off to one side.
-  return rays.map(({ p, out, hit }, i) => {
-    const { at, floor } = spots[i]!;
-    return { ...p, at: Number.isFinite(floor) ? [at[0], floor, at[2]] : hit, out };
+    return { at: best.at, out: [best.at[0], 0, best.at[2]] };
   });
 }
 
-/**
- * Birds sharing a perch, spread along it: each bird's place and which way it looks. A lone bird
- * sits on the perch; a pair or more sit in a row across the out direction, turned alternately.
- */
-export function placeBirds(perches: readonly Perched[]): { at: Vec3; look: Vec3 }[] {
-  const seen = new Map<string, number>();
-  const counts = new Map<string, number>();
-  const keyOf = (p: Perched) => p.at.map((v) => v.toFixed(4)).join(',');
-  for (const p of perches) counts.set(keyOf(p), (counts.get(keyOf(p)) ?? 0) + 1);
-  return perches.map((p) => {
-    const key = keyOf(p);
-    const i = seen.get(key) ?? 0;
-    seen.set(key, i + 1);
-    const n = counts.get(key)!;
-    const flat = Math.hypot(p.out[0], p.out[2]) > 1e-6 ? p.out : ([1, 0, 0] as Vec3);
-    const len = Math.hypot(flat[0], flat[2]);
-    const out: Vec3 = [flat[0] / len, 0, flat[2] / len];
-    // Along the crown's surface, at right angles to out: birds there show their profile.
-    const along: Vec3 = [-out[2], 0, out[0]];
-    const shift = (i - (n - 1) / 2) * SPACING * BIRD_SIZE;
-    const at: Vec3 = [
-      p.at[0] + out[0] * LIFT_OUT * BIRD_SIZE + along[0] * shift,
-      p.at[1],
-      p.at[2] + out[2] * LIFT_OUT * BIRD_SIZE + along[2] * shift,
-    ];
-    // Mostly in profile, turned a little toward the outside so its face shows.
+/** Which way each bird looks: in profile along the crown's surface, turned a little outward. */
+export function looks(perches: readonly Perched[]): Vec3[] {
+  return perches.map((p, i) => {
+    const len = Math.hypot(p.out[0], p.out[2]);
+    const out: Vec3 = len > 1e-6 ? [p.out[0] / len, 0, p.out[2] / len] : [1, 0, 0];
     const side = i % 2 === 0 ? 1 : -1;
-    const look: Vec3 = [
-      along[0] * side * 0.8 + out[0] * 0.6,
-      0,
-      along[2] * side * 0.8 + out[2] * 0.6,
-    ];
+    const look: Vec3 = [-out[2] * side * 0.8 + out[0] * 0.6, 0, out[0] * side * 0.8 + out[2] * 0.6];
     const l = Math.hypot(look[0], look[2]);
-    return { at, look: [look[0] / l, 0, look[2] / l] };
+    return [look[0] / l, 0, look[2] / l];
   });
 }
 
 /**
  * One mesh for every bird, with the attributes the tree's materials and id pass read: each grows
- * out of its perch at the end of the tree's growth (BIRD_T), and bird `i` writes id `idBase + i`.
+ * out of its feet at the end of the tree's growth (BIRD_T), and bird `i` writes id `idBase + i`.
+ * `position` is each bird at rest, for picking; birdShader moves it from `aLocal` (its own frame,
+ * one unit long), `aBase` (its feet), `aLook`, `aOut`, `aMove` and `aPhase` (its own clock).
  */
 export function birdGeometry(perches: readonly Perched[], idBase: number): BufferGeometry {
-  const placed = placeBirds(perches);
+  const looking = looks(perches);
   const count = perches.length * BIRD_VERTICES;
   const position = new Float32Array(count * 3);
+  const local = new Float32Array(count * 3);
   const base = new Float32Array(count * 3);
+  const look = new Float32Array(count * 2);
+  const outward = new Float32Array(count * 2);
+  const move = new Float32Array(count);
+  const phase = new Float32Array(count);
   const color = new Float32Array(count * 3);
   const timing = new Float32Array(count * 2);
   const id = new Float32Array(count);
@@ -215,20 +195,30 @@ export function birdGeometry(perches: readonly Perched[], idBase: number): Buffe
   const cream = new Color('#efe4d2');
   let v = 0;
   perches.forEach((p, b) => {
-    const { at, look } = placed[b]!;
-    const right: Vec3 = [-look[2], 0, look[0]];
+    const at = p.at;
+    const f = looking[b]!;
+    const right: Vec3 = [-f[2], 0, f[0]];
+    const len = Math.hypot(p.out[0], p.out[2]) || 1;
+    // A fixed spread of clocks, so birds never peck or fly in step.
+    const clock = (b * 0.618034) % 1;
     plumage.set(p.color);
     wing.copy(plumage).multiplyScalar(0.45);
     breast.copy(plumage).lerp(cream, 0.3);
     const colors: Record<Part, Color> = { body: plumage, wing, breast, beak: BEAK, eye: EYE };
+    let k = 0;
     for (const [part, ...corners] of BIRD) {
       const c = colors[part];
       for (const [x, y, z] of corners) {
         const s = BIRD_SIZE;
-        position[3 * v] = at[0] + (look[0] * x + right[0] * z) * s;
+        position[3 * v] = at[0] + (f[0] * x + right[0] * z) * s;
         position[3 * v + 1] = at[1] + y * s;
-        position[3 * v + 2] = at[2] + (look[2] * x + right[2] * z) * s;
+        position[3 * v + 2] = at[2] + (f[2] * x + right[2] * z) * s;
+        local.set([x, y, z], 3 * v);
         base.set(at, 3 * v);
+        look.set([f[0], f[2]], 2 * v);
+        outward.set([p.out[0] / len, p.out[2] / len], 2 * v);
+        move[v] = MOVES[k++]!;
+        phase[v] = clock;
         c.toArray(color, 3 * v);
         timing.set(BIRD_T, 2 * v);
         id[v] = idBase + b;
@@ -236,13 +226,16 @@ export function birdGeometry(perches: readonly Perched[], idBase: number): Buffe
       }
     }
   });
-  const geometry = new BufferGeometry()
+  return new BufferGeometry()
     .setAttribute('position', new BufferAttribute(position, 3))
+    .setAttribute('aLocal', new BufferAttribute(local, 3))
     .setAttribute('aBase', new BufferAttribute(base, 3))
+    .setAttribute('aLook', new BufferAttribute(look, 2))
+    .setAttribute('aOut', new BufferAttribute(outward, 2))
+    .setAttribute('aMove', new BufferAttribute(move, 1))
+    .setAttribute('aPhase', new BufferAttribute(phase, 1))
     .setAttribute('color', new BufferAttribute(color, 3))
     .setAttribute('aT', new BufferAttribute(timing, 2))
     .setAttribute('aId', new BufferAttribute(id, 1))
     .setAttribute('aBorn', new BufferAttribute(new Float32Array(count), 1));
-  geometry.computeVertexNormals();
-  return geometry;
 }

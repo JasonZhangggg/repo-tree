@@ -135,10 +135,10 @@ const FROZEN_AT = 37.3;
 const DECK_RATE = 2.5;
 
 /**
- * The night sky in dark mode, the same for every palette: deep blue behind the crown fading to
- * near black at the corners. A weather's tint darkens `dim` of the way to `edge` at night.
+ * The night sky in dark mode, the same for every palette: a near-neutral charcoal behind the
+ * crown fading to near black at the corners. A weather's tint darkens `dim` of the way to `edge` at night.
  */
-export const NIGHT = { center: '#0b1120', edge: '#020308', dim: 0.9 };
+export const NIGHT = { center: '#15171c', edge: '#040405', dim: 0.9 };
 
 /**
  * The palette's sky center and edge with the weather mixed in, as sRGB; at `night` the night

@@ -259,7 +259,7 @@ const themeColor = document.querySelector('meta[name="theme-color"]');
 function syncTheme({ settings: s }: AppState) {
   const dark = s.theme === 'dark';
   document.documentElement.dataset.theme = s.theme;
-  themeColor?.setAttribute('content', dark ? '#04060a' : '#f6f4f0');
+  themeColor?.setAttribute('content', dark ? '#050506' : '#f6f4f0');
   const label = dark ? 'Light mode' : 'Dark mode';
   themeButton.setAttribute('aria-label', label);
   themeButton.querySelector('.label')!.textContent = label;

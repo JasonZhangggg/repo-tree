@@ -13,7 +13,7 @@ export function mountMoreMenu(phone: MediaQueryList): void {
   const menu = byId('more-menu');
   const timeline = byId('timeline');
   const settings = byId('settings-open');
-  const ids = ['grow', 'spin', 'share', 'export'];
+  const ids = ['grow', 'spin', 'share', 'export', 'theme'];
   const items = ids.map((id) => byId<HTMLButtonElement>(id));
   const desktopLabels = items.map((el) => el.querySelector('.label')?.textContent ?? null);
 

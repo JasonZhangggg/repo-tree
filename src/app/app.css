@@ -22,7 +22,59 @@
   --ease: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --press: 0.97;
+  /* Raised surfaces (menus, chips, solid buttons), text on an --ink fill, and that fill hovered. */
+  --raised: #fff;
+  --on-ink: #fff;
+  --ink-hover: #3a352f;
   color-scheme: light;
+}
+/* Dark mode: the night sky shows through deep, cool panels, so the leaves' glow stands out. */
+:root[data-theme='dark'] {
+  --stage: #070a10;
+  --ink: #ece8e1;
+  --muted: #a7a197;
+  --faint: #6f6b66;
+  --card: rgba(13, 17, 26, 0.84);
+  --card-solid: rgba(13, 17, 26, 0.97);
+  --line: rgba(236, 232, 225, 0.12);
+  --wash: rgba(236, 232, 225, 0.08);
+  --hover: rgba(236, 232, 225, 0.07);
+  --accent: #ef8a5f;
+  --danger: #f0846a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 30px rgba(0, 0, 0, 0.35);
+  --shadow-lift: 0 2px 4px rgba(0, 0, 0, 0.35), 0 14px 40px rgba(0, 0, 0, 0.5);
+  --raised: #191f2b;
+  --on-ink: #0b0e15;
+  --ink-hover: #ffffff;
+  color-scheme: dark;
+}
+:root[data-theme='dark'] .weather[data-sky='sunny'] {
+  --sky-ink: #f2b54a;
+}
+:root[data-theme='dark'] .weather[data-sky='cloudy'] {
+  --sky-ink: #a9b6c4;
+}
+:root[data-theme='dark'] .weather[data-sky='rain'] {
+  --sky-ink: #8fb4dc;
+}
+:root[data-theme='dark'] :is(.weather[data-sky='storm'], .ci-card[data-sky='storm'] .ci-glyph) {
+  --sky-ink: #b4bdcc;
+  background: rgba(150, 165, 190, 0.14);
+}
+:root[data-theme='dark'] .ci-card[data-sky='sunny'] .ci-glyph {
+  color: #f2b54a;
+}
+:root[data-theme='dark'] .ci-card[data-sky='rain'] .ci-glyph {
+  color: #8fb4dc;
+}
+:root[data-theme='dark'] .ci-card[data-sky='storm'] .ci-glyph {
+  color: #b4bdcc;
+}
+:root[data-theme='dark'] .status.notice .badge {
+  color: #f0c060;
+}
+:root[data-theme='dark'] .compute .compute-warn {
+  color: #f4a585;
 }
 
 *,
@@ -109,7 +161,7 @@ kbd {
   border-bottom-width: 2px;
   border-radius: 5px;
   padding: 3px 5px;
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--raised) 70%, transparent);
 }
 .sr-only {
   position: absolute;
@@ -190,7 +242,7 @@ kbd {
   padding: 0 15px;
   border-radius: 10px;
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
   font-weight: 600;
   transition:
     transform 0.15s var(--ease),
@@ -198,7 +250,7 @@ kbd {
 }
 @media (hover: hover) and (pointer: fine) {
   .go:hover {
-    background: #3a352f;
+    background: var(--ink-hover);
   }
 }
 .field-error {
@@ -210,7 +262,7 @@ kbd {
   margin: 0;
   padding: 7px 12px;
   border-radius: 10px;
-  background: #fff;
+  background: var(--raised);
   box-shadow:
     0 0 0 1px rgba(163, 52, 27, 0.25),
     var(--shadow-lift);
@@ -308,20 +360,25 @@ kbd {
     transform 0.15s var(--ease);
 }
 .tool[aria-expanded='true'] {
-  background: #fff;
+  background: var(--raised);
 }
 @media (hover: hover) and (pointer: fine) {
   .tool:hover {
-    background: #fff;
+    background: var(--raised);
   }
 }
 .tool svg {
   width: 18px;
   height: 18px;
 }
-#settings-open {
+#settings-open,
+.tools > #theme {
   padding: 0;
   width: 40px;
+}
+/* On a desktop the theme button is an icon; the phone's menu shows its label. */
+.tools > #theme .label {
+  display: none;
 }
 /* The More button and its menu exist only on a phone, where the menu holds the actions that
    don't fit the bottom row. */
@@ -449,7 +506,7 @@ h1 a[aria-disabled] {
 }
 @media (hover: hover) and (pointer: fine) {
   a.weather[href]:hover {
-    background: rgba(37, 34, 30, 0.1);
+    background: color-mix(in srgb, var(--ink) 10%, transparent);
   }
 }
 .weather svg {
@@ -519,7 +576,7 @@ h1 a[aria-disabled] {
   display: inline-flex;
   gap: 2px;
   padding: 3px;
-  background: rgba(37, 34, 30, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   border-radius: 999px;
   max-width: 100%;
 }
@@ -549,7 +606,7 @@ h1 a[aria-disabled] {
 }
 .seg button[aria-pressed='true'],
 .seg button[aria-checked='true'] {
-  background: #fff;
+  background: var(--raised);
   color: var(--ink);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.08),
@@ -563,7 +620,7 @@ h1 a[aria-disabled] {
   gap: 10px;
   width: 100%;
   padding: 12px 14px;
-  background: #fff;
+  background: var(--raised);
   border-radius: 12px;
   box-shadow: 0 0 0 1px var(--line);
   animation: rise 0.22s var(--ease);
@@ -637,16 +694,16 @@ h1 a[aria-disabled] {
 }
 @media (hover: hover) and (pointer: fine) {
   .btn:hover {
-    background: rgba(37, 34, 30, 0.1);
+    background: color-mix(in srgb, var(--ink) 10%, transparent);
   }
 }
 .btn.dark {
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 @media (hover: hover) and (pointer: fine) {
   .btn.dark:hover {
-    background: #3a352f;
+    background: var(--ink-hover);
   }
 }
 .btn svg {
@@ -675,7 +732,7 @@ h1 a[aria-disabled] {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: rgba(37, 34, 30, 0.15);
+  background: color-mix(in srgb, var(--ink) 15%, transparent);
 }
 .steps [data-state='done'] i {
   background: var(--ink);
@@ -793,7 +850,7 @@ h1 a[aria-disabled] {
 }
 .bar-track {
   height: 6px;
-  background: rgba(37, 34, 30, 0.07);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -923,7 +980,7 @@ h1 a[aria-disabled] {
 @media (hover: hover) and (pointer: fine) {
   .close:hover {
     color: var(--ink);
-    background: rgba(37, 34, 30, 0.1);
+    background: color-mix(in srgb, var(--ink) 10%, transparent);
   }
 }
 .close svg {
@@ -947,7 +1004,7 @@ h1 a[aria-disabled] {
   font: inherit;
   color: var(--muted);
   text-decoration: underline;
-  text-decoration-color: rgba(37, 34, 30, 0.25);
+  text-decoration-color: color-mix(in srgb, var(--ink) 25%, transparent);
   text-underline-offset: 3px;
   border-radius: 3px;
 }
@@ -1041,7 +1098,7 @@ h1 a[aria-disabled] {
   gap: 7px;
   border: 0;
   font-weight: 600;
-  background: #fff;
+  background: var(--raised);
   height: 40px;
   padding: 0 16px 0 13px;
   border-radius: 999px;
@@ -1056,11 +1113,11 @@ h1 a[aria-disabled] {
 }
 .pill-btn.primary {
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 @media (hover: hover) and (pointer: fine) {
   .pill-btn.primary:hover {
-    background: #3a352f;
+    background: var(--ink-hover);
   }
 }
 .help {
@@ -1084,7 +1141,7 @@ h1 a[aria-disabled] {
 #timeline[aria-disabled='true'] {
   color: var(--faint);
   box-shadow: none;
-  background: rgba(255, 255, 255, 0.6);
+  background: color-mix(in srgb, var(--raised) 60%, transparent);
 }
 #timeline[aria-busy] svg {
   animation: spin-back 1s linear infinite;
@@ -1120,7 +1177,7 @@ h1 a[aria-disabled] {
   width: 40px;
   height: 40px;
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 .scrub-play svg {
   width: 17px;
@@ -1181,14 +1238,14 @@ h1 a[aria-disabled] {
   top: 20px;
   width: 1px;
   height: 4px;
-  background: rgba(37, 34, 30, 0.2);
+  background: color-mix(in srgb, var(--ink) 20%, transparent);
   font: 500 10.5px/1 var(--sans);
   font-style: normal;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .scrub-ticks i[data-y] {
-  background: rgba(37, 34, 30, 0.35);
+  background: color-mix(in srgb, var(--ink) 35%, transparent);
 }
 .scrub-ticks i[data-y]::after {
   content: attr(data-y);
@@ -1215,13 +1272,13 @@ h1 a[aria-disabled] {
   background: linear-gradient(
     to right,
     var(--accent) calc(var(--thumb) / 2 + var(--at, 1) * (100% - var(--thumb))),
-    rgba(37, 34, 30, 0.12) 0
+    color-mix(in srgb, var(--ink) 12%, transparent) 0
   );
 }
 #timeline-range::-moz-range-track {
   height: 4px;
   border-radius: 2px;
-  background: rgba(37, 34, 30, 0.12);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
 }
 #timeline-range::-moz-range-progress {
   height: 4px;
@@ -1234,7 +1291,7 @@ h1 a[aria-disabled] {
   height: var(--thumb);
   margin-top: calc(2px - var(--thumb) / 2);
   border-radius: 50%;
-  background: #fff;
+  background: var(--raised);
   border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
   transition:
@@ -1265,7 +1322,7 @@ h1 a[aria-disabled] {
   width: var(--thumb);
   height: var(--thumb);
   border-radius: 50%;
-  background: #fff;
+  background: var(--raised);
   border: 2px solid var(--accent);
   box-shadow: 0 1px 4px rgba(60, 40, 20, 0.25);
   transition:
@@ -1302,7 +1359,7 @@ h1 a[aria-disabled] {
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--raised) 92%, transparent);
   padding: 6px 11px;
   border-radius: 999px;
   box-shadow:
@@ -1324,7 +1381,7 @@ h1 a[aria-disabled] {
   color: var(--muted);
 }
 .pill.on span i {
-  color: rgba(255, 255, 255, 0.72);
+  color: color-mix(in srgb, var(--on-ink) 72%, transparent);
 }
 .stem {
   position: absolute;
@@ -1332,7 +1389,7 @@ h1 a[aria-disabled] {
   top: -0.75px;
   width: 1px;
   height: 1.5px;
-  background: rgba(37, 34, 30, 0.55);
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
   transform-origin: 0 0;
   will-change: transform;
   pointer-events: none;
@@ -1348,7 +1405,7 @@ h1 a[aria-disabled] {
   font-size: 12px;
   font-weight: 550;
   padding: 4px 9px;
-  background: rgba(255, 255, 255, 0.8);
+  background: color-mix(in srgb, var(--raised) 80%, transparent);
 }
 .pill.back {
   z-index: 1;
@@ -1365,8 +1422,8 @@ h1 a[aria-disabled] {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: rgba(37, 34, 30, 0.8);
-  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+  background: color-mix(in srgb, var(--ink) 80%, transparent);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--raised) 85%, transparent);
   will-change: transform;
   pointer-events: none;
 }
@@ -1381,10 +1438,10 @@ h1 a[aria-disabled] {
 }
 .pill.on {
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 .pill.on b {
-  color: rgba(255, 255, 255, 0.72);
+  color: color-mix(in srgb, var(--on-ink) 72%, transparent);
 }
 #tip {
   position: fixed;
@@ -1414,13 +1471,13 @@ h1 a[aria-disabled] {
   position: fixed;
   inset: 0;
   z-index: 7;
-  background: rgba(37, 34, 30, 0.12);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
   animation: fade 0.15s;
 }
 .dialog {
   position: fixed;
   z-index: 8;
-  background: #fff;
+  background: var(--raised);
   border-radius: 16px;
   box-shadow: var(--shadow-lift);
   animation: pop 0.18s var(--ease);
@@ -1573,7 +1630,7 @@ h1 a[aria-disabled] {
   padding: 10px;
   border-radius: 12px;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--raised);
   text-align: left;
   font-size: 13px;
   font-weight: 550;
@@ -1593,7 +1650,7 @@ h1 a[aria-disabled] {
   height: 16px;
   border-radius: 50%;
   background: var(--c);
-  border: 2px solid #fff;
+  border: 2px solid var(--raised);
   margin-right: -5px;
 }
 .settings .seg {
@@ -1623,7 +1680,7 @@ h1 a[aria-disabled] {
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: #fff;
+  background: var(--raised);
   transition: border-color 0.15s;
 }
 .pick[aria-expanded='true'] {
@@ -1668,7 +1725,7 @@ h1 a[aria-disabled] {
   z-index: 5;
   display: grid;
   padding: 5px;
-  background: #fff;
+  background: var(--raised);
   border-radius: 14px;
   box-shadow: var(--shadow-lift);
   transform-origin: top center;
@@ -1700,7 +1757,7 @@ h1 a[aria-disabled] {
   visibility: visible;
 }
 .pick-menu button:active {
-  background: rgba(37, 34, 30, 0.09);
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
 }
 .pick-menu button:focus-visible {
   outline: 2px solid var(--ink);
@@ -1737,7 +1794,7 @@ h1 a[aria-disabled] {
   height: 22px;
   margin: 0;
   border-radius: 999px;
-  background: rgba(37, 34, 30, 0.18);
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
   position: relative;
   cursor: pointer;
   transition: background 0.2s;
@@ -1750,7 +1807,7 @@ h1 a[aria-disabled] {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--raised);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 .switch input:checked {
@@ -1768,7 +1825,7 @@ h1 a[aria-disabled] {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: 1px dashed rgba(37, 34, 30, 0.25);
+  border: 1px dashed color-mix(in srgb, var(--ink) 25%, transparent);
   background: transparent;
   border-radius: 999px;
   padding: 4px 10px;
@@ -1781,7 +1838,7 @@ h1 a[aria-disabled] {
 }
 @media (hover: hover) and (pointer: fine) {
   .chip:hover {
-    border-color: rgba(37, 34, 30, 0.45);
+    border-color: color-mix(in srgb, var(--ink) 45%, transparent);
   }
 }
 .chip[aria-pressed='true'] {
@@ -1807,7 +1864,7 @@ h1 a[aria-disabled] {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 0 10px;
-  background: #fff;
+  background: var(--raised);
   font-size: 13px;
 }
 .inline-form input:focus {
@@ -1822,7 +1879,7 @@ h1 a[aria-disabled] {
   padding: 8px 10px;
   border-radius: 10px;
   background: rgba(60, 130, 70, 0.1);
-  color: #2b5d34;
+  color: light-dark(#2b5d34, #8fd19a);
   font-size: 13px;
   font-weight: 550;
 }
@@ -1840,7 +1897,7 @@ h1 a[aria-disabled] {
   padding: 10px 16px;
   border-radius: 999px;
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
   font-weight: 550;
   font-size: 13.5px;
   box-shadow: var(--shadow-lift);
@@ -1907,24 +1964,24 @@ body:has(.scrubber:not([hidden])) .toast {
   transform: scale(var(--press));
 }
 :is(.folders button, .subs button, .legend button, .suggest button, .results li):active {
-  background: rgba(37, 34, 30, 0.09);
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
 }
 @media (hover: hover) and (pointer: fine) {
   .pill-btn:not(.primary, [aria-pressed='true']):hover {
-    background: #fbfaf8;
+    background: var(--raised);
     box-shadow: var(--shadow-lift);
   }
   .pick:not([aria-expanded='true']):hover {
-    border-color: rgba(37, 34, 30, 0.25);
+    border-color: color-mix(in srgb, var(--ink) 25%, transparent);
   }
   .pick-menu button:not([aria-checked='true']):hover {
     background: var(--hover);
   }
   .swatches button:not([aria-checked='true']):hover {
-    border-color: rgba(37, 34, 30, 0.25);
+    border-color: color-mix(in srgb, var(--ink) 25%, transparent);
   }
   .scrub-play:hover {
-    background: #3a352f;
+    background: var(--ink-hover);
   }
 }
 .switch input:active::after {
@@ -2247,7 +2304,7 @@ body:has(.scrubber:not([hidden])) .toast {
     right: 0;
     width: auto;
     max-height: 60%;
-    background: #fff;
+    background: var(--raised);
     border-radius: 20px 20px 0 0;
     box-shadow: 0 -8px 30px rgba(60, 40, 20, 0.12);
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -2323,7 +2380,7 @@ body:has(.scrubber:not([hidden])) .toast {
     width: 36px;
     height: 4px;
     border-radius: 2px;
-    background: rgba(37, 34, 30, 0.2);
+    background: color-mix(in srgb, var(--ink) 20%, transparent);
   }
   .side-body {
     padding: 0 12px 12px;
@@ -2336,7 +2393,7 @@ body:has(.scrubber:not([hidden])) .toast {
   }
   .panel {
     box-shadow: none;
-    background: rgba(37, 34, 30, 0.035);
+    background: color-mix(in srgb, var(--ink) 3.5%, transparent);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -2380,7 +2437,7 @@ body:has(.scrubber:not([hidden])) .toast {
     gap: 6px;
   }
   .controls .tool {
-    background: #fff;
+    background: var(--raised);
     width: 44px;
     height: 44px;
     padding: 0;
@@ -2394,7 +2451,7 @@ body:has(.scrubber:not([hidden])) .toast {
   }
   .controls #more[aria-expanded='true'] {
     background: var(--ink);
-    color: #fff;
+    color: var(--on-ink);
   }
   .controls .tools {
     position: relative;
@@ -2408,7 +2465,7 @@ body:has(.scrubber:not([hidden])) .toast {
     gap: 2px;
     min-width: 210px;
     padding: 6px;
-    background: #fff;
+    background: var(--raised);
     border-radius: 18px;
     box-shadow: var(--shadow-lift);
     transform-origin: bottom right;
@@ -2431,7 +2488,7 @@ body:has(.scrubber:not([hidden])) .toast {
     font-size: 15px;
   }
   .controls .more-menu :is(.pill-btn, .tool):active {
-    background: rgba(37, 34, 30, 0.07);
+    background: color-mix(in srgb, var(--ink) 7%, transparent);
   }
   .controls .more-menu :is(.pill-btn span, .tool .label) {
     display: inline;

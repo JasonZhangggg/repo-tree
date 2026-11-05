@@ -3,6 +3,7 @@ import { DEFAULT_FILTERS } from '../repo/hierarchy';
 import { PALETTES, type ColorBy, type PaletteId } from '../render/palette';
 
 export type QualitySetting = 'auto' | Quality;
+export type Theme = 'light' | 'dark';
 export type Settings = {
   palette: PaletteId;
   colorBy: ColorBy;
@@ -13,6 +14,8 @@ export type Settings = {
   ground: boolean;
   /** Sky and weather from the repo's recent GitHub Actions runs. */
   weather: boolean;
+  /** Light shows the day: dark turns the sky to night, the sun to a moon and the panels dark. */
+  theme: Theme;
   hidden: string[];
   /** A GitHub token, kept in this browser and sent only to api.github.com. */
   token: string;
@@ -27,20 +30,25 @@ export const DEFAULT_SETTINGS: Settings = {
   growAnim: true,
   ground: true,
   weather: true,
+  theme: 'light',
   hidden: [...DEFAULT_FILTERS.hidden],
   token: '',
 };
 
 export const PALETTE_IDS = Object.keys(PALETTES) as PaletteId[];
 export const COLOR_BYS: readonly ColorBy[] = ['language', 'folder', 'activity', 'changes', 'owner'];
+export const THEMES: readonly Theme[] = ['light', 'dark'];
 export const QUALITIES: readonly QualitySetting[] = ['auto', 'low', 'medium', 'high'];
 
 const oneOf = <T>(allowed: readonly T[], value: unknown, fallback: T): T =>
   allowed.includes(value as T) ? (value as T) : fallback;
 const bool = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback);
 
-/** Reads stored settings; anything missing or malformed falls back to its default. */
-export function parseSettings(raw: string | null): Settings {
+/**
+ * Reads stored settings; anything missing or malformed falls back to its default. A first visit
+ * takes its theme from the system (`prefersDark`).
+ */
+export function parseSettings(raw: string | null, prefersDark = false): Settings {
   let stored: Record<string, unknown> = {};
   try {
     const value: unknown = JSON.parse(raw ?? '{}');
@@ -59,6 +67,7 @@ export function parseSettings(raw: string | null): Settings {
     growAnim: bool(stored.growAnim, d.growAnim),
     ground: bool(stored.ground, d.ground),
     weather: bool(stored.weather, d.weather),
+    theme: oneOf(THEMES, stored.theme, prefersDark ? 'dark' : d.theme),
     hidden: Array.isArray(hidden) && hidden.every((h) => typeof h === 'string') ? hidden : d.hidden,
     token: typeof stored.token === 'string' ? stored.token : d.token,
   };

@@ -23,7 +23,7 @@ import { ISLAND_RADIUS } from '../grow/size';
 import type { Sky } from '../repo/ci';
 import type { Box } from './framing';
 import type { Palette } from './palette';
-import { treeUniforms } from './shaders';
+import { HOVER_TINT, treeUniforms } from './shaders';
 
 type RGB = [number, number, number];
 
@@ -255,6 +255,7 @@ export function createWeather(camera: PerspectiveCamera) {
       uMoon: { value: 0 },
       uShade: { value: [0, 0, 0] },
       uFaded: { value: 0 },
+      uFocused: { value: 0 },
     },
     transparent: true,
     depthWrite: false,
@@ -302,10 +303,13 @@ export function createWeather(camera: PerspectiveCamera) {
         'vFaded = uFocusCloud != -1.0 && abs(aCloud - uFocusCloud) > 0.5 ? 1.0 : 0.0;\nvec4 cloud = uClouds[int(aCloud + 0.5)];\nvec3 transformed = position * cloud.w + cloud.xyz;',
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vFaded;\nuniform vec3 uFade;')
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying float vFaded;\nuniform vec3 uFade;\nuniform float uFocusCloud;',
+      )
       .replace(
         '#include <dithering_fragment>',
-        '#include <dithering_fragment>\nif (vFaded > 0.5) gl_FragColor.rgb = mix(gl_FragColor.rgb, uFade, 0.78);',
+        `#include <dithering_fragment>\nif (vFaded > 0.5) gl_FragColor.rgb = mix(gl_FragColor.rgb, uFade, 0.78);\n${HOVER_TINT('uFocusCloud >= 0.0 && vFaded < 0.5')}`,
       );
   };
   const clouds = new Mesh(new BufferGeometry(), cloudMaterial);
@@ -510,6 +514,7 @@ export function createWeather(camera: PerspectiveCamera) {
     setFocus(which: SkyTarget['which'] | null, others = false) {
       const any = which !== null || others;
       sunMaterial.uniforms.uFaded!.value = any && which !== 'sun' ? 1 : 0;
+      sunMaterial.uniforms.uFocused!.value = which === 'sun' ? 1 : 0;
       focusCloud$.value = typeof which === 'number' ? which : any ? -2 : -1;
     },
     /** Whether the weather moves, so the view keeps rendering. */
@@ -774,8 +779,10 @@ const SUN_FRAGMENT = /* glsl */ `
 varying vec3 vColor;
 varying float vAlpha;
 uniform float uFaded;
+uniform float uFocused;
 void main() {
   gl_FragColor = vec4(vColor, vAlpha * (1.0 - 0.75 * uFaded));
+  ${HOVER_TINT('uFocused > 0.5')}
 }
 `;
 

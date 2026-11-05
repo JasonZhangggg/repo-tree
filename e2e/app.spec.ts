@@ -558,6 +558,27 @@ test('on a phone the repo field folds into the repo row', async ({ page, isMobil
   );
 });
 
+test('on a phone a tap on the tree closes the repo field', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'the desktop keeps the field open in its own row');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  // iOS Safari keeps a field focused when the tap lands on the canvas; stand in for that.
+  await page
+    .locator('#view')
+    .evaluate((view) => view.addEventListener('mousedown', (event) => event.preventDefault()));
+  const input = page.getByLabel('GitHub repository');
+  await page.getByRole('button', { name: 'Change repository' }).click();
+  await expect(input).toBeFocused();
+  await expect(page.locator('#suggest')).toBeVisible();
+
+  const view = page.viewportSize()!;
+  await page.touchscreen.tap(view.width / 2, view.height * 0.6);
+  await expect(input).toBeHidden();
+  await expect(input).not.toBeFocused();
+  await expect(page.locator('#suggest')).toBeHidden();
+  await expect(page.locator('#title')).toBeVisible();
+});
+
 test('on a phone a drag that starts on a label turns the tree', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'labels take the pointer on desktop, for hover');
   await page.goto('./');

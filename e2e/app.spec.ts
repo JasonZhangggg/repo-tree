@@ -389,6 +389,9 @@ async function openLegend(page: Page) {
   const sheet = page.locator('#sheet-toggle');
   if ((await sheet.isVisible()) && (await sheet.getAttribute('aria-expanded')) === 'false') {
     await sheet.click();
+    // The emulated pointer stays where the closed handle was, over a folder row once the sheet
+    // is up, and would preview that folder; a finger lifts.
+    await page.mouse.move(0, 0);
   }
 }
 
@@ -643,39 +646,39 @@ test('Color leaves by is a dropdown: it opens, picks, and Escape closes only the
   await expect(menu).toBeHidden();
 });
 
-test('Color leaves by is one click away in the side panel', async ({ page }) => {
+test('Color leaves by is a dropdown at the top of the side panel', async ({ page }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   await openLegend(page);
-  const modes = page.locator('#overview').getByRole('radiogroup', { name: 'Color leaves by' });
-  await expect(modes.getByRole('radio')).toHaveText([
-    'Language',
-    'Folder',
-    'Activity',
-    'Changes',
-    'Owner',
-  ]);
-  await expect(modes.getByRole('radio', { name: 'Language' })).toHaveAttribute(
-    'aria-checked',
-    'true',
-  );
-  const box = (await modes.boundingBox())!;
-  const panel = (await page.locator('#overview').boundingBox())!;
-  expect(box.x + box.width, 'the row fits the panel').toBeLessThanOrEqual(panel.x + panel.width);
+  const panel = page.locator('#color-by');
+  const pick = page.locator('#side-color-pick');
+  const menu = panel.getByRole('radiogroup', { name: 'Color leaves by' });
+  // It comes first in the side panel, above the folders.
+  const first = await page
+    .locator('#side-body')
+    .evaluate((body) => body.querySelector('.panel:not([hidden])')?.id);
+  expect(first).toBe('color-by');
+  await expect(pick).toHaveAccessibleName('Color leaves by: Language');
+  await expect(menu).toBeHidden();
 
-  await modes.getByRole('radio', { name: 'Changes' }).click();
+  await pick.click();
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('radio')).toHaveCount(5);
+  await expect(menu.getByRole('radio', { name: /Language/ })).toBeFocused();
+  await menu.getByRole('radio', { name: /Changes/ }).click();
   await expect(page).toHaveURL(/colorBy=changes/);
+  await expect(menu).toBeHidden();
+  await expect(pick).toHaveAccessibleName('Color leaves by: Changes');
   await expect(page.locator('#legend-title')).toHaveText('Leaf colors by changes');
-  await expect(modes.getByRole('radio', { name: 'Changes' })).toHaveAttribute(
-    'aria-checked',
-    'true',
-  );
-
-  // A radio group: arrows move the choice, and Settings agrees.
-  await modes.getByRole('radio', { name: 'Changes' }).focus();
-  await page.keyboard.press('ArrowRight');
-  await expect(page).toHaveURL(/colorBy=owner/);
-  await expect(modes.getByRole('radio', { name: 'Owner' })).toBeFocused();
   const stored = await page.evaluate(() => localStorage.getItem('repo-tree:settings'));
-  expect(JSON.parse(stored!).colorBy).toBe('owner');
+  expect(JSON.parse(stored!).colorBy).toBe('changes');
+
+  // Escape closes only the menu; a press elsewhere closes it too.
+  await pick.click();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(pick).toBeFocused();
+  await pick.click();
+  await page.locator('#legend-title').click();
+  await expect(menu).toBeHidden();
 });

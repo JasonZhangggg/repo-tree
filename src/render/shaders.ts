@@ -8,7 +8,8 @@ import { SPAN } from '../timeline/timeline';
  * plus its `aT` window scaled to `uSpan`, so a branch extends before its children and leaves.
  * Fragments whose node id `aId` falls outside `uSel` fade toward `uFade`, and so do bark and
  * every leaf outside color slot `uCategory` while it is not -1. Those leaves fade harder
- * and go grey, and the leaves inside that slot deepen, so any category stands out, pale or gold.
+ * and go grey, and the leaves inside that slot pop away from the sky, so any category stands out,
+ * pale or gold by day and dark by night.
  */
 export const ALWAYS = 1e6;
 export const treeUniforms = {
@@ -92,16 +93,24 @@ vec3 fromHSL(vec3 hsl) {
 }
 `;
 
-/** How far a leaf of another category fades, and how the highlighted ones saturate and darken. */
-const LEAF_TUNING = '#define FADE_OTHER 0.9\n#define POP_S 0.7\n#define POP_L 0.7\n';
 /**
- * Leaves of the highlighted category deepen: more saturation and a little less lightness, so a
- * pale or gold one reads against the faded grey and the sky. Runs on the output color.
+ * How far a leaf of another category fades, how the highlighted ones saturate, how much they
+ * darken against a light sky, and how far they lift toward POP_LIGHT against a dark one.
+ */
+const LEAF_TUNING =
+  '#define FADE_OTHER 0.9\n#define POP_S 0.7\n#define POP_L 0.7\n#define POP_LIFT 0.7\n#define POP_LIGHT 0.5\n';
+/**
+ * Leaves of the highlighted category stand apart from the sky they fade others toward: more
+ * saturation, and lightness pushed away from the sky. Under a light sky they darken, so a pale or
+ * gold one reads; under a dark (night) sky they lift, so the darkest one (Constantly) still shows.
+ * Runs on the output color.
  */
 const POP = /* glsl */ `
 if (uCategory >= 0.0 && !${OTHER_CATEGORY}) {
   vec3 hsl = toHSL(clamp(gl_FragColor.rgb, 0.0, 1.0));
-  gl_FragColor.rgb = fromHSL(vec3(hsl.x, mix(hsl.y, 1.0, POP_S), hsl.z * POP_L));
+  bool night = dot(uFade, vec3(0.299, 0.587, 0.114)) < 0.4;
+  float l = night ? mix(hsl.z, POP_LIGHT, POP_LIFT) : hsl.z * POP_L;
+  gl_FragColor.rgb = fromHSL(vec3(hsl.x, mix(hsl.y, 1.0, POP_S), l));
 }
 `;
 

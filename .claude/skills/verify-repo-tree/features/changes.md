@@ -1,6 +1,6 @@
 # Changes
 
-Settings' `Color leaves by` has a `Changes` choice that colors leaves by how often their files changed, from the repo's commit history: `Constantly` (30 or more changes), `Often` (10 to 29), `Sometimes` (3 to 9) and `Rarely` (0 to 2), as a gradient in the color scheme's own leaves (`Palette.changes`, no greys): its darkest for the busiest down to its lightest for the quietest (autumn: brown, red, orange, pale gold). Each sprig sits on the gradient by the mean `changeLevel` of its files, so leaves blend between the band colors. The busiest few files glow a little (see [busiest](./busiest.md)). A file's changes are `Facts.fileChurn`, the same count the Busiest files list shows: the snapshot intervals in which it changed plus its exact recent commits. The legend lists the four bands with their share of files, and the folder bars take each folder's band.
+Settings' `Color leaves by` has a `Changes` choice that colors leaves by how often their files changed, from the repo's commit history: `Constantly` (20 or more changes), `Often` (10 to 19), `Sometimes` (3 to 9) and `Rarely` (0 to 2), as a gradient in the color scheme's own leaves (`Palette.changes`, no greys): its darkest for the busiest down to its lightest for the quietest (autumn: brown, red, orange, pale gold). Each sprig sits on the gradient by the upper quartile of its files' `changeLevel`, so leaves blend between the band colors, and a sprig holding one of the busiest files takes that file's level when higher: on a big tree a sprig stands for many files, and a mean would read one color and never reach `Constantly`. The busiest few files glow a little (see [busiest](./busiest.md)). A file's changes are `Facts.fileChurn`, the same count the Busiest files list shows: the snapshot intervals in which it changed plus its exact recent commits. The legend lists the four bands with their share of files, and the folder bars take each folder's band.
 
 ## Sub-features
 
@@ -11,7 +11,7 @@ Settings' `Color leaves by` has a `Changes` choice that colors leaves by how oft
 
 ## How to get to it (user POV)
 
-- Choose `Changes` in the side panel's `Color leaves by` row, or `Settings`, then `Color leaves by`, then `Changes`.
+- Choose `Changes` from the `Color leaves by` dropdown at the top of the side panel, or `Settings`, then `Color leaves by`, then `Changes`.
 - Open a link with `colorBy=changes` (and `hl=<band>`).
 
 ## Driving it with drive.mjs

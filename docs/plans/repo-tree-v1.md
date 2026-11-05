@@ -338,12 +338,12 @@ function aliveAt(t: number, born: number, gone?: number): boolean;
 // timeline/facts.ts  (pure; consumes only History, TreeModel and RepoIndex)
 const AGES: { label: 'This month' | 'This year' | '1 to 3 years' | 'Dead wood'; within: number /* ms before asOf */ }[]; const DEAD: number; // the last band
 function ageBand(asOf: number, changed: number): number;
-const CHANGES: { label: 'Constantly' | 'Often' | 'Sometimes' | 'Rarely'; atLeast: 30 | 10 | 3 | 0 /* fileChurn */ }[]; // busiest first, as many bands as AGES
+const CHANGES: { label: 'Constantly' | 'Often' | 'Sometimes' | 'Rarely'; atLeast: 20 | 10 | 3 | 0 /* fileChurn */ }[]; // busiest first, as many bands as AGES
 function changeBand(churn: number): number;
 type Facts = { asOf: number /* History.computedAt */; fileChanged: Float64Array /* per RepoIndex file; files the history lacks count as asOf */;
   sprigBand: Uint8Array; folderBand: Uint8Array /* the band most files are in, the fresher on a tie */; nodeChanged: Float64Array /* newest file on the node or beyond it */;
   sprigChangeBand: Uint8Array; folderChangeBand: Uint8Array /* the CHANGES band most files are in, the busier on a tie */;
-  sprigChangeLevel: Float32Array /* mean changeLevel of its files: its place on the Changes gradient */;
+  sprigChangeLevel: Float32Array /* its place on the Changes gradient: the upper quartile of its files' changeLevel, or its hottest hot file's level when higher, so glowing twigs take the darkest stops */;
   fileChurn: Uint32Array /* per RepoIndex file: History.files churn + commits, 0 when the history lacks it */; fileHeat: Float32Array /* 0, or HOT_FLOOR..1 for a hotspot */;
   sprigHeat: Float32Array /* its hottest file's */; hot: Uint32Array /* hotspot files, hottest first */;
   owners: Owners /* historyOwners(history) */ };

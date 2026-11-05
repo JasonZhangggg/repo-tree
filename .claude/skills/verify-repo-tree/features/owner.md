@@ -13,7 +13,7 @@ Settings' `Color leaves by` has a fourth choice, `Owner`, that colors each top-l
 
 ## How to get to it (user POV)
 
-- Choose `Owner` in the side panel's `Color leaves by` row, or `Settings`, then `Color leaves by`, then `Owner`.
+- Choose `Owner` from the `Color leaves by` dropdown at the top of the side panel, or `Settings`, then `Color leaves by`, then `Owner`.
 - Open a link with `colorBy=owner` (and `hl=<owner>`).
 - With owner colors on, pin a top-level folder from the folder list or the tree to see its authors.
 

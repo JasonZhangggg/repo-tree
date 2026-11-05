@@ -7,8 +7,7 @@ import { byId, fill, h, icon, ICONS } from '../dom';
 import { bytes, count, percent, plural } from '../format';
 import { NO_OWNER, type Owners } from '../../timeline/owners';
 import { factsOf, type AppState, type Repo } from '../state';
-import { COLOR_BYS } from '../settings';
-import { COLOR_BY_HINT, COLOR_BY_ICON, COLOR_BY_LABEL } from './color-by';
+import { colorByPicker } from './color-by';
 
 const FOLDER_ROWS = 10;
 const MONTH = new Intl.DateTimeFormat('en-US', {
@@ -244,40 +243,11 @@ export function mountSide(app: App): void {
   const folders = byId('folders');
   const legend = byId('legend');
   const legendTitle = byId('legend-title');
-  /** Color leaves by, one click away beside the legend: the same choice as in Settings. */
-  const colorModes = byId('color-modes');
-  const colorModeButtons = COLOR_BYS.map((colorBy) =>
-    h(
-      'button',
-      {
-        type: 'button',
-        role: 'radio',
-        'data-color-by': colorBy,
-        title: COLOR_BY_HINT[colorBy],
-        onclick: () => store.dispatch({ type: 'settings', patch: { colorBy } }),
-      },
-      icon(...COLOR_BY_ICON[colorBy]),
-      h('span', {}, COLOR_BY_LABEL[colorBy]),
-    ),
+  /** Color leaves by, at the top of the side panel: the same dropdown as in Settings. */
+  const colorBy = colorByPicker('side-color-pick', (colorBy) =>
+    store.dispatch({ type: 'settings', patch: { colorBy } }),
   );
-  colorModes.replaceChildren(...colorModeButtons);
-  // A radio group: one tab stop, arrows move the choice.
-  colorModes.addEventListener('keydown', (event) => {
-    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-    if (!step) return;
-    event.preventDefault();
-    const at = COLOR_BYS.indexOf(store.get().settings.colorBy);
-    const next = (at + step + COLOR_BYS.length) % COLOR_BYS.length;
-    store.dispatch({ type: 'settings', patch: { colorBy: COLOR_BYS[next]! } });
-    colorModeButtons[next]!.focus();
-  });
-  const renderColorModes = (state: AppState) => {
-    for (const button of colorModeButtons) {
-      const on = button.dataset.colorBy === state.settings.colorBy;
-      button.setAttribute('aria-checked', String(on));
-      button.tabIndex = on ? 0 : -1;
-    }
-  };
+  byId('color-by').replaceChildren(h('h2', { class: 'h' }, 'Color leaves by'), colorBy.element);
   const legendNote = byId('legend-note');
   const hot = byId('hot');
   const hotNote = byId('hot-note');
@@ -715,7 +685,7 @@ export function mountSide(app: App): void {
     if (colorsChanged || state.selection !== prev?.selection) renderFolders(state);
     const focusChanged = state.selection !== prev?.selection || state.highlight !== prev?.highlight;
     if (colorsChanged) {
-      renderColorModes(state);
+      colorBy.render(state.settings.colorBy);
       renderLegend(state);
     }
     if (colorsChanged || focusChanged) {

@@ -163,7 +163,7 @@ export const PALETTES: Record<PaletteId, Palette> = {
     ],
     rest: '#a8b98f',
     ages: ['#9cc84a', '#3c9b7c', '#1f5e37', '#e3c548'],
-    changes: ['#1f5e37', '#4f9a3a', '#9cc84a', '#c4d65a'],
+    changes: ['#1f5e37', '#4f9a3a', '#9cc84a', '#e3c548'],
     precip: 'rain',
   },
   winter: {

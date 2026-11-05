@@ -13,7 +13,7 @@ Part of the `Changes` color mode (see [changes](./changes.md)); there is no sepa
 
 ## How to get to it (user POV)
 
-- Choose `Changes` in the side panel's `Color leaves by` row, or `Settings`, then `Color leaves by`, then `Changes`.
+- Choose `Changes` from the `Color leaves by` dropdown at the top of the side panel, or `Settings`, then `Color leaves by`, then `Changes`.
 - Open a link with `colorBy=changes`.
 
 ## Driving it with drive.mjs

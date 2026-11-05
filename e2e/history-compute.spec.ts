@@ -211,7 +211,7 @@ test('the GitHub account button shows the requests left this hour, what Repo Tre
 
   await expect(panel.locator('#account-privacy')).toBeHidden();
   await panel.getByRole('button', { name: 'What Repo Tree can see' }).click();
-  await expect(panel.locator('#account-privacy')).toContainText('public data only');
+  await expect(panel.locator('#account-privacy')).toContainText('Public data only');
   await expect(panel.locator('#account-privacy')).toContainText('never file contents');
 
   // Escape closes it; a click outside does too.

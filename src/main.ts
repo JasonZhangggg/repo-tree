@@ -394,16 +394,17 @@ const panels = [
   controls,
   byId('settings'),
 ];
-/** Content width of a title card with a name and counts as long as torvalds/linux's. */
-const TITLE_ROOM = 460;
 /**
- * On a desktop the title card and the side panel grow with the repo's name and lists. Framing
- * reserves room for a typical title and the side panel's whole column, so repos frame into the
- * same region and their islands show at one size.
+ * On a desktop the repo card and the side panel grow with the repo's name and lists. Framing
+ * reserves the card's whole column (its widest, as the CSS caps it with --col) and the side
+ * panel's whole column, so repos frame into the same region and their islands show at one size.
  */
 function reserved(panel: HTMLElement, rect: Rect, origin: DOMRect): Rect {
   if (phone.matches) return rect;
-  if (panel === title) return { ...rect, right: Math.max(rect.right, rect.left + TITLE_ROOM) };
+  if (panel === title) {
+    const col = Math.min(520, origin.width * 0.42);
+    return { ...rect, right: Math.max(rect.right, rect.left + col) };
+  }
   if (panel === side) return { ...rect, bottom: origin.height };
   return rect;
 }

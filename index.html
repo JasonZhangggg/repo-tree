@@ -137,11 +137,19 @@
           />
         </svg>
       </button>
-      <h1><a id="repo-link" target="_blank" rel="noopener"></a></h1>
+      <h1>
+        <button
+          type="button"
+          id="repo-link"
+          aria-controls="repo-form"
+          aria-expanded="false"
+          aria-describedby="repo-link-hint"
+        ></button>
+      </h1>
+      <span class="sr-only" id="repo-link-hint">Opens the repository field</span>
       <p class="meta" id="repo-meta"></p>
       <a class="weather" id="weather" target="_blank" rel="noopener" hidden></a>
       <div id="status"></div>
-      <div class="seg" role="group" aria-label="Sample repositories" id="samples"></div>
     </section>
 
     <aside class="side" id="side" aria-label="Repository details">
@@ -211,7 +219,13 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
         </button>
       </div>
-      <button type="button" class="pill-btn primary" id="timeline" aria-pressed="false">
+      <button
+        type="button"
+        class="pill-btn primary"
+        id="timeline"
+        aria-pressed="false"
+        aria-disabled="true"
+      >
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5" />
           <path d="M4 4v4.5h4.5" />

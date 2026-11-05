@@ -59,12 +59,12 @@ export function describeError(
       return navigator.onLine
         ? {
             title: 'Can’t reach GitHub',
-            body: 'Check your connection and try again.',
+            body: `${name(ref)} didn’t load. Check your connection and try again.`,
             actions: ['retry'],
           }
         : {
             title: 'You’re offline',
-            body: 'The bundled samples still work.',
+            body: `${name(ref)} needs a connection. The bundled samples still work.`,
             actions: ['retry'],
           };
     case 'empty':
@@ -75,7 +75,7 @@ export function describeError(
       };
     case 'unexpected':
       return {
-        title: 'The tree could not be grown',
+        title: `${name(ref)} could not be grown`,
         body: 'Something went wrong. Try again, or another repo.',
         actions: ['retry'],
       };

@@ -331,10 +331,11 @@ test('pinning a deep folder frames it in context', async ({ page, isMobile }) =>
   await expect(detail(page).getByRole('navigation', { name: 'Folder path' })).toHaveText(
     'linux/drivers/net/wireless/intel/iwlwifi',
   );
-  expect((await settle(page)).distance, 'stands back to show the branch in context').toBeCloseTo(
-    whole * 0.5,
-    3,
-  );
+  // The zoom floor is half the distance framing the tree on show (capped at the whole view's),
+  // which on a wide free region sits a little nearer than half the whole view's.
+  const pinned = (await settle(page)).distance;
+  expect(pinned, 'stands back to show the branch in context').toBeGreaterThan(whole * 0.45);
+  expect(pinned, 'no farther than half the whole view').toBeLessThanOrEqual(whole * 0.5 + 1e-3);
 });
 
 test('on a phone the tree stays in view as folders are pinned', async ({ page, isMobile }) => {
@@ -563,14 +564,14 @@ test('Grow with an empty field offers the list instead of an error', async ({ pa
   await expect(page.locator('#repo-error')).toBeEmpty();
 });
 
-test('on a phone the repo field folds into the repo row', async ({ page, isMobile }) => {
-  test.skip(!isMobile, 'the desktop keeps the field and the title apart');
+test('the repo field folds into the repo card', async ({ page, isMobile }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   const input = page.getByLabel('GitHub repository');
   await expect(input).toBeHidden();
   const row = (await page.locator('#title').boundingBox())!;
-  expect(row.height, 'one row').toBeLessThan(60);
+  // A phone's card is one row; a desktop's two, the name over the branch and counts.
+  expect(row.height, 'a compact card').toBeLessThan(isMobile ? 60 : 90);
   await page.getByRole('button', { name: 'Change repository' }).click();
   await expect(input).toBeFocused();
   await expect(page.locator('#suggest')).toBeVisible();

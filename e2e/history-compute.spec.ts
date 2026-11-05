@@ -189,6 +189,7 @@ test('signed out, the GitHub button opens the menu, whose Sign in signs in; GitH
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
 
+  await openRepoField(page);
   const input = page.getByLabel('GitHub repository');
   await input.fill('acme/gadgets');
   await input.press('Enter');

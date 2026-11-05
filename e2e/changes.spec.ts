@@ -29,7 +29,7 @@ test('Changes colors leaves by how often their files changed', async ({ page }) 
   await ready(page, 'vitejs/vite');
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.locator('#color-pick').click();
-  await page.getByRole('radio', { name: 'Changes' }).click();
+  await page.locator('#settings').getByRole('radio', { name: 'Changes' }).click();
   await expect(page).toHaveURL(/colorBy=changes/);
   await expect(
     page.getByText(/^From commit history: how often each file changed, a gradient/),

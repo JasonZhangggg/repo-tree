@@ -867,6 +867,27 @@ h1 a[aria-disabled] {
   font-size: 12.5px;
   color: var(--muted);
 }
+.color-modes {
+  display: grid;
+  grid-template-columns: repeat(5, auto);
+  justify-content: space-between;
+  gap: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.color-modes button {
+  justify-content: center;
+  min-width: 0;
+  padding: 6px 5px;
+  font-size: 12px;
+}
+.color-modes span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.color-modes svg {
+  display: none;
+}
 .legend {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2255,6 +2276,9 @@ body:has(.scrubber:not([hidden])) .toast {
     font-size: 13px;
     min-height: 36px;
     align-items: center;
+  }
+  .color-modes button {
+    padding: 6px 4px;
   }
   /* The row's buttons never clip: the branch shortens first, and the file count goes when narrow. */
   .meta .branch {

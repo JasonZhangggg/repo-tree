@@ -44,7 +44,7 @@ export const treeUniforms = {
 
 /**
  * A breeze: every point of the tree bends sideways by the square of its height, so the trunk
- * barely moves and the crown's top sways by about a fiftieth of the tree's height. Two slow waves
+ * barely moves and the crown's top sways by about a hundredth of the tree's height. Two slow waves
  * that roll across the crown keep it from swaying as one stiff piece. `swayAt` is the offset at
  * a point; the leaves, the birds and the grass all read it, so a bird rides its perch.
  */
@@ -61,7 +61,7 @@ vec2 gust(vec3 p, float t) {
 }
 vec3 swayAt(vec3 p) {
   float h = clamp(p.y / uWindHeight, 0.0, 1.5);
-  vec2 g = gust(p, uWindTime) * (uWind * 0.022 * uWindHeight * h * h);
+  vec2 g = gust(p, uWindTime) * (uWind * 0.011 * uWindHeight * h * h);
   return vec3(g.x, 0.0, g.y);
 }
 `;
@@ -72,7 +72,7 @@ vec3 swayAt(vec3 p) {
 export const GROUND_SWAY = {
   head: SWAY + 'attribute float aSway;\n',
   body: /* glsl */ `
-transformed.xz += aSway * uWind * 0.3 * gust(transformed * 3.0, uWindTime * 1.7);
+transformed.xz += aSway * uWind * 0.18 * gust(transformed * 3.0, uWindTime * 1.7);
 `,
 };
 const GROW_VERTEX = /* glsl */ `
@@ -182,7 +182,7 @@ vec3 offsetHSL(vec3 c, float dh, float dl) {
 /** Each leaf flutters on its stem (`aBase`): its far edge bobs, on a beat of its own. */
 const FLUTTER = /* glsl */ `
 float flutter = sin(uWindTime * 3.1 + dot(aBase, vec3(9.1, 5.3, 7.7)));
-transformed.y += uWind * 0.22 * flutter * distance(transformed.xz, aBase.xz);
+transformed.y += uWind * 0.05 * flutter * distance(transformed.xz, aBase.xz);
 `;
 const FALL = /* glsl */ `
 if (aFall > 0.5 && uFall > 0.0) {
@@ -413,6 +413,12 @@ if (aMove > 3.5) {
   vec2 rump = vec2(-0.24, 0.24);
   l.xy = rump + turn(l.xy - rump, 0.35 * idle * burst(t * 0.9 + 4.0, 16.0));
 }
+// In flight the body streamlines, easing in after take-off and out before landing: the belly
+// tucks up under it, it stretches out long, and the head drops forward in line with the back.
+float sleek = flying * smoothstep(0.0, 0.12, k) * smoothstep(1.0, 0.88, k);
+if (l.y < 0.2) l.y = mix(l.y, 0.2 - (0.2 - l.y) * 0.25, sleek);
+l.x *= 1.0 + 0.14 * sleek;
+if (aMove > 0.5 && aMove < 1.5) l.xy += vec2(0.05, -0.07) * sleek;
 // A small hop now and then, and in flight a loop out from the crown and back.
 float hop = idle * burst(t * 0.37 + 3.0, 60.0) * 0.25;
 vec3 f0 = vec3(aLook.x, 0.0, aLook.y);

@@ -564,7 +564,7 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
   height: 100%;
   width: 0;
   border-radius: inherit;
-  background: #2f9e57;
+  background: var(--ink);
   transition: width 0.3s var(--ease);
 }
 .account[data-low='true'] .account-meter i {

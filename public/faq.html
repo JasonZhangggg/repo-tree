@@ -175,94 +175,125 @@
         Back to Repo Tree
       </a>
       <h1>Questions and answers</h1>
-      <p class="lede">What Repo Tree asks GitHub for, and what signing in changes.</p>
+      <p class="lede">How to read a tree, and what Repo Tree asks GitHub for.</p>
+
+      <section id="about" aria-labelledby="about-title">
+        <h2 id="about-title">The tree</h2>
+        <details id="what-is-it" open>
+          <summary>What is Repo Tree?</summary>
+          <div class="answer">
+            <p>
+              It grows a low-poly tree from any public GitHub repository, so you can see its shape
+              at a glance: where the code lives, how big each part is, and how it got there. Type
+              <strong>owner/repo</strong> or paste a GitHub link, or start from one of the samples.
+            </p>
+          </div>
+        </details>
+        <details id="read-the-tree">
+          <summary>How do I read the tree?</summary>
+          <div class="answer">
+            <ul>
+              <li><strong>Branches are folders.</strong> A branch forks where a folder splits.</li>
+              <li>
+                <strong>Thicker branches hold more files.</strong> A bigger repository grows a
+                taller tree.
+              </li>
+              <li>
+                <strong>Leaves are files</strong>, colored by language unless you choose another way
+                under <strong>Color leaves by</strong>: by top-level folder, how recently or how
+                often files changed, or who owns each folder.
+              </li>
+              <li>
+                <strong>Rocks on the island</strong> are the files at the top of the repository.
+              </li>
+            </ul>
+            <p>Point at a branch to see its folder, and click it to pin it and zoom in.</p>
+          </div>
+        </details>
+        <details id="weather-and-birds">
+          <summary>What do the weather and the birds mean?</summary>
+          <div class="answer">
+            <p>
+              <strong>The weather is the repository's CI.</strong> Sunny means recent GitHub Actions
+              runs passed, clouds mean some failed, rain means the latest run failed, and a storm
+              means several failed in a row. The chip under the title says which.
+            </p>
+            <p>
+              <strong>Birds are open pull requests</strong>, each perched on the folder it changes
+              most. Tap one to see which pull request it is.
+            </p>
+          </div>
+        </details>
+        <details id="timeline">
+          <summary>How does the timeline work?</summary>
+          <div class="answer">
+            <p>
+              <strong>Timeline</strong> replays the repository from its first commit: folders sprout
+              as they appear, and you can drag through the years or press play. The first time
+              anyone opens a repository's timeline, it is worked out in their browser and then
+              shared, so everyone after them gets it right away.
+            </p>
+          </div>
+        </details>
+        <details id="share">
+          <summary>Can I share or save a tree?</summary>
+          <div class="answer">
+            <p>
+              <strong>Share</strong> copies a link that opens the same repository, branch, colors
+              and pinned folder. <strong>PNG</strong> saves the view as an image. On a phone, they
+              are <strong>Copy link</strong> and <strong>Export PNG</strong> under
+              <strong>More actions</strong>.
+            </p>
+          </div>
+        </details>
+      </section>
 
       <section id="github" aria-labelledby="github-title">
-        <h2 id="github-title">GitHub and your account</h2>
+        <h2 id="github-title">GitHub</h2>
         <details id="what-can-it-see" open>
           <summary>What can Repo Tree see when I sign in?</summary>
           <div class="answer">
             <p>
               <strong>Public data only.</strong> Signing in asks GitHub for no permissions, so Repo
-              Tree can't see your private repositories. It reads the same things anyone can see on
-              github.com without signing in.
+              Tree can't see your private repositories, and it never writes anything. It reads what
+              anyone can see on github.com: folder and file names and sizes, Actions runs, open pull
+              requests, and commit history.
             </p>
             <p>
-              It reads names, sizes and history, not your code. The one file whose contents it reads
-              is CODEOWNERS, to say who owns each folder.
+              It doesn't read your code. The one file whose contents it reads is CODEOWNERS, to say
+              who owns each folder. For a private repository, paste a GitHub token under
+              <strong>GitHub token</strong> in Settings instead; it is kept in this browser and sent
+              only to GitHub.
             </p>
-          </div>
-        </details>
-        <details id="what-for">
-          <summary>What does Repo Tree use GitHub for?</summary>
-          <div class="answer">
-            <ul>
-              <li>
-                <strong>The tree:</strong> the list of folders and file names, and their sizes.
-              </li>
-              <li>
-                <strong>The weather:</strong> recent GitHub Actions runs on the default branch.
-              </li>
-              <li><strong>The birds:</strong> open pull requests.</li>
-              <li>
-                <strong>History and Color leaves by:</strong> commits, their dates and authors, and
-                the CODEOWNERS file.
-              </li>
-            </ul>
-            <p>Nothing is written to GitHub: Repo Tree only reads.</p>
           </div>
         </details>
         <details id="why-sign-in">
-          <summary>Why sign in at all?</summary>
+          <summary>Why sign in, and what are the “requests this hour”?</summary>
           <div class="answer">
             <p>
               GitHub allows 60 requests an hour to anyone not signed in, shared by everyone on the
-              same network. A big repository or a busy office can use that up in minutes, and then
-              trees, weather and birds stop loading. Signed in, you get your own 5,000 an hour.
-            </p>
-          </div>
-        </details>
-        <details id="requests">
-          <summary>What are the “requests this hour”?</summary>
-          <div class="answer">
-            <p>
-              How much of that hourly allowance is left, as GitHub counts it. Opening a repository
-              takes a handful of requests; a repository's history takes more. The count starts over
-              at the time shown under the meter. Checking it doesn't use any.
+              same network, and a big repository can use that up in minutes. Signed in, you get your
+              own 5,000 an hour. The account menu shows how many are left and when the count starts
+              over; checking it doesn't use any.
             </p>
           </div>
         </details>
         <details id="token">
-          <summary>Where does my sign-in go?</summary>
+          <summary>Where does my sign-in go, and how do I sign out?</summary>
           <div class="answer">
             <p>
-              Signing in gives this browser tab a token. It stays in that tab: closing the tab
-              forgets it, and it never goes into a share link. The tab sends it only to GitHub, and
-              to the Repo Tree history server when that reads a repository's history for you. The
-              history server uses it for that request and never stores it.
+              Signing in gives this browser tab a token. It stays in that tab and never goes into a
+              share link. The tab sends it only to GitHub, and to the Repo Tree history server when
+              that works out a timeline for you, which uses it for that request and never stores it.
             </p>
-          </div>
-        </details>
-        <details id="sign-out">
-          <summary>How do I sign out, or remove Repo Tree from my account?</summary>
-          <div class="answer">
             <p>
-              Choose the GitHub button at the top right, then <strong>Sign out</strong>, or close
-              the tab. To remove Repo Tree from your GitHub account altogether, revoke it under
+              To sign out, choose the GitHub button at the top right, then
+              <strong>Sign out</strong>, or close the tab. To remove Repo Tree from your GitHub
+              account altogether, revoke it under
               <a href="https://github.com/settings/applications" rel="noopener"
                 >Settings, Applications</a
               >
               on GitHub.
-            </p>
-          </div>
-        </details>
-        <details id="private">
-          <summary>Can I see a private repository?</summary>
-          <div class="answer">
-            <p>
-              Signing in can't. For a private repository, paste a GitHub token with read access in
-              Repo Tree's Settings, under <strong>GitHub token</strong>. That token is kept in this
-              browser and sent only to GitHub.
             </p>
           </div>
         </details>

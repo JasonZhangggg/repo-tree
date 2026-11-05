@@ -220,6 +220,9 @@ test('the GitHub account menu shows the requests left this hour, links to what R
   const page2 = await page.context().newPage();
   await page2.goto(new URL('./faq.html#github', page.url()).href);
   await expect(page2.getByRole('heading', { name: 'Questions and answers' })).toBeVisible();
+  // Most questions are about Repo Tree itself; a few are about GitHub.
+  await expect(page2.locator('#about details')).toHaveCount(5);
+  await expect(page2.locator('#github details')).toHaveCount(3);
   await expect(page2.locator('#what-can-it-see')).toContainText('Public data only');
   await expect(page2.locator('#what-can-it-see')).toContainText('CODEOWNERS');
   await page2.close();

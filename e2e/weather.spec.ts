@@ -219,6 +219,59 @@ test.describe('with motion allowed', () => {
   });
 });
 
+test('the sun and clouds light up under the mouse and take a pointer', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'hover');
+  await page.goto('./#/vitejs/vite?wx=cloudy');
+  await ready(page, 'vitejs/vite');
+  await settle(page);
+  const spots = await page.evaluate(() => {
+    type View = {
+      skyTargetAt(x: number, y: number): 'sun' | number | null;
+      pickAt(x: number, y: number): unknown;
+    };
+    const { view } = (window as unknown as { __repoTree: { view: View } }).__repoTree;
+    const box = document.querySelector('#view')!.getBoundingClientRect();
+    // The middle of the first cloud's and the sun's discs, off the tree and the panels.
+    const hits: Record<string, { x: number; y: number }[]> = {};
+    let cloud: number | null = null;
+    for (let y = 0; y < box.height; y += 8)
+      for (let x = 0; x < box.width; x += 8) {
+        const which = view.skyTargetAt(x, y);
+        if (which === null || view.pickAt(x, y) !== null) continue;
+        if (typeof which === 'number' && (cloud ??= which) !== which) continue;
+        if (!document.elementFromPoint(box.x + x, box.y + y)?.closest('#view')) continue;
+        (hits[which === 'sun' ? 'sun' : 'cloud'] ??= []).push({ x: box.x + x, y: box.y + y });
+      }
+    const middle = (points: { x: number; y: number }[] = []) =>
+      points.length === 0
+        ? null
+        : {
+            x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+            y: points.reduce((sum, p) => sum + p.y, 0) / points.length,
+          };
+    return { sun: middle(hits.sun), cloud: middle(hits.cloud) };
+  });
+  const view = page.locator('#view');
+  for (const kind of ['sun', 'cloud'] as const) {
+    const spot = spots[kind];
+    expect(spot, `a ${kind} is on screen`).toBeTruthy();
+    await page.mouse.move(5, page.viewportSize()!.height - 5);
+    await expect(view).not.toHaveCSS('cursor', 'pointer');
+    const clip = { x: spot!.x - 30, y: spot!.y - 30, width: 60, height: 60 };
+    const before = await page.screenshot({ clip });
+    await page.mouse.move(spot!.x, spot!.y);
+    await expect(view).toHaveCSS('cursor', 'pointer');
+    await expect
+      .poll(async () => (await page.screenshot({ clip })).equals(before), {
+        message: `${kind} lights up`,
+      })
+      .toBe(false);
+  }
+});
+
 test('a tap on the sun says what the sky stands for before leaving for CI', async ({
   page,
   isMobile,

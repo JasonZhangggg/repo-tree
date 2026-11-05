@@ -40,7 +40,53 @@ export const treeUniforms = {
   uWind: { value: 0 },
   /** The tree's height, so a tree of any size bends by the same share of it. */
   uWindHeight: { value: 1 },
+  /** The pick id under the mouse (a rock or a bird), which lights up; -1 for none. */
+  uHover: { value: -1 },
 };
+
+/**
+ * Lights up a fragment under the mouse where `on` holds: tinted toward the gold of a hovered
+ * bird's halo, so a rock, a cloud or the sun reads as the thing a click opens, by day and night.
+ */
+export const HOVER_LIFT = (on: string, lift = 0.45) => /* glsl */ `
+if (${on}) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0, 0.82, 0.32), ${lift.toFixed(2)});
+`;
+/**
+ * A hovered bird swells by HOVER_SWELL about the middle of its body, and a halo HOVER_HALO times
+ * larger again shows round it: the bird drawn once more as a flat silhouette behind it.
+ */
+const HOVER_SWELL = 1.3;
+const HOVER_HALO = 1.35;
+/** The middle of a bird's body over its feet, in bird lengths (render/birds.ts). */
+const BIRD_MIDDLE = 0.25;
+
+/**
+ * Swells the bird whose pick id is `uHover`, or with `halo` draws only its halo. Wraps the bird's
+ * own shader hook, so its motion is untouched.
+ */
+export function birdHover<M extends Material>(material: M, halo = false): M {
+  const own = material.onBeforeCompile.bind(material);
+  const key = material.customProgramCacheKey.bind(material);
+  const scale = (halo ? HOVER_SWELL * HOVER_HALO : HOVER_SWELL).toFixed(3);
+  material.onBeforeCompile = (shader, renderer) => {
+    own(shader, renderer);
+    shader.uniforms.uHover = treeUniforms.uHover;
+    shader.vertexShader =
+      'uniform float uHover;\n' +
+      shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `{
+  vec3 middle = aBase + swayAt(aBase) + vec3(0.0, ${BIRD_MIDDLE.toFixed(2)} * uBirdSize, 0.0);
+  bool hovered = uHover >= 0.0 && abs(aId - uHover) < 0.5;
+  if (hovered) transformed = middle + (transformed - middle) * ${scale};
+  ${halo ? 'else transformed = vec3(0.0);' : ''}
+}
+#include <project_vertex>`,
+      );
+  };
+  material.customProgramCacheKey = () => `${key()}-hover${halo ? '-halo' : ''}`;
+  return material;
+}
 
 /**
  * A breeze: every point of the tree bends sideways by the square of its height, so the trunk

@@ -23,6 +23,7 @@ import { ISLAND_RADIUS } from '../grow/size';
 import type { Sky } from '../repo/ci';
 import type { Box } from './framing';
 import type { Palette } from './palette';
+import { HOVER_LIFT } from './shaders';
 
 type RGB = [number, number, number];
 
@@ -210,6 +211,13 @@ const SPOTS = (() => {
   }));
 })();
 
+/** The sun or a cloud (by its index) as a center and radius in world space. */
+export type SkyTarget = { which: 'sun' | number; x: number; y: number; z: number; r: number };
+/** A hovered sun swells by this much, as well as lighting up. */
+const SUN_HOVER_SCALE = 1.12;
+/** A hovered cloud swells by this much, keeping its shading, and lights up a little. */
+const CLOUD_HOVER_SCALE = 1.08;
+
 /**
  * The weather's scene objects: the sun, clouds, the rain or snow under them and lightning, all
  * in world space over the island, so they turn with it as the camera orbits and the sun stays
@@ -251,6 +259,7 @@ export function createWeather(camera: PerspectiveCamera) {
       uAlpha: { value: SUN_LAYERS.map((l) => l.alpha) },
       uMoon: { value: 0 },
       uShade: { value: [0, 0, 0] },
+      uHover: { value: 0 },
     },
     transparent: true,
     depthWrite: false,
@@ -274,6 +283,8 @@ export function createWeather(camera: PerspectiveCamera) {
 
   /** Per cloud: x, y (its underside), z and size, or size 0 while it is not out. */
   const clouds$ = { value: Array.from({ length: MAX_CLOUDS }, () => new Vector4()) };
+  /** The cloud under the mouse, which lights up, or -1. */
+  const hoverCloud$ = { value: -1 };
   const cloudMaterial = new MeshStandardMaterial({
     flatShading: true,
     roughness: 1,
@@ -281,14 +292,21 @@ export function createWeather(camera: PerspectiveCamera) {
   });
   cloudMaterial.onBeforeCompile = (shader) => {
     shader.uniforms.uClouds = clouds$;
+    shader.uniforms.uHoverCloud = hoverCloud$;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
-        `#include <common>\nattribute float aCloud;\nuniform vec4 uClouds[${MAX_CLOUDS}];`,
+        `#include <common>\n#define CLOUD_HOVER_SCALE ${CLOUD_HOVER_SCALE.toFixed(2)}\nattribute float aCloud;\nuniform vec4 uClouds[${MAX_CLOUDS}];\nuniform float uHoverCloud;\nvarying float vHover;`,
       )
       .replace(
         '#include <begin_vertex>',
-        'vec4 cloud = uClouds[int(aCloud + 0.5)];\nvec3 transformed = position * cloud.w + cloud.xyz;',
+        'vHover = step(abs(aCloud - uHoverCloud), 0.5);\nvec4 cloud = uClouds[int(aCloud + 0.5)];\nvec3 transformed = position * cloud.w * (1.0 + (CLOUD_HOVER_SCALE - 1.0) * vHover) + cloud.xyz;',
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vHover;')
+      .replace(
+        '#include <dithering_fragment>',
+        `#include <dithering_fragment>\n${HOVER_LIFT('vHover > 0.5', 0.4)}`,
       );
   };
   const clouds = new Mesh(new BufferGeometry(), cloudMaterial);
@@ -473,18 +491,24 @@ export function createWeather(camera: PerspectiveCamera) {
      * The sun and each cloud out now, as a center and radius in world space, for telling a
      * tap on the sky: the sun to its halo, a cloud to its puffs.
      */
-    targets(): { x: number; y: number; z: number; r: number }[] {
-      const out: { x: number; y: number; z: number; r: number }[] = [];
+    targets(): SkyTarget[] {
+      const out: SkyTarget[] = [];
       if (sun.visible) {
         const { x, y, z } = sun.position;
-        out.push({ x, y, z, r: SUN_DISCS[0]! * SUN.scale });
+        out.push({ which: 'sun', x, y, z, r: SUN_DISCS[0]! * SUN.scale });
       }
       if (clouds.visible) {
-        for (const c of clouds$.value) {
-          if (c.w > 0) out.push({ x: c.x, y: c.y + 0.25 * c.w, z: c.z, r: 0.85 * c.w });
-        }
+        clouds$.value.forEach((c, n) => {
+          if (c.w > 0) out.push({ which: n, x: c.x, y: c.y + 0.25 * c.w, z: c.z, r: 0.85 * c.w });
+        });
       }
       return out;
+    },
+    /** Lights up the sun (or moon) or one cloud under the mouse, or none. */
+    setHover(which: SkyTarget['which'] | null) {
+      sunMaterial.uniforms.uHover!.value = which === 'sun' ? 1 : 0;
+      sunMaterial.uniforms.uScale!.value = SUN.scale * (which === 'sun' ? SUN_HOVER_SCALE : 1);
+      hoverCloud$.value = typeof which === 'number' ? which : -1;
     },
     /** Whether the weather moves, so the view keeps rendering. */
     animated,
@@ -747,8 +771,11 @@ void main() {
 const SUN_FRAGMENT = /* glsl */ `
 varying vec3 vColor;
 varying float vAlpha;
+uniform float uHover;
 void main() {
   gl_FragColor = vec4(vColor, vAlpha);
+  ${HOVER_LIFT('uHover > 0.5')}
+  gl_FragColor.a = min(1.0, gl_FragColor.a * (1.0 + 0.6 * uHover));
 }
 `;
 

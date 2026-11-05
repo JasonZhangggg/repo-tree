@@ -10,7 +10,7 @@ import type { Quality, TreeModel } from '../grow/grow';
 import { growGround, KIND, type GroundMesh, type GroundModel } from '../grow/ground';
 import { VIEW_DIRECTION } from './framing';
 import type { Palette } from './palette';
-import { FADE, GROUND_SWAY, treeUniforms } from './shaders';
+import { FADE, GROUND_SWAY, HOVER_LIFT, treeUniforms } from './shaders';
 
 /** The trunk flares to this much of its base radius where it meets the ground. */
 const FLARE = 1.55;
@@ -222,21 +222,27 @@ export function swayOf(mesh: GroundMesh): Float32Array {
   return sway;
 }
 
+/** A rock under the mouse (its pick id is `uHover`) lights up, as birds do. */
 function fading<M extends MeshStandardMaterial>(material: M, key: string, sways = false): M {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSel = treeUniforms.uSel;
     shader.uniforms.uFade = treeUniforms.uFade;
+    shader.uniforms.uHover = treeUniforms.uHover;
     if (sways) Object.assign(shader.uniforms, treeUniforms);
     shader.vertexShader =
-      'attribute float aId;\nvarying float vId;\n' +
+      'attribute float aId;\nvarying float vId;\nvarying float vPick;\n' +
       (sways ? GROUND_SWAY.head : '') +
       shader.vertexShader.replace(
         '#include <begin_vertex>',
-        '#include <begin_vertex>\nvId = aId < 0.0 ? -1.0 : 0.0;' + (sways ? GROUND_SWAY.body : ''),
+        '#include <begin_vertex>\nvId = aId < 0.0 ? -1.0 : 0.0;\nvPick = aId;' +
+          (sways ? GROUND_SWAY.body : ''),
       );
     shader.fragmentShader =
-      'uniform vec2 uSel;\nuniform vec3 uFade;\nvarying float vId;\n' +
-      shader.fragmentShader.replace('#include <dithering_fragment>', FADE);
+      'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uHover;\nvarying float vId;\nvarying float vPick;\n' +
+      shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        FADE + HOVER_LIFT('uHover >= 0.0 && abs(vPick - uHover) < 0.5'),
+      );
   };
   material.customProgramCacheKey = () => key;
   return material;

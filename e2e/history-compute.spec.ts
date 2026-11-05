@@ -179,7 +179,7 @@ test('the Sign in button signs in from anywhere, and GitHub reads then carry the
   await page.keyboard.press('Escape');
 });
 
-test('the GitHub account menu shows the requests left this hour, links to what Repo Tree sees, and signs out', async ({
+test('the GitHub account menu shows the requests left this hour, links to the questions page, and signs out', async ({
   page,
 }) => {
   const asked: (string | undefined)[] = [];
@@ -198,7 +198,7 @@ test('the GitHub account menu shows the requests left this hour, links to what R
   await button.click();
   const panel = page.getByRole('dialog', { name: 'GitHub account' });
   await expect(panel).toBeVisible();
-  await expect(panel.locator('#account-usage')).toHaveText('4,812 of 5,000 left');
+  await expect(panel.locator('#account-usage')).toHaveText('4,812 of 5,000');
   await expect(panel.locator('#account-reset')).toHaveText(/^Resets at /);
   // The meter shows the share left.
   const fill = await panel
@@ -214,8 +214,8 @@ test('the GitHub account menu shows the requests left this hour, links to what R
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
 
   // What Repo Tree can see is on the questions page, which opens in a new tab.
-  const faq = panel.getByRole('link', { name: 'What Repo Tree can see' });
-  await expect(faq).toHaveAttribute('href', './faq.html#github');
+  const faq = panel.getByRole('link', { name: 'Q&A' });
+  await expect(faq).toHaveAttribute('href', './faq.html');
   await expect(faq).toHaveAttribute('target', '_blank');
   const page2 = await page.context().newPage();
   await page2.goto(new URL('./faq.html#github', page.url()).href);
@@ -274,7 +274,7 @@ test.describe('on a phone', () => {
     const account = page.getByRole('button', { name: 'GitHub account' });
     await account.tap();
     const panel = page.getByRole('dialog', { name: 'GitHub account' });
-    await expect(panel.locator('#account-usage')).toHaveText(/^4,812 of 5,000 left/);
+    await expect(panel.locator('#account-usage')).toHaveText('4,812 of 5,000');
     const box = (await panel.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);

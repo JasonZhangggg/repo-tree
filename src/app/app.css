@@ -475,7 +475,7 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
   z-index: 40;
   display: flex;
   flex-direction: column;
-  width: min(280px, calc(100vw - 24px));
+  width: min(232px, calc(100vw - 24px));
   padding: 6px;
   background: var(--raised);
   border: 1px solid var(--line);
@@ -554,8 +554,8 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
   color: var(--muted);
 }
 .account-meter {
-  height: 6px;
-  border-radius: 3px;
+  height: 4px;
+  border-radius: 2px;
   background: color-mix(in srgb, var(--ink) 10%, transparent);
   overflow: hidden;
 }

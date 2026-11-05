@@ -4,14 +4,14 @@ import { fetchRateLimit, formatCount, resetsIn } from '../../repo/rate-limit';
 import type { App } from '../app';
 import { byId, h, icon, ICONS } from '../dom';
 
-/** The questions page's answer to what Repo Tree uses GitHub for and what it can see. */
-export const FAQ_URL = './faq.html#github';
+/** The questions page: how to read the tree, and what Repo Tree uses GitHub for and can see. */
+export const FAQ_URL = './faq.html';
 
 /**
  * The Sign in with GitHub button, last in the toolbar (its own box beside the repo card on a
  * phone). Signing in lifts GitHub's hourly limit from 60 requests per network address to 5,000 per
  * visitor, for trees, CI weather and history alike. Signed in, the same button opens the account
- * menu: the requests left this hour over a meter, a link to what Repo Tree can see, and Sign out.
+ * menu: the requests left this hour over a meter, a link to the questions page (Q&A), and Sign out.
  * Hidden when this build has no history server, which is what signs visitors in.
  */
 export function mountSignIn(
@@ -54,12 +54,7 @@ export function mountSignIn(
       'div',
       { class: 'account-head' },
       h('span', { class: 'account-mark' }, mark),
-      h(
-        'span',
-        { class: 'account-who' },
-        h('strong', {}, 'GitHub'),
-        h('small', {}, 'Signed in for this tab'),
-      ),
+      h('span', { class: 'account-who' }, h('strong', {}, 'GitHub'), h('small', {}, 'Signed in')),
     ),
     h(
       'div',
@@ -67,7 +62,7 @@ export function mountSignIn(
       h(
         'div',
         { class: 'account-row' },
-        h('span', { class: 'account-label' }, 'Requests this hour'),
+        h('span', { class: 'account-label' }, 'Requests left'),
         usage,
       ),
       meter,
@@ -84,7 +79,7 @@ export function mountSignIn(
         rel: 'noopener',
       },
       icon(...ICONS.help),
-      h('span', {}, 'What Repo Tree can see'),
+      h('span', {}, 'Q&A'),
       icon(...ICONS.external),
     ),
     h(
@@ -119,7 +114,7 @@ export function mountSignIn(
         usage.textContent = 'GitHub didn’t answer. Open this again to retry.';
         return;
       }
-      usage.textContent = `${formatCount(rate.remaining)} of ${formatCount(rate.limit)} left`;
+      usage.textContent = `${formatCount(rate.remaining)} of ${formatCount(rate.limit)}`;
       const share = rate.limit ? rate.remaining / rate.limit : 0;
       fillBar.style.width = `${Math.round(Math.min(1, Math.max(0, share)) * 1000) / 10}%`;
       panel.dataset.low = String(share < 0.1);

@@ -668,7 +668,7 @@ test('Color leaves by is a dropdown: it opens, picks, and Escape closes only the
   await expect(menu).toBeHidden();
 });
 
-test('Color leaves by is a dropdown at the top of the side panel', async ({ page }) => {
+test('Color leaves by is a dropdown at the top of the side panel', async ({ page, isMobile }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   await openLegend(page);
@@ -695,6 +695,27 @@ test('Color leaves by is a dropdown at the top of the side panel', async ({ page
   const stored = await page.evaluate(() => localStorage.getItem('repo-tree:settings'));
   expect(JSON.parse(stored!).colorBy).toBe('changes');
 
+  // A folder row that the closing menu uncovers under a still mouse is not previewed (the
+  // tree would flash); moving the mouse previews it.
+  if (!isMobile) {
+    const previewed = () =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __repoTree: { previewed: number | null } }).__repoTree.previewed,
+      );
+    await pick.click();
+    const box = (await menu.getByRole('radio', { name: /Folder/ }).boundingBox())!;
+    const row = page.locator('#folders button').first();
+    await page.mouse.click(box.x + box.width / 2, (await row.boundingBox())!.y + 8);
+    await expect(menu).toBeHidden();
+    await page.waitForTimeout(300);
+    expect(await previewed()).toBeNull();
+    await page.mouse.move(box.x + box.width / 2 + 4, (await row.boundingBox())!.y + 8);
+    await expect.poll(previewed).not.toBeNull();
+    await page.mouse.move(0, 0);
+    await expect.poll(previewed).toBeNull();
+  }
+
   // Escape closes only the menu; a press elsewhere closes it too.
   await pick.click();
   await page.keyboard.press('Escape');
@@ -703,4 +724,34 @@ test('Color leaves by is a dropdown at the top of the side panel', async ({ page
   await pick.click();
   await page.locator('#legend-title').click();
   await expect(menu).toBeHidden();
+});
+
+test('the repo card has no stray dot, and its facts read with separators', async ({ page }) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await expect(page.locator('#repo-meta')).toContainText('2,898 files');
+  // The separators sit in the line; the label anchors' `.dot` is the only absolute dot.
+  for (const position of await page
+    .locator('#repo-meta .sep')
+    .evaluateAll((els) => els.map((el) => getComputedStyle(el).position)))
+    expect(position).toBe('static');
+  await expect(page.locator('.title .dot')).toHaveCount(0);
+});
+
+test('the desktop toolbar groups its actions, and Timeline leads the controls', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'desktop layout');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const share = page.getByRole('group', { name: 'Share' });
+  await expect(share.getByRole('button')).toHaveText(['Share', 'PNG']);
+  const view = page.getByRole('group', { name: 'View' });
+  await expect(view.getByRole('button', { name: 'Dark mode' })).toBeVisible();
+  await expect(view.getByRole('button', { name: 'Settings' })).toBeVisible();
+  // One dark button among the controls: Timeline, first.
+  const buttons = page.locator('.controls > .pill-btn');
+  await expect(buttons.first()).toHaveAttribute('id', 'timeline');
+  await expect(page.locator('.controls > .pill-btn.primary')).toHaveCount(1);
 });

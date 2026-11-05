@@ -372,12 +372,62 @@ kbd {
   height: 18px;
 }
 #settings-open,
-.tools > #theme {
+.tools #theme {
   padding: 0;
   width: 40px;
 }
 /* On a desktop the theme button is an icon; the phone's menu shows its label. */
-.tools > #theme .label {
+.tools #theme .label {
+  display: none;
+}
+/* Related actions share one card, split by hairlines, so the toolbar reads as three groups
+   (find, share, view) and an account button rather than six loose pills. */
+.tool-group {
+  display: flex;
+  border-radius: 12px;
+  background: var(--card);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.tool-group .tool {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.tool-group .tool + .tool {
+  box-shadow: inset 1px 0 0 var(--line);
+}
+.tool-group .tool[aria-expanded='true'] {
+  background: var(--raised);
+}
+.tool-group:not(:has(.tool)) {
+  display: none;
+}
+/* Search looks like the field it opens: wider, with its key at the far end. */
+@media (min-width: 761px) {
+  #search-open {
+    min-width: 210px;
+    justify-content: flex-start;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  #search-open svg {
+    color: var(--ink);
+  }
+  #search-open kbd {
+    margin-left: auto;
+  }
+}
+/* Signed in, the account button is the GitHub mark alone; its title says who and how to leave. */
+#signin[data-signed-in='true'] {
+  width: 40px;
+  padding: 0;
+}
+#signin[data-signed-in='true'] .label {
   display: none;
 }
 /* The More button and its menu exist only on a phone, where the menu holds the actions that
@@ -469,7 +519,7 @@ h1 a[aria-disabled] {
 .meta:empty {
   display: none;
 }
-.meta .dot {
+.meta .sep {
   color: var(--faint);
 }
 .branch {
@@ -2440,6 +2490,12 @@ body:has(.scrubber:not([hidden])) .toast {
   .controls .tools {
     gap: 6px;
   }
+  .controls .tool-group {
+    display: contents;
+  }
+  .controls .tool-group .tool {
+    box-shadow: var(--shadow);
+  }
   .controls .tool {
     background: var(--raised);
     width: 44px;
@@ -2621,4 +2677,15 @@ body:has(.scrubber:not([hidden])) .toast {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+.pr-card .pr-glyph {
+  color: var(--bird);
+  background: color-mix(in srgb, var(--bird) 14%, transparent);
+}
+.pr-card h2 {
+  overflow-wrap: anywhere;
+}
+.pr-card .pr-meta {
+  color: var(--muted);
+  font-size: 13.5px;
 }

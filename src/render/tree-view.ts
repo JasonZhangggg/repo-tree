@@ -42,6 +42,7 @@ import {
 import { LIGHT, litColor } from './color';
 import { AGES, ageBand, CHANGES, changeBand, DEAD, type Facts } from '../timeline/facts';
 import { ownerCategories } from '../timeline/owners';
+import { birdGeometry, BIRD_SIZE, onCrown, placeBirds, type Perched } from './birds';
 import { createGround } from './ground';
 import {
   DEAD_BLEACH,
@@ -66,8 +67,13 @@ import {
 } from './shaders';
 import { createWeather, MOONLIGHT, SUN_BEARING, weatherLight, weatherSky } from './weather';
 
-/** What a pixel shows: a folder's branch, or a rock lying for some of the root folder's files. */
-export type Picked = { folder: number; rock?: number };
+/**
+ * What a pixel shows: a folder's branch, a rock lying for some of the root folder's files, or a
+ * bird (an index into what setBirds was given) perched on a folder.
+ */
+export type Picked = { folder: number; rock?: number; bird?: number };
+/** A bird to perch on a folder's twig, in a plumage. */
+export type BirdPerch = { folder: number; color: string };
 /**
  * `front`: the anchor is nearer the camera than the trunk, not on the far side of the crown.
  * `depth` eases from 0, facing the camera, to 1, straight behind the trunk, as the tree turns.
@@ -140,6 +146,13 @@ export interface TreeView {
   pickAt(x: number, y: number): Picked | null;
   /** Whether a point in CSS pixels relative to the container lands on the sun or a cloud. */
   skyAt(x: number, y: number): boolean;
+  /**
+   * Perches birds on folders of the tree on show, or none; a new tree keeps them, on its own
+   * folders. They grow in at the end of the tree's growth and hide while the timeline is open.
+   */
+  setBirds(birds: readonly BirdPerch[] | null): void;
+  /** Where each bird shows on screen, in CSS pixels relative to the container, in setBirds order. */
+  birdsOnScreen(): { x: number; y: number }[];
   /** Shows the mound, its rocks and its grass under the tree, or the bare shadow. */
   setGround(on: boolean): void;
   /**
@@ -341,6 +354,23 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       toneMapped: false,
     }),
   );
+  const birdMaterial = growing(
+    new MeshStandardMaterial({
+      vertexColors: true,
+      flatShading: true,
+      roughness: 0.75,
+      side: DoubleSide,
+    }),
+  );
+  const birdMesh = new Mesh(new BufferGeometry(), birdMaterial);
+  birdMesh.customDepthMaterial = depthMaterial;
+  birdMesh.castShadow = true;
+  birdMesh.frustumCulled = false;
+  birdMesh.visible = false;
+  scene.add(birdMesh);
+  let birdPerches: readonly BirdPerch[] | null = null;
+  /** Each bird's perch in the world, in setBirds order, while some show. */
+  let birdSpots: Vec3[] = [];
   /** Light spilling past each hot leaf's edges: the leaves again, where only hot ones draw. */
   let glow: Mesh<BufferGeometry, MeshBasicMaterial> | null = null;
   const pickMaterial = new ShaderMaterial({
@@ -672,6 +702,31 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     glow.visible = count > 0;
   };
 
+  /**
+   * Rebuilds the birds on the tree on show: each on its folder's label anchor, at the crown's
+   * surface, facing along it. Hidden while the timeline shows the past.
+   */
+  const perchBirds = () => {
+    birdMesh.geometry.dispose();
+    birdMesh.geometry = new BufferGeometry();
+    birdSpots = [];
+    birdMesh.visible = false;
+    if (!shown || !birdPerches || birdPerches.length === 0) return requestRender();
+    const { anchors, nodes, rocks } = shown.model;
+    const perches: Perched[] = onCrown(
+      birdPerches.map(({ folder, color }) => {
+        const at: Vec3 = [anchors[3 * folder]!, anchors[3 * folder + 1]!, anchors[3 * folder + 2]!];
+        return { at, out: [at[0], 0, at[2]], color };
+      }),
+      shown.model.leaves.position,
+    );
+    birdMesh.geometry = birdGeometry(perches, nodes.folder.length + rocks.length);
+    birdSpots = placeBirds(perches).map(({ at }) => at);
+    birdMesh.visible = births === null;
+    renderer.shadowMap.needsUpdate = true;
+    requestRender();
+  };
+
   const bakeGround = () => {
     renderer.setRenderTarget(groundTarget);
     renderer.setClearColor(0x000000, 0);
@@ -935,6 +990,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       new BufferAttribute(falling ? fall : new Float32Array(leafBorn.length), 1),
     );
     births = next?.nodes ?? null;
+    birdMesh.visible = births === null && birdSpots.length > 0;
     if (!next) treeUniforms.uTime.value = ALWAYS;
     renderer.shadowMap.needsUpdate = true;
     requestRender();
@@ -1002,6 +1058,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       fallStart = -1;
       treeUniforms.uFloor.value = model.bounds.min[1];
       applyBirths(null);
+      // Perches name the last tree's folders: the caller gives this tree's.
+      birdPerches = null;
+      perchBirds();
       applyColorBy();
       placeScene();
       aim = { kind: 'tree' };
@@ -1029,6 +1088,20 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
     grow() {
       if (shown) startGrowth();
+    },
+
+    setBirds(next) {
+      if (next === birdPerches) return;
+      birdPerches = next;
+      perchBirds();
+    },
+
+    birdsOnScreen() {
+      const { width, height } = freeRegion();
+      return birdSpots.map(([x, y, z]) => {
+        const p = anchor.set(x, y + BIRD_SIZE * 0.25, z).project(camera);
+        return { x: ((p.x + 1) / 2) * width, y: ((1 - p.y) / 2) * height };
+      });
     },
 
     setTimeline(next) {
@@ -1138,10 +1211,13 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       for (const mesh of hidden) mesh.visible = true;
       const id = pickPixel[0]! + pickPixel[1]! * 256 + pickPixel[2]! * 65536 - 1;
       const nodes = shown.model.nodes.folder.length;
+      const rocks = shown.model.rocks.length;
       if (id < 0) return null;
-      return id < nodes
-        ? { folder: shown.model.nodes.folder[id]! }
-        : { folder: 0, rock: id - nodes };
+      if (id < nodes) return { folder: shown.model.nodes.folder[id]! };
+      if (id < nodes + rocks) return { folder: 0, rock: id - nodes };
+      const bird = id - nodes - rocks;
+      const perch = birdPerches?.[bird];
+      return perch ? { folder: perch.folder, bird } : null;
     },
 
     setQuality(next) {
@@ -1232,6 +1308,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       controls.removeEventListener('change', requestRender);
       controls.dispose();
       releaseTree();
+      birdMesh.geometry.dispose();
       for (const mesh of [sky, ground, contact, baked]) {
         mesh.geometry.dispose();
         mesh.material.dispose();
@@ -1242,6 +1319,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         depthMaterial,
         pickMaterial,
         glowMaterial,
+        birdMaterial,
       ]) {
         material.dispose();
       }

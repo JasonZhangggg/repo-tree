@@ -2,6 +2,7 @@ import type { Quality } from '../grow/grow';
 import type { Loaded, LoadStep } from '../load/load-in-worker';
 import { ciHealth, ciKey, type CiHealth, type CiRun, type Sky } from '../repo/ci';
 import type { LoadError } from '../repo/github';
+import type { OpenPulls } from '../repo/pulls';
 import type { RepoRef } from '../repo/ref';
 import type { Facts } from '../timeline/facts';
 import type { Settings } from './settings';
@@ -45,6 +46,11 @@ export type AppState = {
    * not be read. A repo missing here is still loading or never asked.
    */
   ci: Readonly<Record<string, readonly CiRun[] | null>>;
+  /**
+   * Open pull requests by `pullsKey`, perched as birds: known once read, null when they could
+   * not be. A repo missing here is still loading or never asked.
+   */
+  pulls: Readonly<Record<string, OpenPulls | null>>;
   /** A weather to show in place of the repo's own, from a link's `wx`. */
   preview: Sky | null;
   /**
@@ -76,6 +82,7 @@ export type Action =
   | { type: 'settings'; patch: Partial<Settings> }
   | { type: 'auto-quality'; quality: Quality }
   | { type: 'ci'; key: string; runs: readonly CiRun[] | null }
+  | { type: 'pulls'; key: string; pulls: OpenPulls | null }
   | { type: 'preview'; sky: Sky | null }
   | { type: 'timeline'; at: number | null }
   | { type: 'history'; history: HistoryFacts };
@@ -129,6 +136,8 @@ export function reduce(state: AppState, action: Action): AppState {
       return { ...state, autoQuality: action.quality };
     case 'ci':
       return { ...state, ci: { ...state.ci, [action.key]: action.runs } };
+    case 'pulls':
+      return { ...state, pulls: { ...state.pulls, [action.key]: action.pulls } };
     case 'preview':
       return action.sky === state.preview ? state : { ...state, preview: action.sky };
     case 'timeline':

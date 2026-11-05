@@ -14,6 +14,8 @@ export type Settings = {
   ground: boolean;
   /** Sky and weather from the repo's recent GitHub Actions runs. */
   weather: boolean;
+  /** Birds perched where the repo's open pull requests change files. */
+  birds: boolean;
   /** Light shows the day: dark turns the sky to night, the sun to a moon and the panels dark. */
   theme: Theme;
   hidden: string[];
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   growAnim: true,
   ground: true,
   weather: true,
+  birds: true,
   theme: 'light',
   hidden: [...DEFAULT_FILTERS.hidden],
   token: '',
@@ -67,6 +70,7 @@ export function parseSettings(raw: string | null, prefersDark = false): Settings
     growAnim: bool(stored.growAnim, d.growAnim),
     ground: bool(stored.ground, d.ground),
     weather: bool(stored.weather, d.weather),
+    birds: bool(stored.birds, d.birds),
     theme: oneOf(THEMES, stored.theme, prefersDark ? 'dark' : d.theme),
     hidden: Array.isArray(hidden) && hidden.every((h) => typeof h === 'string') ? hidden : d.hidden,
     token: typeof stored.token === 'string' ? stored.token : d.token,

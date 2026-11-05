@@ -49,27 +49,45 @@
             <circle cx="11" cy="11" r="6.5" />
             <path d="m20 20-4.2-4.2" />
           </svg>
-          <span class="label">Search</span><kbd>/</kbd>
+          <span class="label">Search folders</span><kbd>/</kbd>
         </button>
-        <button type="button" class="tool" id="share" aria-label="Copy link to this view">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
-            <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
-          </svg>
-          <span class="label">Share</span>
-        </button>
-        <button type="button" class="tool" id="export" aria-label="Export PNG">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19h14" />
-          </svg>
-          <span class="label">PNG</span>
-        </button>
-        <button type="button" class="tool" id="theme" aria-label="Dark mode">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10Z" />
-          </svg>
-          <span class="label">Dark mode</span>
-        </button>
+        <div class="tool-group" id="share-group" role="group" aria-label="Share">
+          <button type="button" class="tool" id="share" aria-label="Copy link to this view">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+              <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+            </svg>
+            <span class="label">Share</span>
+          </button>
+          <button type="button" class="tool" id="export" aria-label="Export PNG">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19h14" />
+            </svg>
+            <span class="label">PNG</span>
+          </button>
+        </div>
+        <div class="tool-group" role="group" aria-label="View">
+          <button type="button" class="tool" id="theme" aria-label="Dark mode">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10Z" />
+            </svg>
+            <span class="label">Dark mode</span>
+          </button>
+          <button
+            type="button"
+            class="tool"
+            id="settings-open"
+            aria-label="Settings"
+            aria-expanded="false"
+            aria-controls="settings"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h10m4 0h2M4 17h2m4 0h10" />
+              <circle cx="16" cy="7" r="2" />
+              <circle cx="8" cy="17" r="2" />
+            </svg>
+          </button>
+        </div>
         <button type="button" class="tool" id="signin" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -77,20 +95,6 @@
             />
           </svg>
           <span class="label">Sign in</span>
-        </button>
-        <button
-          type="button"
-          class="tool"
-          id="settings-open"
-          aria-label="Settings"
-          aria-expanded="false"
-          aria-controls="settings"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 7h10m4 0h2M4 17h2m4 0h10" />
-            <circle cx="16" cy="7" r="2" />
-            <circle cx="8" cy="17" r="2" />
-          </svg>
         </button>
         <button
           type="button"
@@ -206,9 +210,17 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
         </button>
       </div>
+      <button type="button" class="pill-btn primary" id="timeline" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5" />
+          <path d="M4 4v4.5h4.5" />
+          <path d="M12 8v4l2.5 1.5" />
+        </svg>
+        <span>Timeline</span>
+      </button>
       <button
         type="button"
-        class="pill-btn primary"
+        class="pill-btn"
         id="grow"
         aria-keyshortcuts="g"
         aria-label="Grow again"
@@ -227,14 +239,6 @@
       >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12m6-12v12" /></svg>
         <span>Pause spin</span>
-      </button>
-      <button type="button" class="pill-btn primary" id="timeline" aria-pressed="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5" />
-          <path d="M4 4v4.5h4.5" />
-          <path d="M12 8v4l2.5 1.5" />
-        </svg>
-        <span>Timeline</span>
       </button>
       <p class="help" id="help">Drag to orbit · scroll to zoom · click a branch to pin</p>
     </div>
@@ -272,6 +276,15 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="ci-title"
+      hidden
+    ></div>
+    <div class="scrim" id="pr-scrim" hidden></div>
+    <div
+      class="dialog compute ci-card pr-card"
+      id="pr-card"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="pr-title"
       hidden
     ></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

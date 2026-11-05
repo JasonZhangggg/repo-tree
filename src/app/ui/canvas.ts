@@ -4,7 +4,9 @@ import { debug } from '../debug';
 import { byId, h } from '../dom';
 import { bytes, count, plural } from '../format';
 import { pickLabels, relaxLabels, type LabelPick } from '../labels';
+import { birdsOf } from '../birds';
 import { mountCiCard } from './ci-card';
+import { mountPrCard } from './pr-card';
 import type { AppState, Repo, Selection } from '../state';
 import type { Picked } from '../../render/tree-view';
 
@@ -46,6 +48,7 @@ export function mountCanvas(app: App): {
   const tip = byId('tip');
   const layer = byId('labels');
   const ci = mountCiCard(app);
+  const pr = mountPrCard(app);
   // The CI chip explains the sky the same way before it leaves for GitHub.
   byId('weather').addEventListener('click', (event) => {
     if (ci.open()) event.preventDefault();
@@ -57,7 +60,13 @@ export function mountCanvas(app: App): {
   let down: { x: number; y: number } | null = null;
 
   const setHovered = (picked: Picked | null) => {
-    if (picked?.folder === hovered?.folder && picked?.rock === hovered?.rock) return;
+    if (
+      picked?.folder === hovered?.folder &&
+      picked?.rock === hovered?.rock &&
+      picked?.bird === hovered?.bird
+    ) {
+      return;
+    }
     hovered = picked;
     const folder = picked?.folder ?? null;
     const repo = store.get().repo;
@@ -73,7 +82,15 @@ export function mountCanvas(app: App): {
       tip.hidden = true;
       return;
     }
-    const { folder, rock } = picked;
+    const { folder, rock, bird } = picked;
+    const pull = bird === undefined ? undefined : birdsOf(store.get())?.[bird]?.pull;
+    if (pull) {
+      tip.replaceChildren(
+        h('code', {}, `#${pull.number} ${pull.title}`),
+        h('span', {}, `${pull.author}${pull.draft ? ' · draft' : ''} · click for details`),
+      );
+      return placeTip();
+    }
     const selection = store.get().selection;
     const pin = selectionOf(repo, picked);
     const pinned = selection?.folder === pin.folder && selection.file === pin.file;
@@ -102,6 +119,11 @@ export function mountCanvas(app: App): {
         ),
       );
     }
+    placeTip();
+  };
+
+  const placeTip = () => {
+    if (!pointer) return;
     tip.hidden = false;
     const x = Math.min(pointer.clientX + 16, innerWidth - tip.offsetWidth - 12);
     const y = Math.min(pointer.clientY + 18, innerHeight - tip.offsetHeight - 12);
@@ -161,6 +183,8 @@ export function mountCanvas(app: App): {
     const picked = view.pickAt(x, y);
     // A tap on the sky says what it stands for, and keeps the pin as it was.
     if (picked === null && view.skyAt(x, y) && ci.open()) return;
+    // A bird says which pull request it stands for, and keeps the pin as it was.
+    if (picked?.bird !== undefined && pr.open(picked.bird)) return;
     const repo = store.get().repo;
     app.select(picked === null || !repo ? null : selectionOf(repo, picked));
   });

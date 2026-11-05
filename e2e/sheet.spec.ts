@@ -136,7 +136,7 @@ test('the phone row keeps four buttons and a short menu sits behind More actions
   await expect(menu).toBeHidden();
 });
 
-test('the collapsed drawer bar picks Color leaves by, and hides it once open', async ({ page }) => {
+test('the drawer bar picks Color leaves by, collapsed or open', async ({ page }) => {
   await expect(sheet(page)).toHaveAttribute('aria-expanded', 'false');
   const field = page.locator('#quick-color-pick');
   await expect(field).toBeVisible();
@@ -157,6 +157,13 @@ test('the collapsed drawer bar picks Color leaves by, and hides it once open', a
 
   await sheet(page).tap();
   await expect(sheet(page)).toHaveAttribute('aria-expanded', 'true');
-  await expect(field).toBeHidden();
-  await expect(page.locator('#side-color-pick')).toHaveAccessibleName('Color leaves by: Folder');
+  await expect(field).toBeVisible();
+  await expect(field).toHaveAccessibleName('Color leaves by: Folder');
+  await expect(page.locator('#side-color-pick'), 'no second picker below').toBeHidden();
+  const title = (await page.locator('#sheet-title').boundingBox())!;
+  const open = (await field.boundingBox())!;
+  expect(
+    Math.abs(title.y + title.height / 2 - (open.y + open.height / 2)),
+    'side by side',
+  ).toBeLessThan(16);
 });

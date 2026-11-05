@@ -3,9 +3,9 @@ import { byId } from '../dom';
 import { colorByPicker } from './color-by';
 
 /**
- * On a phone, the collapsed drawer's bar carries Color leaves by beside its title: a compact
- * picker that opens upward, so the drawer's most-used choice is one tap away without opening it.
- * It hides while the drawer is open, where the full picker is, or while a folder is pinned.
+ * On a phone, the drawer's bar carries Color leaves by beside its title, collapsed or open: a
+ * compact picker that opens upward, so the drawer's most-used choice is one tap away. While a
+ * folder is pinned it hides, and the drawer's own picker shows instead.
  */
 export function mountQuick(app: App): void {
   const { store } = app;

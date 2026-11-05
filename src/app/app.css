@@ -385,6 +385,10 @@ kbd {
 #more {
   display: none;
 }
+/* Desktop-only buttons on a phone (more-menu.ts): their settings live in Settings. */
+.phone-off {
+  display: none !important;
+}
 
 /* Title block: repo name, meta, load status, samples. */
 .title {

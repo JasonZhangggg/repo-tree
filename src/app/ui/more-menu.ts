@@ -4,18 +4,21 @@ import { byId } from '../dom';
 const MENU_LABELS: Record<string, string> = { share: 'Copy link', export: 'Export PNG' };
 
 /**
- * On a phone the bottom row keeps Timeline, Search and Settings, and the rest of the actions move
- * into a menu behind `More actions`. The buttons themselves move, so their handlers, shortcuts and
- * accessible names stay the same; on a wider screen they go back where they came from.
+ * On a phone the bottom row keeps Timeline, Search and Settings, and a short menu behind
+ * `More actions` holds Sign in, Copy link, Export PNG and Open on GitHub. Grow again, Spin and
+ * Dark mode, which the desktop shows as buttons, are left off the phone: Spin and Dark mode are
+ * switches in Settings, and a tree regrows when it loads. The buttons themselves move, so their
+ * handlers, shortcuts and accessible names stay the same; on a wider screen they go back.
  */
 export function mountMoreMenu(phone: MediaQueryList): void {
   const more = byId<HTMLButtonElement>('more');
   const menu = byId('more-menu');
-  const timeline = byId('timeline');
   const settings = byId('settings-open');
-  const ids = ['grow', 'spin', 'share', 'export', 'theme', 'signin'];
-  const items = ids.map((id) => byId<HTMLButtonElement>(id));
-  const desktopLabels = items.map((el) => el.querySelector('.label')?.textContent ?? null);
+  /** Into the menu on a phone, in this order; back before Settings on a desktop. */
+  const moved = ['signin', 'share', 'export'].map((id) => byId<HTMLButtonElement>(id));
+  const desktopLabels = moved.map((el) => el.querySelector('.label')?.textContent ?? null);
+  /** Desktop only. */
+  const dropped = ['grow', 'spin', 'theme'].map((id) => byId<HTMLButtonElement>(id));
 
   const setOpen = (open: boolean) => {
     menu.hidden = !open;
@@ -24,24 +27,23 @@ export function mountMoreMenu(phone: MediaQueryList): void {
 
   const place = () => {
     setOpen(false);
-    items.forEach((el, i) => {
+    moved.forEach((el, i) => {
       const label = el.querySelector('.label');
-      // Only the buttons named in MENU_LABELS change label: others (theme, sign-in) keep theirs,
-      // which their own modules keep current.
-      const menuLabel = MENU_LABELS[ids[i]!];
+      // Only the buttons named in MENU_LABELS change label: sign-in keeps its own, which its
+      // module keeps current.
+      const menuLabel = MENU_LABELS[el.id];
       if (phone.matches) {
         menu.append(el);
         if (label && menuLabel) label.textContent = menuLabel;
       } else {
-        const anchor = i < 2 ? timeline : settings;
-        anchor.before(el);
+        // Desktop order: Share, PNG, (theme), Sign in, then Settings.
+        (el.id === 'signin' ? settings : byId('theme')).before(el);
         if (label && menuLabel) label.textContent = desktopLabels[i]!;
       }
     });
-    // The way to the repo on GitHub, which the phone's repo row leaves to the menu, goes last;
-    // signing in, which the rest depend on for GitHub's limit, goes first.
+    dropped.forEach((el) => el.classList.toggle('phone-off', phone.matches));
+    // The way to the repo on GitHub, which the phone's repo row leaves to the menu, goes last.
     menu.append(byId('open-github'));
-    if (phone.matches) menu.prepend(byId('signin'));
   };
 
   more.addEventListener('click', () => setOpen(menu.hidden !== false));

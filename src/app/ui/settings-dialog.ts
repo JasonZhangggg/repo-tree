@@ -307,6 +307,9 @@ export function mountSettings(app: App): {
       h(
         'div',
         { class: 'field' },
+        toggle('Dark mode', null, settings.theme === 'dark', (dark) =>
+          set({ theme: dark ? 'dark' : 'light' }),
+        ),
         toggle('Spin', null, settings.spin, (spin) => set({ spin })),
         toggle('Folder labels', null, settings.labels, (labels) => set({ labels })),
         toggle('Ground', null, settings.ground, (ground) => set({ ground })),

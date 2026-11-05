@@ -151,10 +151,10 @@ test('settings merge and auto quality resolves', () => {
   expect(qualityOf(reduce(state, { type: 'settings', patch: { quality: 'high' } }))).toBe('high');
 });
 
-test('activity colors and hotspots each ask for the history', () => {
+test('activity and changes colors each ask for the history', () => {
   expect(needsHistory(INITIAL)).toBe(false);
   expect(needsHistory(run({ type: 'settings', patch: { colorBy: 'activity' } }))).toBe(true);
-  expect(needsHistory(run({ type: 'settings', patch: { hotspots: true } }))).toBe(true);
+  expect(needsHistory(run({ type: 'settings', patch: { colorBy: 'changes' } }))).toBe(true);
 });
 
 test('the store notifies with the previous state only on change', () => {

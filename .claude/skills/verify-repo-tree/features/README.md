@@ -44,7 +44,7 @@ Each feature file starts with an H1 and one paragraph on what the user sees. The
 - [History sign-in and compute](./history-compute.md) covers the offer for a repo with no history, the big-repo and phone warning, sign-in, progress, sharing through the history Worker and the token's reach.
 - [Activity](./activity.md) covers leaf colors by last change from the history, dead wood dropping its leaves, the highlighted band and repos with no history.
 - [Changes](./changes.md) covers leaf colors by how often files changed, from the history, the highlighted band and repos with no history.
-- [Hotspots](./hotspots.md) covers the busiest files glowing from the history, the hottest files listed under the legend to pin, hotspots over every color mode and repos with no history.
+- [Busiest files](./busiest.md) covers, in Changes, the busiest files glowing in their own color, the busiest listed under the legend to pin, no glow in other modes and repos with no history.
 - [Owner](./owner.md) covers leaf colors by each top-level folder's owner (CODEOWNERS or top commit author), the highlighted owner, the pinned card's top authors and repos with no history.
 - [Weather](./weather.md) covers the sky from recent Actions runs, the chip, sample snapshots, `wx=` previews, failing soft and the setting.
 - [Performance](./performance.md) covers `scripts/perf.mjs`, the plan's targets and the last measured numbers.

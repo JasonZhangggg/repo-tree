@@ -294,7 +294,7 @@ export function mountSettings(app: App): {
           h(
             'p',
             { class: 'note' },
-            "From commit history: how often each file changed, in the color scheme's own leaves, deepest for the busiest and palest for files that rarely change.",
+            "From commit history: how often each file changed, a gradient in the color scheme's own leaves from lightest (rarely) to darkest (constantly). The busiest few glow.",
           ),
         settings.colorBy === 'owner' &&
           h(
@@ -330,9 +330,6 @@ export function mountSettings(app: App): {
         toggle('Ground', null, settings.ground, (ground) => set({ ground })),
         toggle('Weather', 'Shows CI from GitHub Actions', settings.weather, (weather) =>
           set({ weather }),
-        ),
-        toggle('Hotspots', 'Busiest files glow', settings.hotspots, (hotspots) =>
-          set({ hotspots }),
         ),
         toggle(
           'Growth animation',

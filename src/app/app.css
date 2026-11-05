@@ -694,6 +694,14 @@ h1 a[aria-disabled] {
   font-weight: 500;
   color: var(--muted);
 }
+/* Runs that couldn't be read: muted, and a button that asks GitHub again. */
+.weather[data-sky='unknown'] {
+  cursor: pointer;
+}
+.weather[data-sky='unknown'] :is(strong, .short) {
+  font-weight: 500;
+  color: var(--muted);
+}
 .icon-btn {
   display: inline-grid;
   place-items: center;

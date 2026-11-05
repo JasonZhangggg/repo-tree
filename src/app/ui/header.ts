@@ -10,7 +10,7 @@ import { describeError, type ErrorAction } from '../errors';
 import { compact, count, plural } from '../format';
 import { readRecent } from '../recent';
 import { SAMPLES } from '../samples';
-import { weatherOf, type AppState } from '../state';
+import { ciFailed, weatherOf, type AppState } from '../state';
 import { describeWeather, shortVerdict } from '../weather';
 
 const STEPS: { step: LoadStep; label: string }[] = [
@@ -408,6 +408,26 @@ export function mountHeader(app: App): void {
   /** The weather chip under the title: what the sky stands for, linking to the Actions runs. */
   const renderWeather = (state: AppState) => {
     const weather = weatherOf(state);
+    weatherChip.removeAttribute('role');
+    weatherChip.removeAttribute('tabindex');
+    if (ciFailed(state)) {
+      // Said rather than left out, so a missing sky reads as GitHub not answering; a tap asks again.
+      weatherChip.hidden = false;
+      weatherChip.dataset.sky = 'unknown';
+      weatherChip.removeAttribute('href');
+      weatherChip.setAttribute('role', 'button');
+      weatherChip.tabIndex = 0;
+      weatherChip.title =
+        'GitHub didn’t send this repository’s CI runs (its rate limit, or the network). Tap to try again.';
+      weatherChip.setAttribute('aria-label', 'CI unavailable, try again');
+      fill(
+        weatherChip,
+        icon(...ICONS.cloudy),
+        h('strong', {}, 'CI unavailable'),
+        h('b', { class: 'short', 'aria-hidden': 'true' }, 'CI unavailable'),
+      );
+      return;
+    }
     if (!weather || !state.repo) {
       weatherChip.hidden = true;
       return;
@@ -458,5 +478,14 @@ export function mountHeader(app: App): void {
     }
   };
   store.subscribe(render);
+  const retry = (event: Event) => {
+    if (weatherChip.dataset.sky !== 'unknown') return;
+    event.preventDefault();
+    app.refreshRuns();
+  };
+  weatherChip.addEventListener('click', retry);
+  weatherChip.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') retry(event);
+  });
   render(store.get());
 }

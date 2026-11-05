@@ -22,6 +22,8 @@ export type App = {
   openSettings(focus?: 'token' | 'hidden'): void;
   /** Signs in with GitHub (from a click), then reads again what the old limit may have cost. */
   signIn(): void;
+  /** Reads the repo on show's CI runs again, past the cache. */
+  refreshRuns(): void;
   openSearch(): void;
   toast(message: string): void;
 };

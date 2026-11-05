@@ -1935,6 +1935,13 @@ body:not([data-shell]) :is(.bar, .title) {
 .pill.aside.back {
   opacity: 0.35;
 }
+/* The pinned folder's own label, when no other names it; it stays clear on the far side too. */
+.pill.pin {
+  font-weight: 650;
+}
+.pill.pin.back {
+  opacity: 1;
+}
 .pill.on {
   background: var(--ink);
   color: var(--on-ink);

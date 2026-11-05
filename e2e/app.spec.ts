@@ -816,6 +816,39 @@ test('clearing a pin glides back to the whole tree; Reset view undoes a zoom', a
   await expect(reset).toBeHidden();
 });
 
+test('a pinned folder deep in the crown gets its own label', async ({ page }) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await page.locator('#search-open').click();
+  await page.keyboard.type('docs/plugins');
+  await page.keyboard.press('Enter');
+  const pin = page.locator('#labels .pill.pin');
+  await expect(pin).toHaveText('plugins/1');
+  await expect(pin).toHaveClass(/\bon\b/);
+  await page.keyboard.press('Escape');
+  await expect(pin).toHaveCount(0);
+});
+
+test('a double click glides to a branch, and from the sky back out', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'a double click is a mouse gesture');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const whole = (await settle(page)).distance;
+  const label = (await page.evaluate(
+    () =>
+      (window as unknown as { __repoTree: { labels: { path: string; x: number; y: number }[] } })
+        .__repoTree.labels,
+  ))!.find((l) => l.path === 'playground')!;
+  const box = (await page.locator('#view').boundingBox())!;
+  await page.mouse.dblclick(box.x + label.x, box.y + label.y);
+  await expect(detail(page).getByRole('navigation', { name: 'Folder path' })).toHaveText(
+    /^vite\/playground/,
+  );
+  expect((await settle(page)).distance, 'glided in').toBeLessThan(whole * 0.9);
+  await page.mouse.dblclick(box.x + 30, box.y + box.height / 2);
+  expect((await settle(page)).distance, 'back out').toBeCloseTo(whole, 1);
+});
+
 test('? lists the keyboard shortcuts, and D and T switch dark mode and the timeline', async ({
   page,
   isMobile,

@@ -5,6 +5,10 @@ const LIFT = 8;
 const ROUNDS = 40;
 /** A label on the far side of the crown gives way this much more than one in front. */
 const BACK_YIELD = 4;
+/** Steps a label turns through on its way up past a crown that fills the screen's width. */
+const TURN_STEPS = 12;
+/** How deep into the crown's outline (1 is its rim) a label held at the screen's side may reach. */
+const COVER = 0.75;
 
 export type Box = { x: number; y: number; width: number; height: number };
 
@@ -25,32 +29,64 @@ export type Crown = { x: number; y: number; rx?: number; ry?: number };
  * through its anchor, so labels ring the crown like callouts with a stem in to their section
  * instead of covering its leaves. Overlapping pairs are then pushed apart along the axis they
  * overlap least on, labels behind the crown giving way first, and moved off any of `panels`
- * the short way. Returns each label's center.
+ * the short way. With `width`, every label stays `edge` inside 0..width throughout, so labels
+ * that a narrow screen pins to its side stack apart there instead of piling up after the fact.
+ * Returns each label's center.
  */
 export function relaxLabels(
   anchors: ReadonlyArray<LabelAnchor>,
   crown: Crown,
   panels: ReadonlyArray<Box> = [],
+  width = Infinity,
+  edge = 0,
 ): { x: number; y: number }[] {
   const { rx = 0, ry = 0 } = crown;
   const placed = anchors.map((a) => {
     const dx = a.x - crown.x;
     const dy = a.y - crown.y;
     const d = Math.hypot(dx, dy);
-    const [ux, uy] = d > 1 ? [dx / d, dy / d] : [0, -1];
-    // Where the line out through the anchor leaves the outline, and the label's own half-size that way.
-    const rim = rx > 0 && ry > 0 ? 1 / Math.hypot(ux / rx, uy / ry) : 0;
-    const half = Math.abs(ux) * (a.width / 2) + Math.abs(uy) * (a.height / 2);
-    const out = Math.max(d, rim) + PUSH + half;
-    return {
-      x: crown.x + ux * out,
-      y: crown.y + uy * out - LIFT,
-      w: a.width,
-      h: a.height,
-      give: a.front ? 1 : BACK_YIELD,
+    const start = d > 1 ? Math.atan2(dy, dx) : -Math.PI / 2;
+    // Out along the line from the crown's middle through the anchor, just past the outline (or
+    // the anchor, if farther) and the label's own half-size that way.
+    const at = (angle: number) => {
+      const [ux, uy] = [Math.cos(angle), Math.sin(angle)];
+      const rim = rx > 0 && ry > 0 ? 1 / Math.hypot(ux / rx, uy / ry) : 0;
+      const half = Math.abs(ux) * (a.width / 2) + Math.abs(uy) * (a.height / 2);
+      const out = Math.max(d, rim) + PUSH + half;
+      return { x: crown.x + ux * out, y: crown.y + uy * out - LIFT };
     };
+    // A crown about as wide as the screen leaves no room beside it, and the screen's side would
+    // hold such a label over the leaves: turn it up into the sky, a step at a time, until where
+    // the side holds it no longer covers the crown's body.
+    let spot = at(start);
+    const covers = ({ x, y }: { x: number; y: number }) => {
+      if (!(width < Infinity && rx > 0 && ry > 0)) return false;
+      const half = a.width / 2 + edge;
+      if (width > 2 * half) x = Math.min(Math.max(x, half), width - half);
+      // The box's nearest point to the crown's middle, measured in the outline's own units.
+      const nx = Math.max(Math.abs(x - crown.x) - a.width / 2, 0) / rx;
+      const ny = Math.max(Math.abs(y - crown.y) - a.height / 2, 0) / ry;
+      return Math.hypot(nx, ny) < COVER;
+    };
+    if (covers(spot)) {
+      const up = -Math.PI / 2;
+      const turn = start > Math.PI / 2 ? start - 2 * Math.PI : start;
+      for (let step = 1; step <= TURN_STEPS && covers(spot); step++) {
+        spot = at(turn + ((up - turn) * step) / TURN_STEPS);
+      }
+    }
+    return { ...spot, w: a.width, h: a.height, give: a.front ? 1 : BACK_YIELD };
   });
+  const keepIn = () => {
+    for (const p of placed) {
+      const half = p.w / 2 + edge;
+      if (width > 2 * half) p.x = Math.min(Math.max(p.x, half), width - half);
+    }
+  };
+  const atSide = (p: { x: number; w: number }) =>
+    width < Infinity && (p.x - p.w / 2 - edge < 0.5 || p.x + p.w / 2 + edge > width - 0.5);
   const relax = () => {
+    keepIn();
     for (let round = 0; round < ROUNDS; round++) {
       let moved = false;
       for (let i = 0; i < placed.length; i++) {
@@ -62,8 +98,9 @@ export function relaxLabels(
           if (overlapX <= 0 || overlapY <= 0) continue;
           moved = true;
           const shareA = a.give / (a.give + b.give);
-          // Labels are much wider than tall, so moving apart vertically is usually the short way.
-          if (overlapY < overlapX * 1.6) {
+          // Labels are much wider than tall, so moving apart vertically is usually the short way,
+          // and the only way for a label the screen's side holds in place.
+          if (overlapY < overlapX * 1.6 || atSide(a) || atSide(b)) {
             const away = a.y < b.y || (a.y === b.y && i < j) ? -1 : 1;
             a.y += away * overlapY * shareA;
             b.y -= away * overlapY * (1 - shareA);
@@ -74,6 +111,7 @@ export function relaxLabels(
           }
         }
       }
+      keepIn();
       if (!moved) break;
     }
   };

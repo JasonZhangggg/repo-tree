@@ -36,6 +36,14 @@ describe('relaxLabels', () => {
     expect(overlaps(relaxLabels(anchors, { x: 400, y: 300 }), anchors)).toBe(false);
   });
 
+  test('labels a narrow screen holds at its side stack apart there, inside it', () => {
+    // A crown nearly as wide as the screen pushes these past its left edge.
+    const anchors = [pill(60, 200), pill(70, 215), pill(65, 230)];
+    const placed = relaxLabels(anchors, { x: 200, y: 260, rx: 160, ry: 120 }, [], 400, 6);
+    expect(overlaps(placed, anchors)).toBe(false);
+    for (const p of placed) expect(p.x - 45).toBeGreaterThanOrEqual(6 - 0.01);
+  });
+
   test('keeps stems from crossing', () => {
     // Left alone, pushing these two apart puts the farther anchor's label below the nearer one's.
     const anchors = [pill(300, 220), pill(360, 270)];

@@ -2382,20 +2382,20 @@ body:has(.scrubber:not([hidden])) .toast {
   .side[data-open] .side-body {
     animation: rise 0.22s var(--ease);
   }
-  /* The drawer opens on quick switches: Dark mode, Spin and GitHub sign-in. */
+  /* Under the drawer's title, open or collapsed: Dark mode, Spin and GitHub sign-in. */
   .quick {
     display: flex;
-    flex-wrap: wrap;
     justify-content: center;
     gap: 8px;
-    padding: 2px 0 12px;
+    margin-top: -4px;
+    padding: 0 12px 12px;
   }
   .quick-chip {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    min-height: 40px;
-    padding: 0 14px 0 12px;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 13px 0 11px;
     border: 0;
     border-radius: 999px;
     background: var(--wash);
@@ -2408,8 +2408,8 @@ body:has(.scrubber:not([hidden])) .toast {
       transform 0.15s var(--ease);
   }
   .quick-chip svg {
-    width: 17px;
-    height: 17px;
+    width: 16px;
+    height: 16px;
   }
   .quick-chip[aria-pressed='true'],
   .quick-chip[data-signed-in='true'] {

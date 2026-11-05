@@ -122,8 +122,9 @@ test('the phone row keeps four buttons and a short menu sits behind More actions
     'https://github.com/vitejs/vite',
   );
   // Spin and Dark mode are switches in Settings; Grow again is for a desktop.
+  // (The drawer's quick switches carry the same names; this is about the row.)
   for (const name of ['Grow again', 'Spin', 'Dark mode'])
-    await expect(page.getByRole('button', { name })).toBeHidden();
+    await expect(page.locator('.controls').getByRole('button', { name })).toBeHidden();
 
   await menu.getByRole('button', { name: /Copy link/ }).tap();
   await expect(menu).toBeHidden();
@@ -136,8 +137,8 @@ test('the phone row keeps four buttons and a short menu sits behind More actions
   await expect(menu).toBeHidden();
 });
 
-test('the drawer opens on quick switches for Dark mode and Spin', async ({ page }) => {
-  await page.locator('#sheet-toggle').tap();
+test('the collapsed drawer holds quick switches for Dark mode and Spin', async ({ page }) => {
+  await expect(page.locator('#sheet-toggle')).toHaveAttribute('aria-expanded', 'false');
   const quick = page.getByRole('group', { name: 'Quick settings' });
   await expect(quick).toBeVisible();
   const dark = quick.getByRole('button', { name: 'Dark mode' });

@@ -9,7 +9,7 @@ const GITHUB = [
 ];
 
 /**
- * On a phone, the drawer opens on a row of quick switches: Dark mode, Spin and the GitHub
+ * On a phone, the drawer's bar shows quick switches, collapsed or open: Dark mode, Spin and the GitHub
  * sign-in, which otherwise sit in Settings and the More menu. Each shows its state, and a tap
  * flips it in place.
  */

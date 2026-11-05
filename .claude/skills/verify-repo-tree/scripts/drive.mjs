@@ -2,7 +2,7 @@
 // Usage: node .claude/skills/verify-repo-tree/scripts/drive.mjs <command> [--port 4175]
 //          [--out dir] [--viewport desktop|phone|phone-390] [--scale 2] [--history]
 // Commands: launch, doctor, cleanup, or a journey: load-repo, explore, search, settings,
-// share-and-export, phone-layout, tree-sizes, timeline, weather, birds, activity, changes, busiest,
+// share-and-export, phone-layout, tree-sizes, timeline, weather, birds, hover, activity, changes, busiest,
 // history-compute.
 // `launch --history` starts e2e/history-stack.mjs instead (app, history Worker and fake GitHub
 // on port, port+1 and port+2), which the history-compute journey needs. Journeys save numbered screenshots and report.json in --out
@@ -688,6 +688,106 @@ const JOURNEYS = {
       await expect.poll(async () => (await birdsOnScreen()).length).toBe(0);
       await page.getByRole('button', { name: 'Close settings' }).click();
       await settle(page);
+    });
+  },
+
+  hover: async ({ page, step, out }) => {
+    const view = page.locator('#view');
+    const cursor = () => view.evaluate((el) => el.style.cursor);
+    /**
+     * Finds a point on what `kind` names, then shoots a close-up round it with the mouse away and
+     * with it over the thing, so the pair shows the scene fading around it.
+     */
+    const closeUp = async (kind, at) => {
+      const box = await view.boundingBox();
+      const half = 90;
+      const clip = {
+        x: Math.max(0, box.x + at.x - half),
+        y: Math.max(0, box.y + at.y - half),
+        width: 2 * half,
+        height: 2 * half,
+      };
+      await page.mouse.move(box.x + 4, box.y + box.height - 4);
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: `${out}/${kind}-off.png`, clip });
+      await page.mouse.move(box.x + at.x, box.y + at.y);
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: `${out}/${kind}-on.png`, clip });
+      await expect.poll(cursor, `${kind} takes a pointer`).toBe('pointer');
+    };
+    /** The first point on a coarse grid of the view where `test` holds, run in the page. */
+    const scan = (test) =>
+      page.evaluate((src) => {
+        const t = new Function('view', 'x', 'y', `return (${src})(view, x, y)`);
+        const view = window.__repoTree.view;
+        const el = document.getElementById('view');
+        for (let y = 4; y < el.clientHeight; y += 6)
+          for (let x = 4; x < el.clientWidth; x += 6) if (t(view, x, y)) return { x, y };
+        return null;
+      }, test.toString());
+    await servePulls(page, 'vitejs/vite', VITE_PULLS);
+    await step('loaded', async () => {
+      await page.goto(`${base}?visit=hover#/vitejs/vite?wx=cloudy`);
+      await ready(page, 'vitejs/vite');
+      await expect
+        .poll(() => page.evaluate(() => window.__repoTree.view.birdsOnScreen().length))
+        .toBe(VITE_PULLS.length);
+      await settle(page);
+    });
+    await step('bird', async () => {
+      const box = await view.boundingBox();
+      const birds = await page.evaluate(() => window.__repoTree.view.birdsOnScreen());
+      for (const b of birds) {
+        await page.mouse.move(box.x + b.x, box.y + b.y);
+        await page.waitForTimeout(300);
+        if (/^#\d+/.test((await page.locator('#tip').textContent()) ?? '')) {
+          return closeUp('bird', b);
+        }
+      }
+      throw new Error('no bird answered');
+    });
+    await step('rock', async () => {
+      const at = await scan((v, x, y) => v.pickAt(x, y)?.rock !== undefined);
+      expect(at, 'a rock on screen').not.toBeNull();
+      // Into the rock a little, off its edge.
+      await closeUp('rock', { x: at.x + 3, y: at.y + 4 });
+    });
+    await step('cloud', async () => {
+      const at = await scan(
+        (v, x, y) => typeof v.skyTargetAt(x, y) === 'number' && !v.pickAt(x, y),
+      );
+      expect(at, 'a cloud on screen').not.toBeNull();
+      await closeUp('cloud', { x: at.x + 30, y: at.y + 24 });
+      await expect(page.locator('#tip')).toContainText('click for details');
+    });
+    await step('sun', async () => {
+      const at = await scan((v, x, y) => v.skyTargetAt(x, y) === 'sun' && !v.pickAt(x, y));
+      expect(at, 'the sun on screen').not.toBeNull();
+      await closeUp('sun', { x: at.x + 18, y: at.y + 18 });
+      await expect(page.locator('#tip')).toContainText('click for details');
+    });
+    await step('away', async () => {
+      const box = await view.boundingBox();
+      await page.mouse.move(box.x + 4, box.y + box.height - 4);
+      await expect.poll(cursor).toBe('');
+    });
+    await step('night', async () => {
+      // Dark mode is a stored setting; seed it as a returning visitor would have it.
+      await page.evaluate(() =>
+        localStorage.setItem(
+          'repo-tree:settings',
+          JSON.stringify({ quality: 'low', spin: false, theme: 'dark' }),
+        ),
+      );
+      await page.reload();
+      await ready(page, 'vitejs/vite');
+      await settle(page);
+      const at = await scan(
+        (v, x, y) => typeof v.skyTargetAt(x, y) === 'number' && !v.pickAt(x, y),
+      );
+      await closeUp('night-cloud', { x: at.x + 30, y: at.y + 24 });
+      const moon = await scan((v, x, y) => v.skyTargetAt(x, y) === 'sun' && !v.pickAt(x, y));
+      await closeUp('night-moon', { x: moon.x + 18, y: moon.y + 18 });
     });
   },
 

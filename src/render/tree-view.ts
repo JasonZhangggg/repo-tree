@@ -60,6 +60,7 @@ import {
   birdUniforms,
   growing,
   glowShader,
+  focusFading,
   leafShader,
   PICK_FRAGMENT,
   PICK_VERTEX,
@@ -67,13 +68,22 @@ import {
   SKY_VERTEX,
   treeUniforms,
 } from './shaders';
-import { createWeather, MOONLIGHT, SUN_BEARING, weatherLight, weatherSky } from './weather';
+import {
+  createWeather,
+  MOONLIGHT,
+  type SkyTarget,
+  SUN_BEARING,
+  weatherLight,
+  weatherSky,
+} from './weather';
 
 /**
  * What a pixel shows: a folder's branch, a rock lying for some of the root folder's files, or a
  * bird (an index into what setBirds was given) perched on a folder.
  */
 export type Picked = { folder: number; rock?: number; bird?: number };
+/** What the mouse is over: a rock or a bird as pickAt found it, or the sun or a cloud. */
+export type Hover = Picked | { sky: SkyTarget['which'] };
 /** A bird to perch on a folder's twig, in a plumage. */
 export type BirdPerch = { folder: number; color: string };
 /**
@@ -148,6 +158,14 @@ export interface TreeView {
   pickAt(x: number, y: number): Picked | null;
   /** Whether a point in CSS pixels relative to the container lands on the sun or a cloud. */
   skyAt(x: number, y: number): boolean;
+  /** The sun (or moon) or the cloud under a point, as `Hover` names it, or null. */
+  skyTargetAt(x: number, y: number): SkyTarget['which'] | null;
+  /**
+   * Fades everything but what the mouse is over, when a click on it opens something: a rock, a
+   * bird, the sun or a cloud. A bird's perch folder stays too, through setHighlight; a folder's
+   * branch alone fades nothing here (its preview is setHighlight).
+   */
+  setHover(hover: Hover | null): void;
   /**
    * Perches birds on folders of the tree on show, or none; a new tree keeps them, on its own
    * folders. They grow in at the end of the tree's growth and hide while the timeline is open.
@@ -198,6 +216,8 @@ const QUALITY: Record<Quality, { pixelRatio: number; shadowMap: number; antialia
   high: { pixelRatio: 2, shadowMap: 2048, antialias: true },
 };
 
+/** uFocus while the mouse is over the sun or a cloud: the whole tree and ground fade. */
+const SKY_FOCUS = -2;
 const GROW_MS = 2600;
 const BAKED = 1;
 const LABELS_FROM = 0.55;
@@ -364,13 +384,15 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       toneMapped: false,
     }),
   );
-  const birdMaterial = birdShader(
-    new MeshStandardMaterial({
-      vertexColors: true,
-      flatShading: true,
-      roughness: 0.75,
-      side: DoubleSide,
-    }),
+  const birdMaterial = focusFading(
+    birdShader(
+      new MeshStandardMaterial({
+        vertexColors: true,
+        flatShading: true,
+        roughness: 0.75,
+        side: DoubleSide,
+      }),
+    ),
   );
   const birdMesh = new Mesh(new BufferGeometry(), birdMaterial);
   // Birds move every frame and the shadow map is drawn only when the tree changes, so they cast none.
@@ -534,6 +556,29 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     if (direction.lengthSq() < 1e-12) direction.set(...VIEW_DIRECTION);
     controls.target.set(x, y, z);
     camera.position.copy(controls.target).addScaledVector(direction.normalize(), distance);
+  };
+
+  /** The sun or the cloud under a point in CSS pixels relative to the container. */
+  let skyHovered: SkyTarget['which'] | null = null;
+  const skyTargetAt = (x: number, y: number): SkyTarget['which'] | null => {
+    if (!shown) return null;
+    const { width, height } = freeRegion();
+    const center = new Vector3();
+    const edge = new Vector3();
+    const right = new Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+    const hit = weather.targets().find((t) => {
+      center.set(t.x, t.y, t.z).project(camera);
+      if (center.z > 1) return false;
+      edge.set(t.x, t.y, t.z).addScaledVector(right, t.r).project(camera);
+      const cx = ((center.x + 1) / 2) * width;
+      const cy = ((1 - center.y) / 2) * height;
+      const ex = ((edge.x + 1) / 2) * width;
+      const ey = ((1 - edge.y) / 2) * height;
+      // A finger needs room even round a far, small cloud.
+      const r = Math.max(Math.hypot(ex - cx, ey - cy), 22);
+      return Math.hypot(x - cx, y - cy) <= r;
+    });
+    return hit ? hit.which : null;
   };
 
   const requestRender = () => {
@@ -1049,6 +1094,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   return {
     setTree(model) {
       releaseTree();
+      treeUniforms.uFocus.value = -1;
       labelFolders = null;
       const bark = new Mesh(geometry(model.bark), barkMaterial);
       const leafGeometry = geometry(model.leaves).setAttribute(
@@ -1191,23 +1237,28 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     },
 
     skyAt(x, y) {
-      if (!shown) return false;
-      const { width, height } = freeRegion();
-      const center = new Vector3();
-      const edge = new Vector3();
-      const right = new Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
-      return weather.targets().some((t) => {
-        center.set(t.x, t.y, t.z).project(camera);
-        if (center.z > 1) return false;
-        edge.set(t.x, t.y, t.z).addScaledVector(right, t.r).project(camera);
-        const cx = ((center.x + 1) / 2) * width;
-        const cy = ((1 - center.y) / 2) * height;
-        const ex = ((edge.x + 1) / 2) * width;
-        const ey = ((1 - edge.y) / 2) * height;
-        // A finger needs room even round a far, small cloud.
-        const r = Math.max(Math.hypot(ex - cx, ey - cy), 22);
-        return Math.hypot(x - cx, y - cy) <= r;
-      });
+      return skyTargetAt(x, y) !== null;
+    },
+
+    skyTargetAt,
+
+    setHover(hover) {
+      const nodes = shown?.model.nodes.folder.length ?? 0;
+      const rocks = shown?.model.rocks.length ?? 0;
+      const sky = hover && 'sky' in hover ? hover.sky : null;
+      const focus =
+        sky !== null
+          ? SKY_FOCUS
+          : hover && 'bird' in hover && hover.bird !== undefined
+            ? nodes + rocks + hover.bird
+            : hover && 'rock' in hover && hover.rock !== undefined
+              ? nodes + hover.rock
+              : -1;
+      if (focus === treeUniforms.uFocus.value && sky === skyHovered) return;
+      skyHovered = sky;
+      weather.setFocus(sky, focus !== -1);
+      treeUniforms.uFocus.value = focus;
+      requestRender();
     },
 
     pickAt(x, y) {

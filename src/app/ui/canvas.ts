@@ -7,7 +7,8 @@ import { pickLabels, relaxLabels, type LabelPick } from '../labels';
 import { birdsOf } from '../birds';
 import { mountCiCard } from './ci-card';
 import { mountPrCard } from './pr-card';
-import type { AppState, Repo, Selection } from '../state';
+import { weatherOf, type AppState, type Repo, type Selection } from '../state';
+import { describeWeather } from '../weather';
 import type { Picked } from '../../render/tree-view';
 
 const TAP_SLOP = 6;
@@ -135,8 +136,23 @@ export function mountCanvas(app: App): {
     const picked = pointer ? view.pickAt(pointer.x, pointer.y) : null;
     setHovered(picked);
     showTip(picked);
-    // The sun and clouds open the CI card, so they take a pointer too.
-    if (!picked && pointer && view.skyAt(pointer.x, pointer.y)) container.style.cursor = 'pointer';
+    // The sun and clouds open the CI card, so they light up and take a pointer too.
+    const sky = !picked && pointer ? view.skyTargetAt(pointer.x, pointer.y) : null;
+    container.style.cursor = picked || sky !== null ? 'pointer' : '';
+    view.setHover(sky !== null ? { sky } : picked);
+    if (sky !== null) showSkyTip();
+  };
+
+  /** Over the sun or a cloud, the tag says what the sky stands for, as a rock's names its file. */
+  const showSkyTip = () => {
+    const weather = weatherOf(store.get());
+    if (!weather) return;
+    const { verdict, detail } = describeWeather(weather.sky, weather.health, Date.now());
+    tip.replaceChildren(
+      h('code', {}, verdict),
+      h('span', {}, `${detail ? `${detail} · ` : ''}click for details`),
+    );
+    placeTip();
   };
 
   container.addEventListener('pointermove', (event) => {
@@ -396,6 +412,7 @@ export function mountCanvas(app: App): {
   store.subscribe((state, prev) => {
     if (state.repo && state.repo !== prev.repo) {
       setHovered(null);
+      view.setHover(null);
       tip.hidden = true;
       buildLabels(state);
       layer.style.opacity = '0';

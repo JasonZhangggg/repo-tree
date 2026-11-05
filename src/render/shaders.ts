@@ -40,7 +40,32 @@ export const treeUniforms = {
   uWind: { value: 0 },
   /** The tree's height, so a tree of any size bends by the same share of it. */
   uWindHeight: { value: 1 },
+  /**
+   * What the mouse is over, which stays while the rest fades: a rock's or a bird's pick id, -2
+   * for the sun or a cloud (the whole tree and ground fade), or -1 for nothing.
+   */
+  uFocus: { value: -1 },
 };
+
+/** Whether an element with pick id `id` fades because the mouse is over something else. */
+export const focusOut = (id: string) => `(uFocus != -1.0 && abs(${id} - uFocus) > 0.5)`;
+
+/**
+ * Fades every bird but the one under the mouse while it is over a rock, a bird, the sun or a
+ * cloud. Wraps the bird's own shader hook, so its motion is untouched.
+ */
+export function focusFading<M extends Material>(material: M): M {
+  const own = material.onBeforeCompile.bind(material);
+  const key = material.customProgramCacheKey.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    own(shader, renderer);
+    shader.fragmentShader =
+      'uniform float uFocus;\nuniform vec3 uFade;\n' +
+      shader.fragmentShader.replace('#include <dithering_fragment>', fade(focusOut('vId')));
+  };
+  material.customProgramCacheKey = () => `${key()}-focus`;
+  return material;
+}
 
 /**
  * A breeze: every point of the tree bends sideways by the square of its height, so the trunk
@@ -96,7 +121,9 @@ transformed = mix(aBase, transformed, grown());
 transformed += swayAt(transformed);
 vId = aId;
 `;
-const OUTSIDE = '(uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5))';
+const SELECTED_OUT = '(uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5))';
+/** Outside the highlighted range, or, with none, not what the mouse is over. */
+const OUTSIDE = `(${SELECTED_OUT} || (uSel.y < 0.0 && ${focusOut('vId')}))`;
 const OTHER_CATEGORY = '(uCategory >= 0.0 && abs(vSlot - uCategory) > 0.5)';
 /**
  * Mixes a `faded` fragment toward the sky by `amount`. `grey` (0 to 1) first drains its color, so
@@ -111,7 +138,10 @@ if (${faded}) {
 }
 `;
 export const FADE = fade(OUTSIDE);
-const FADE_UNIFORMS = 'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uCategory;\n';
+/** The ground's fade: its rocks and grass read `vId` as the root folder, and `vPick` as their pick id. */
+export const GROUND_FADE = fade(`${SELECTED_OUT} || ${focusOut('vPick')}`);
+const FADE_UNIFORMS =
+  'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uCategory;\nuniform float uFocus;\n';
 
 const HSL = /* glsl */ `
 vec3 hue2rgb(float h) {
@@ -344,7 +374,7 @@ vGlow = aHeat > 0.0 ? (1.0 - aRim) * (0.55 + 0.45 * aHeat) * uGlow * GLOW_GAIN :
         );
     shader.vertexShader = '#define GLOW_GAIN 1.2\n' + shader.vertexShader;
     shader.fragmentShader =
-      'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\n' +
+      'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\nuniform float uFocus;\n' +
       shader.fragmentShader.replace(
         'vec4 diffuseColor = vec4( diffuse, opacity );',
         `vec4 diffuseColor = vec4( diffuse, opacity * clamp(vGlow, 0.0, 1.0) );

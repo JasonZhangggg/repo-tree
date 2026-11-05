@@ -235,9 +235,14 @@ test('a rock names its root file on hover and pins it on click', async ({ page, 
   expect(rock, 'a rock under some pixel').not.toBeNull();
   expect(rock!.picked.folder, 'rocks belong to the root folder').toBe(0);
 
+  const clip = { x: rock!.x - 30, y: rock!.y - 30, width: 60, height: 60 };
+  const before = await page.screenshot({ clip });
   await page.mouse.move(rock!.x, rock!.y);
   const tip = page.locator('#tip');
   await expect(tip).toBeVisible();
+  // The rest fades around it and it takes a pointer, as everything a click opens does.
+  await expect(page.locator('#view')).toHaveCSS('cursor', 'pointer');
+  await expect.poll(async () => (await page.screenshot({ clip })).equals(before)).toBe(false);
   const root = ['MAINTAINERS', 'Makefile', 'CREDITS', 'COPYING', 'README', 'Kbuild', 'Kconfig'];
   const name = (await tip.locator('code').textContent())!;
   expect(name === 'linux/' || root.some((f) => name === f) || name.startsWith('.')).toBe(true);

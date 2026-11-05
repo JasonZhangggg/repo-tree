@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import type { Page } from '@playwright/test';
@@ -17,6 +18,102 @@ export async function serveRepo(page: Page, name: string, sample = 'mathiasbynen
     `https://api.github.com/repos/${name}/git/trees/${branch}?recursive=1`,
     (route) => route.fulfill({ json: fixture.tree }),
   );
+}
+
+type GitNode = { name: string; sha: string; size: number; kids?: GitNode[] };
+type TreeEntry = { path: string; mode: string; type: string; sha: string; size?: number };
+
+/**
+ * A GitHub stand-in that serves a sample's files as `owner/repo` with real git tree shas, and
+ * cuts every recursive listing after `max` entries the way GitHub does past 100,000. Folders
+ * and their recursive listings are served by sha. `failParts` answers those with a rate limit.
+ */
+export async function serveCutRepo(
+  page: Page,
+  name: string,
+  { sample = 'vitejs-vite', max = 1000, failParts = false } = {},
+): Promise<void> {
+  const fixture = JSON.parse(
+    gunzipSync(readFileSync(`public/samples/${sample}.json.gz`)).toString(),
+  ) as { repo: { default_branch: string }; tree: { tree: TreeEntry[] } };
+  const root: GitNode = { name: '', sha: '', size: 0, kids: [] };
+  const files = fixture.tree.tree.filter((e) => e.type === 'blob');
+  for (const file of files) {
+    let at = root;
+    const parts = file.path.split('/');
+    parts.forEach((part, i) => {
+      let kid = at.kids!.find((k) => k.name === part);
+      if (!kid) {
+        const sha = createHash('sha1').update(`blob ${file.path}`).digest('hex');
+        kid =
+          i === parts.length - 1
+            ? { name: part, sha, size: file.size ?? 0 }
+            : { name: part, sha: '', size: 0, kids: [] };
+        at.kids!.push(kid);
+      }
+      at = kid;
+    });
+  }
+  const bySha = new Map<string, GitNode>();
+  const hash = (node: GitNode) => {
+    const kids = node.kids!;
+    kids.forEach((k) => k.kids && hash(k));
+    const key = (k: GitNode) => (k.kids ? `${k.name}/` : k.name);
+    kids.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+    const body = Buffer.concat(
+      kids.flatMap((k) => [
+        Buffer.from(`${k.kids ? '40000' : '100644'} ${k.name}\0`),
+        Buffer.from(k.sha, 'hex'),
+      ]),
+    );
+    const head = Buffer.from(`tree ${body.length}\0`);
+    node.sha = createHash('sha1')
+      .update(Buffer.concat([head, body]))
+      .digest('hex');
+    bySha.set(node.sha, node);
+  };
+  hash(root);
+  const list = (node: GitNode, recursive: boolean) => {
+    const tree: TreeEntry[] = [];
+    let truncated = false;
+    const walk = (n: GitNode, prefix: string) => {
+      for (const k of n.kids!) {
+        if (tree.length >= max) return void (truncated = true);
+        const path = prefix + k.name;
+        tree.push(
+          k.kids
+            ? { path, mode: '040000', type: 'tree', sha: k.sha }
+            : { path, mode: '100644', type: 'blob', sha: k.sha, size: k.size },
+        );
+        if (recursive && k.kids) walk(k, `${path}/`);
+        if (truncated) return;
+      }
+    };
+    walk(node, '');
+    return { sha: node.sha, truncated, tree };
+  };
+  const headers = {
+    'access-control-allow-origin': '*',
+    'access-control-expose-headers': 'X-RateLimit-Remaining, X-RateLimit-Reset',
+  };
+  await page.route(`https://api.github.com/repos/${name}`, (route) =>
+    route.fulfill({ headers, json: { full_name: name, default_branch: 'main' } }),
+  );
+  await page.route(`https://api.github.com/repos/${name}/git/trees/**`, (route) => {
+    const url = new URL(route.request().url());
+    const recursive = url.searchParams.get('recursive') === '1';
+    const id = url.pathname.split('/git/trees/')[1] ?? '';
+    if (id === 'main') return route.fulfill({ headers, json: list(root, recursive) });
+    const node = bySha.get(id);
+    if (failParts || !node) {
+      return route.fulfill({
+        status: 403,
+        headers: { ...headers, 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '0' },
+        json: { message: 'API rate limit exceeded' },
+      });
+    }
+    return route.fulfill({ headers, json: list(node, recursive) });
+  });
 }
 
 /** Answers every API call with an error, exposing headers to the page the way GitHub does. */

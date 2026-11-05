@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { failRepo, quietSettings, ready, serveRepo } from './github';
+import { failRepo, quietSettings, ready, serveCutRepo, serveRepo } from './github';
 import { treePixels } from './pixels';
 import { chooseAction, openRepoField, settle } from './view';
 
@@ -74,6 +74,30 @@ test('typing owner/repo loads it from GitHub', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('acme/widgets');
   await expect(page.locator('#repo-meta')).toContainText('36 files');
   await expect(page).toHaveURL(/#\/acme\/widgets\?branch=main/);
+});
+
+test('a tree GitHub cuts short is filled in, with no partial notice', async ({ page }) => {
+  await serveCutRepo(page, 'acme/huge', { max: 1000 });
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  // The same files as the bundled vite sample, which GitHub listed whole.
+  const whole = (await page.locator('#repo-meta').textContent())?.match(/[\d,]+ files/)?.[0];
+  expect(whole).toBeTruthy();
+
+  await enterRepo(page, 'acme/huge');
+  await ready(page, 'acme/huge');
+  await expect(page.locator('#repo-meta')).toContainText(whole!);
+  await expect(page.getByText('Partial tree')).toHaveCount(0);
+});
+
+test('a cut tree that cannot be filled in keeps what it has and says so', async ({ page }) => {
+  await serveCutRepo(page, 'acme/huge', { max: 1000, failParts: true });
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+
+  await enterRepo(page, 'acme/huge');
+  await ready(page, 'acme/huge');
+  await expect(page.getByText('Partial tree')).toBeVisible();
 });
 
 test('a missing repo says so and keeps the tree on screen', async ({ page }) => {

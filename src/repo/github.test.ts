@@ -124,9 +124,9 @@ describe('fetchSnapshot', () => {
         sha: 'b2',
         truncated: false,
         tree: [
-          { path: 'main.ts', type: 'blob', sha: 'c3', size: 2048 },
           { path: 'lib', type: 'tree', sha: 'c4' },
           { path: 'lib/x.ts', type: 'blob', sha: 'c5', size: 7 },
+          { path: 'main.ts', type: 'blob', sha: 'c3', size: 2048 },
         ],
       },
       // Still too big: listed plainly, then its folder whole.

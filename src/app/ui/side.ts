@@ -244,6 +244,9 @@ export function mountSide(app: App): void {
   const legend = byId('legend');
   const legendTitle = byId('legend-title');
   /** Color leaves by, at the top of the side panel: the same dropdown as in Settings. */
+  /** The folder row and legend row the mouse last moved over, so a move hovers each once. */
+  let hoveredFolder: number | null = null;
+  let hoveredLabel: string | null = null;
   const colorBy = colorByPicker('side-color-pick', (colorBy) =>
     store.dispatch({ type: 'settings', patch: { colorBy } }),
   );
@@ -311,8 +314,18 @@ export function mountSide(app: App): void {
               'data-folder': f,
               'aria-current': String(state.selection?.folder === f),
               onclick: () => pick(f),
-              onpointerenter: () => app.hover(f),
-              onpointerleave: () => app.hover(null),
+              // Moves, not pointerenter: the browser fires enter when a row slides under a
+              // still pointer (the Color leaves by menu closing over it), which would preview
+              // a folder nobody pointed at and flash the tree.
+              onpointermove: () => {
+                if (hoveredFolder === f) return;
+                hoveredFolder = f;
+                app.hover(f);
+              },
+              onpointerleave: () => {
+                hoveredFolder = null;
+                app.hover(null);
+              },
               onfocus: () => app.hover(f),
               onblur: () => app.hover(null),
             },
@@ -370,13 +383,19 @@ export function mountSide(app: App): void {
               type: 'button',
               'data-label': label,
               onclick: () => {
+                hoveredLabel = null;
                 app.hoverCategory(null);
                 app.highlight(store.get().highlight === label ? null : label);
               },
-              onpointerenter: (event: PointerEvent) => {
-                if (event.pointerType === 'mouse') app.hoverCategory(label);
+              onpointermove: (event: PointerEvent) => {
+                if (event.pointerType !== 'mouse' || hoveredLabel === label) return;
+                hoveredLabel = label;
+                app.hoverCategory(label);
               },
-              onpointerleave: () => app.hoverCategory(null),
+              onpointerleave: () => {
+                hoveredLabel = null;
+                app.hoverCategory(null);
+              },
             },
             h('i', { class: 'swatch', style: `--c:${color}` }),
             h('span', { title: label }, shownLabel(state, label)),

@@ -7,6 +7,8 @@ export const debug: {
   repo: string;
   ready: boolean;
   hovered: string | null;
+  /** The folder the tree previews (fades the rest for), from the canvas or a side-panel row. */
+  previewed: number | null;
   labels: { path: string; x: number; y: number }[];
   timings: Record<string, number>;
   view?: TreeView;
@@ -21,6 +23,7 @@ export const debug: {
   repo: '',
   ready: false,
   hovered: null,
+  previewed: null,
   labels: [],
   timings: {},
   timeline: null,

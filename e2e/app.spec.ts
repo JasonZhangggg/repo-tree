@@ -674,6 +674,7 @@ test('Color leaves by is a dropdown: it opens, picks, and Escape closes only the
 });
 
 test('Color leaves by is a dropdown at the top of the side panel', async ({ page, isMobile }) => {
+  test.skip(isMobile, "a phone has it in the drawer's bar instead (sheet.spec)");
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   await openLegend(page);

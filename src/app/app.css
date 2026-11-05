@@ -2600,24 +2600,24 @@ body:has(.scrubber:not([hidden])) .toast {
   .side[data-open] .side-body {
     animation: rise 0.22s var(--ease);
   }
-  /* The collapsed bar: title on the left, Color leaves by on the right, opening upward. Open,
-     the drawer has the full picker; pinned, the bar's right corner holds Clear selection. */
+  /* The drawer's bar, collapsed or open: title on the left, Color leaves by on the right,
+     opening upward, in place of the drawer's own picker. Pinned, the bar's right corner holds
+     Clear selection, so the picker goes back inside the drawer. */
   .quick {
     display: block;
     position: absolute;
     top: 20px;
     right: 14px;
   }
-  .side[data-open] .quick,
-  .side[data-dragging] .quick,
-  .side:has(.sheet-clear:not([hidden])) .quick {
+  .side:has(.sheet-clear:not([hidden])) .quick,
+  .side:not(:has(.sheet-clear:not([hidden]))) .color-by {
     display: none;
   }
-  .side:not([data-open], [data-dragging]):not(:has(.sheet-clear:not([hidden]))) .sheet-handle {
+  .side:not(:has(.sheet-clear:not([hidden]))) .sheet-handle {
     padding-left: 20px;
     padding-right: 20px;
   }
-  .side:not([data-open], [data-dragging]):not(:has(.sheet-clear:not([hidden]))) .peek {
+  .side:not(:has(.sheet-clear:not([hidden]))) .peek {
     justify-self: stretch;
     justify-items: start;
     margin-right: 136px;

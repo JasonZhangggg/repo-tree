@@ -617,7 +617,8 @@ const JOURNEYS = {
       await serveRuns(page, 'acme/limited', '', { status: 403 });
       await enter(page, 'acme/limited');
       await ready(page, 'acme/limited');
-      await expect(chip).toBeHidden();
+      await expect(chip).toHaveAttribute('data-sky', 'unknown');
+      await expect(chip).toHaveAttribute('aria-label', 'CI unavailable, try again');
       await expect(page.locator('#status')).toBeEmpty();
     });
     await step('winter-preview', async () => {

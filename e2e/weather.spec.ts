@@ -102,7 +102,9 @@ test('the sky follows each repo’s recent Actions runs, darker as CI breaks', a
   }
 });
 
-test('a rate-limited Actions API leaves the tree and shows no weather', async ({ page }) => {
+test('a rate-limited Actions API leaves the tree, says CI is unavailable, and a tap asks again', async ({
+  page,
+}) => {
   await serveRepo(page, 'acme/limited-ci');
   await serveRuns(page, 'acme/limited-ci', '', {
     status: 403,
@@ -112,7 +114,19 @@ test('a rate-limited Actions API leaves the tree and shows no weather', async ({
   await ready(page, 'acme/limited-ci');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('acme/limited-ci');
   await expect(page.locator('#status')).toBeEmpty();
-  await expect(chip(page)).toBeHidden();
+  // No sky, but the chip says why rather than nothing.
+  await expect(chip(page)).toHaveAttribute('data-sky', 'unknown');
+  await expect(page.getByRole('button', { name: 'CI unavailable, try again' })).toBeVisible();
+  await expect(chip(page)).not.toHaveAttribute('href');
+
+  // The limit resets: a tap reads the runs again, and the weather comes.
+  await page.unroute((url) =>
+    url.href.startsWith('https://api.github.com/repos/acme/limited-ci/actions/runs?'),
+  );
+  await serveRuns(page, 'acme/limited-ci', 'x' + '.'.repeat(19));
+  await page.getByRole('button', { name: 'CI unavailable, try again' }).click();
+  await expect(chip(page)).toHaveAttribute('data-sky', 'rain');
+  await expect(chip(page)).toHaveAttribute('href', /actions/);
 });
 
 test('bundled samples carry their own weather, and a link can preview any', async ({ page }) => {
@@ -139,6 +153,20 @@ test('a sample shows its live CI when GitHub answers, and its bundled runs when 
   await ready(page, 'torvalds/linux');
   await expect(chip(page)).toHaveAttribute('data-sky', 'rain');
   await expect(chip(page)).toHaveAttribute('aria-label', 'CI failing, last run failed 2 hours ago');
+});
+
+test('a sample reloaded live keeps its bundled weather when GitHub refuses its runs', async ({
+  page,
+}) => {
+  await serveRepo(page, 'vitejs/vite', 'vitejs-vite');
+  await serveRuns(page, 'vitejs/vite', '', { status: 403 });
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await expect(chip(page)).toHaveAttribute('aria-label', 'CI passing, 20 of 20 recent runs');
+  await page.getByRole('button', { name: 'Reload from GitHub' }).click();
+  await expect(page.locator('#repo-meta [title^="Bundled with the app"]')).toHaveCount(0);
+  await ready(page, 'vitejs/vite');
+  await expect(chip(page)).toHaveAttribute('aria-label', 'CI passing, 20 of 20 recent runs');
 });
 
 test('turning weather off in settings clears the sky and survives a reload', async ({

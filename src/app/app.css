@@ -422,12 +422,13 @@ kbd {
     margin-left: auto;
   }
 }
-/* Signed in, the account button is the GitHub mark alone; its title says who and how to leave. */
-#signin[data-signed-in='true'] {
+/* Signed in, the toolbar's account button is the GitHub mark alone; its title says who and how
+   to leave. In the phone's More menu it keeps its label, Sign out, like every other row. */
+#signin[data-signed-in='true']:not(#more-menu *) {
   width: 40px;
   padding: 0;
 }
-#signin[data-signed-in='true'] .label {
+#signin[data-signed-in='true']:not(#more-menu *) .label {
   display: none;
 }
 /* The More button and its menu exist only on a phone, where the menu holds the actions that
@@ -600,6 +601,14 @@ h1 a[aria-disabled] {
   background: rgba(59, 67, 80, 0.14);
 }
 .weather[data-sky='clear'] strong {
+  font-weight: 500;
+  color: var(--muted);
+}
+/* Runs that couldn't be read: muted, and a button that asks GitHub again. */
+.weather[data-sky='unknown'] {
+  cursor: pointer;
+}
+.weather[data-sky='unknown'] :is(strong, .short) {
   font-weight: 500;
   color: var(--muted);
 }

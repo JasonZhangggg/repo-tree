@@ -191,6 +191,22 @@ test.describe('on a phone', () => {
     const first = page.locator('#more-menu > :first-child');
     await expect(first).toHaveAccessibleName('Sign in with GitHub');
     await expect(first).toBeVisible();
+    await expect(first.locator('.label')).toHaveText('Sign in');
+
+    // Signed in, the row reads Sign out, lined up with the rows under it: not the toolbar's bare
+    // 40 px mark.
+    const popup = page.waitForEvent('popup');
+    await first.tap();
+    await closed(await popup);
+    await expect(page.locator('#toast')).toHaveText('Signed in with GitHub');
+    await page.getByRole('button', { name: 'More actions' }).tap();
+    await expect(first).toHaveAccessibleName('Sign out of GitHub');
+    await expect(first.locator('.label')).toBeVisible();
+    await expect(first.locator('.label')).toHaveText('Sign out');
+    const row = (await first.boundingBox())!;
+    const next = (await page.locator('#more-menu > :nth-child(2)').boundingBox())!;
+    expect(row.x).toBeCloseTo(next.x, 0);
+    expect(row.width).toBeGreaterThan(120);
   });
 
   test('warns with the estimate before starting, and lets the visitor choose', async ({ page }) => {

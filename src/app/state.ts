@@ -161,6 +161,16 @@ export function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null 
   return { sky: health.sky, health };
 }
 
+/**
+ * Whether the repo on show has CI weather turned on but its runs could not be read (GitHub
+ * refused or did not answer), as against not read yet.
+ */
+export function ciFailed(state: AppState): boolean {
+  const { repo, settings, preview } = state;
+  if (!repo || !settings.weather || preview) return false;
+  return state.ci[ciKey(repo.info.ref, repo.info.branch)] === null;
+}
+
 /** Whether what is on show needs the repo's history. */
 export const needsHistory = (state: AppState): boolean =>
   state.settings.colorBy === 'activity' ||

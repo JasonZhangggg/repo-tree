@@ -6,7 +6,7 @@ A user changes how the tree looks and loads from the Settings popover (a bottom 
 
 - `settings-palette` recolors leaves, bark and sky with Autumn, Spring blossom, Summer green or Winter without regrowing.
 - `settings-color-by` colors leaves by language or by top-level folder and retitles the legend.
-- `color-by-row` puts the same five choices (Language, Folder, Activity, Changes, Owner) in the side panel under the legend title, one click each: a radio group (arrows move it) that fits the panel's width, kept in step with Settings.
+- `color-by-side` puts the same `Color leaves by` dropdown at the top of the side panel (`#side-color-pick`, its own card above the folders and any pinned card): a field with the current way that opens a radio menu of all five, closed by a pick, Escape or a press elsewhere, kept in step with Settings.
 - `settings-quality` picks Auto, Low, Medium or High and regrows the tree.
 - `settings-toggles` switches spin, folder labels, the ground (the island, its rocks and grass), weather and the growth animation.
 - `settings-hidden` hides folders by exact name at any depth and regrows the tree.

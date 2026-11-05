@@ -24,7 +24,7 @@ export const DEAD = AGES.length - 1;
  * folder takes the band most of its files are in, the busier on a tie, as for AGES.
  */
 export const CHANGES: readonly { label: string; atLeast: number }[] = [
-  { label: 'Constantly', atLeast: 30 },
+  { label: 'Constantly', atLeast: 20 },
   { label: 'Often', atLeast: 10 },
   { label: 'Sometimes', atLeast: 3 },
   { label: 'Rarely', atLeast: 0 },
@@ -86,10 +86,11 @@ export type Facts = {
   /** Per sprig, the CHANGES band most of its files are in. */
   sprigChangeBand: Uint8Array;
   /**
-   * Per sprig, where its leaves sit on the Changes gradient: the mean `changeLevel` of its files,
-   * or, for a sprig holding a busiest file (Facts.hot), its hottest file's level when that is higher. A sprig
-   * stands for many files on a big tree, so a mean alone would bury the busiest in quiet
-   * neighbours and nothing would ever reach the darkest stop; the glowing leaves take it.
+   * Per sprig, where its leaves sit on the Changes gradient: the upper quartile of its files'
+   * `changeLevel`, or, for a sprig holding a busiest file (Facts.hot), its hottest file's level
+   * when that is higher. A sprig stands for many files on a big tree, so a mean would bury the
+   * busy ones in quiet neighbours: the tree would read one color and nothing would reach the
+   * darkest stop. The upper quartile spreads twigs along the gradient, and glowing leaves take it.
    */
   sprigChangeLevel: Float32Array;
   /** Per TreeModel folder, the CHANGES band most of the files under it are in. */
@@ -183,6 +184,7 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
   const changeTally = new Uint32Array(CHANGES.length);
   const sprigHeat = new Float32Array(sprigCount);
   const sprigChangeLevel = new Float32Array(sprigCount);
+  const levels: number[] = [];
   const nodeChanged = new Float64Array(nodes.parent.length).fill(-Infinity);
   const tally = new Uint32Array(bands);
   for (let s = 0; s < sprigCount; s++) {
@@ -197,11 +199,11 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
       newest = Math.max(newest, fileChanged[file]!);
       sprigHeat[s] = Math.max(sprigHeat[s]!, fileHeat[file]!);
       const level = changeLevel(fileChurn[file]!);
-      sprigChangeLevel[s] = sprigChangeLevel[s]! + level;
+      levels.push(level);
       if (fileHeat[file]! > 0) hottest = Math.max(hottest, level);
     }
-    const files = sprigs.file[s + 1]! - sprigs.file[s]!;
-    if (files > 0) sprigChangeLevel[s] = Math.max(sprigChangeLevel[s]! / files, hottest);
+    sprigChangeLevel[s] = Math.max(upperQuartile(levels), hottest);
+    levels.length = 0;
     sprigBand[s] = most(tally, 0);
     sprigChangeBand[s] = most(changeTally, 0);
     const twig = leaves.nodeId[sprigs.vertex[s]!]!;
@@ -230,6 +232,13 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
     hot,
     owners: historyOwners(history),
   };
+}
+
+/** The value a quarter of `values` are at or above (0 for none); sorts `values`. */
+function upperQuartile(values: number[]): number {
+  if (values.length === 0) return 0;
+  values.sort((a, b) => a - b);
+  return values[Math.floor(values.length * 0.75)]!;
 }
 
 /** Per folder, the band (of four, AGES or CHANGES) most of the files under it are in. */

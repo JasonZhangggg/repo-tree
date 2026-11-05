@@ -28,4 +28,10 @@ describe('describeError', () => {
       'GitHub rejected your token',
     );
   });
+
+  test('a network failure names the repo it was growing', () => {
+    const copy = describeError({ kind: 'network' }, ref, { hasToken: false });
+    expect(copy.body).toContain('acme/widgets');
+    expect(copy.actions).toEqual(['retry']);
+  });
 });

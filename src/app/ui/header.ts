@@ -25,35 +25,36 @@ export function mountHeader(app: App): void {
   const input = byId<HTMLInputElement>('repo-input');
   const error = byId('repo-error');
   const suggest = byId('suggest');
-  const link = byId<HTMLAnchorElement>('repo-link');
+  const title = byId('title');
+  const link = byId<HTMLButtonElement>('repo-link');
   const meta = byId('repo-meta');
   const status = byId('status');
-  const samples = byId('samples');
   const weatherChip = byId<HTMLAnchorElement>('weather');
   const switcher = byId<HTMLButtonElement>('repo-switch');
 
-  /** On a phone the repo field folds into the repo row, and this button opens it there. */
+  /**
+   * The repo field folds into the repo card, and the card's GitHub mark or the repo's name opens
+   * it there, in the card's place.
+   */
   const setOpen = (open: boolean) => {
     document.body.toggleAttribute('data-repo-open', open);
     switcher.setAttribute('aria-expanded', String(open));
+    link.setAttribute('aria-expanded', String(open));
   };
   const openField = () => {
     setOpen(true);
     input.focus();
   };
   switcher.addEventListener('click', openField);
-  // On a phone the name opens the field too; the branch chip is the way to GitHub there.
-  const phone = matchMedia('(max-width: 760px)');
-  link.addEventListener('click', (event) => {
-    if (!phone.matches) return;
-    event.preventDefault();
-    openField();
-  });
+  // The name opens the field too; the branch chip and the GitHub button are the ways to GitHub.
+  link.addEventListener('click', openField);
 
   const setInvalid = (message: string) => {
     error.textContent = message;
     input.setAttribute('aria-invalid', String(!!message));
     form.toggleAttribute('data-invalid', !!message);
+    // The hint takes the list's place under the field rather than covering it.
+    if (message) closeSuggest();
   };
 
   const closeSuggest = () => {
@@ -178,22 +179,6 @@ export function mountHeader(app: App): void {
     closeSuggest();
     setOpen(false);
   });
-
-  samples.replaceChildren(
-    ...SAMPLES.map((s) =>
-      h(
-        'button',
-        {
-          type: 'button',
-          'data-sample': s.id,
-          'aria-pressed': 'false',
-          onclick: () => choose(`${s.owner}/${s.repo}`),
-        },
-        s.label,
-        h('small', {}, compact(s.files)),
-      ),
-    ),
-  );
 
   const runAction = (action: ErrorAction, state: AppState) => {
     if (action === 'retry' && state.load.phase === 'error') app.load(state.load.ref);
@@ -341,19 +326,18 @@ export function mountHeader(app: App): void {
     const { repo, load } = state;
     const shownRef = repo?.info.ref ?? (load.phase === 'idle' ? null : load.ref);
     if (!shownRef) return;
+    title.dataset.repo = `${shownRef.owner}/${shownRef.repo}`;
     link.replaceChildren(
       h('span', {}, `${shownRef.owner}/${shownRef.repo}`),
-      icon(...ICONS.external),
+      icon(...ICONS.chevron),
     );
+    link.title = 'Change repository';
+    title.toggleAttribute('data-loading', !repo);
     if (!repo) {
-      link.removeAttribute('href');
-      link.setAttribute('aria-disabled', 'true');
       fill(meta);
       return;
     }
-    link.removeAttribute('aria-disabled');
-    link.href = byId<HTMLAnchorElement>('open-github').href = githubUrl(repo.info.ref);
-    link.title = 'Open on GitHub';
+    byId<HTMLAnchorElement>('open-github').href = githubUrl(repo.info.ref);
     const { folders } = repo.index;
     const langs = repo.index.langs.filter((l) => l !== 'Other').length;
     // Not `.dot`: that class is the label anchors' dot, absolutely placed.
@@ -397,12 +381,22 @@ export function mountHeader(app: App): void {
       h('span', { class: 'files' }, plural(folders.files[0]!, 'file')),
       sep('sep opt'),
       h('span', { class: 'opt' }, plural(folders.files.length - 1, 'folder')),
-      sep('sep opt'),
-      h('span', { class: 'opt' }, plural(langs, 'language')),
+      sep('sep opt langs'),
+      h('span', { class: 'opt langs' }, plural(langs, 'language')),
+      // A phone keeps this in its More menu.
+      h(
+        'a',
+        {
+          class: 'icon-btn gh',
+          href: githubUrl(repo.info.ref),
+          target: '_blank',
+          rel: 'noopener',
+          'aria-label': 'Open on GitHub',
+          title: 'Open on GitHub',
+        },
+        icon(...ICONS.external),
+      ),
     );
-    for (const button of samples.querySelectorAll('button')) {
-      button.setAttribute('aria-pressed', String(button.dataset.sample === repo.sample));
-    }
   };
 
   /** The weather chip under the title: what the sky stands for, linking to the Actions runs. */

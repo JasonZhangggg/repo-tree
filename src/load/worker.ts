@@ -32,7 +32,8 @@ async function snapshotOf(source: LoadSource): Promise<Snapshot | LoadError> {
   const { owner, repo, ref = '' } = source.ref;
   const key = `${owner}/${repo}@${ref}`.toLowerCase();
   const hit = source.fresh ? undefined : await cachedSnapshot(key);
-  if (hit) {
+  // A tree stored cut short (before trees were filled in, or after a rate limit) is read again.
+  if (hit && !hit.truncated) {
     post({ branch: hit.branch });
     return hit;
   }

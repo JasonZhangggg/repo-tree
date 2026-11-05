@@ -105,10 +105,82 @@ describe('fetchSnapshot', () => {
     expect(snapshot).toMatchObject({ branch: 'feat/a b' });
   });
 
-  test('keeps the truncated flag', async () => {
-    github({ ...TREE, truncated: true });
+  test('reads a tree GitHub cut short a folder at a time, down to where listings fit', async () => {
+    const trees: Record<string, unknown> = {
+      // The whole tree, cut short.
+      'trunk?recursive=1': { ...TREE, truncated: true, tree: TREE.tree.slice(0, 2) },
+      // Its own entries: a file, two folders and a submodule.
+      f00d: {
+        sha: 'f00d',
+        truncated: false,
+        tree: [
+          { path: 'README.md', type: 'blob', sha: 'a1', size: 120 },
+          { path: 'big', type: 'tree', sha: 'b1' },
+          { path: 'src', type: 'tree', sha: 'b2' },
+          { path: 'vendor', type: 'commit', sha: 'd4' },
+        ],
+      },
+      'b2?recursive=1': {
+        sha: 'b2',
+        truncated: false,
+        tree: [
+          { path: 'main.ts', type: 'blob', sha: 'c3', size: 2048 },
+          { path: 'lib', type: 'tree', sha: 'c4' },
+          { path: 'lib/x.ts', type: 'blob', sha: 'c5', size: 7 },
+        ],
+      },
+      // Still too big: listed plainly, then its folder whole.
+      'b1?recursive=1': { sha: 'b1', truncated: true, tree: [] },
+      b1: {
+        sha: 'b1',
+        truncated: false,
+        tree: [
+          { path: 'a.txt', type: 'blob', sha: 'e1', size: 1 },
+          { path: 'deep', type: 'tree', sha: 'e2' },
+        ],
+      },
+      'e2?recursive=1': {
+        sha: 'e2',
+        truncated: false,
+        tree: [{ path: 'z.txt', type: 'blob', sha: 'e3', size: 2 }],
+      },
+    };
+    const calls = fakeFetch((url) => {
+      const key = url.split('/git/trees/')[1];
+      return key === undefined ? json(REPO) : key in trees ? json(trees[key]) : json({}, 404);
+    });
 
-    expect(await fetchSnapshot(ref('octo/demo'))).toMatchObject({ truncated: true });
+    const snapshot = await fetchSnapshot(ref('octo/demo'));
+
+    expect(snapshot).toMatchObject({
+      truncated: false,
+      files: [
+        { path: 'README.md', size: 120 },
+        { path: 'big/a.txt', size: 1 },
+        { path: 'big/deep/z.txt', size: 2 },
+        { path: 'src/lib/x.ts', size: 7 },
+        { path: 'src/main.ts', size: 2048 },
+      ],
+    });
+    expect(calls).toHaveLength(7);
+  });
+
+  test('keeps the partial tree when reading it in parts fails', async () => {
+    fakeFetch((url) =>
+      url.endsWith('?recursive=1') && url.includes('/git/trees/trunk')
+        ? json({ ...TREE, truncated: true })
+        : url.includes('/git/trees/')
+          ? json({ message: 'rate limited' }, 403, { 'x-ratelimit-remaining': '0' })
+          : json(REPO),
+    );
+
+    expect(await fetchSnapshot(ref('octo/demo'))).toMatchObject({
+      truncated: true,
+      files: [
+        { path: 'README.md', size: 120 },
+        { path: 'src/main.ts', size: 2048 },
+      ],
+    });
   });
 
   test.each([

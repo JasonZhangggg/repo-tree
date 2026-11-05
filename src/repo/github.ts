@@ -47,11 +47,79 @@ export async function fetchSnapshot(
     const path = branch.split('/').map(encodeURIComponent).join('/');
     const res = await get(`/git/trees/${path}?recursive=1`);
     if (!res.ok) return httpError(res);
-    return toSnapshot(ref, branch, await res.json());
+    const snapshot = toSnapshot(ref, branch, await res.json());
+    if ('kind' in snapshot || !snapshot.truncated) return snapshot;
+    // GitHub cuts one recursive listing at 100,000 entries, signed in or not. A tree past that
+    // comes whole a folder at a time: each top-level folder's own recursive listing, and a
+    // folder still too big one level down, and so on.
+    const whole = await readInParts(get, snapshot.sha);
+    return whole ? { ...snapshot, truncated: false, files: whole } : snapshot;
   } catch (error) {
     if (signal?.aborted) throw error;
     return NETWORK;
   }
+}
+
+/** Most requests a truncated tree may spend coming whole, and how many run at once. */
+const PART_BUDGET = 200;
+const PART_WORKERS = 6;
+
+type TreeEntry = { path: string; type: string; sha: string; size?: number };
+
+/**
+ * Every file of the tree `sha`, read folder by folder: a recursive listing of each folder, and
+ * where that is cut short too, a plain listing and its subfolders in turn. Null when a request
+ * fails or the budget runs out, so the caller keeps the partial tree it has.
+ */
+async function readInParts(
+  get: (path: string) => Promise<Response>,
+  sha: string,
+): Promise<FileEntry[] | null> {
+  let spent = 0;
+  const list = async (treeSha: string, recursive: boolean) => {
+    if (++spent > PART_BUDGET) return null;
+    const res = await get(`/git/trees/${treeSha}${recursive ? '?recursive=1' : ''}`);
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    if (!isRecord(body) || !Array.isArray(body.tree) || typeof body.truncated !== 'boolean') {
+      return null;
+    }
+    return { truncated: body.truncated, tree: body.tree as TreeEntry[] };
+  };
+  const files: FileEntry[] = [];
+  // Folders still to read whole, as [sha, path prefix].
+  const queue: [string, string][] = [];
+  const root = await list(sha, false);
+  if (!root) return null;
+  const take = (entries: TreeEntry[], prefix: string, folders: boolean) => {
+    for (const e of entries) {
+      if (e.type === 'blob' && typeof e.size === 'number') {
+        files.push({ path: prefix + e.path, size: e.size });
+      } else if (folders && e.type === 'tree') queue.push([e.sha, `${prefix}${e.path}/`]);
+    }
+  };
+  take(root.tree, '', true);
+  let failed = false;
+  const work = async () => {
+    while (queue.length && !failed) {
+      const [treeSha, prefix] = queue.shift()!;
+      const whole = await list(treeSha, true);
+      if (!whole) return void (failed = true);
+      if (!whole.truncated) {
+        take(whole.tree, prefix, false);
+        continue;
+      }
+      const own = await list(treeSha, false);
+      if (!own) return void (failed = true);
+      take(own.tree, prefix, true);
+    }
+  };
+  // Workers pick folders up as they go; one finishing early leaves the rest to the others.
+  while (queue.length && !failed) {
+    await Promise.all(Array.from({ length: PART_WORKERS }, work));
+  }
+  if (failed) return null;
+  return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
 /** `base` is the URL of the folder that holds `samples/`. */

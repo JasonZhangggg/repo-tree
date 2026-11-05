@@ -23,13 +23,10 @@ export const treeUniforms = {
   /** Bark of a dead-wood branch (`aDead` 1), in linear RGB. */
   uDeadBark: { value: [0.6, 0.6, 0.6] as [number, number, number] },
   /**
-   * How strongly hot leaves (`aHeat` above 0) glow `uGlowColor`, in linear RGB: 0 with hotspots
-   * off, steady under reduced motion, and a slow pulse otherwise.
+   * How strongly hot leaves (`aHeat` above 0) glow in their own color: 0 while none are hot,
+   * steady under reduced motion, and a slow pulse otherwise.
    */
   uGlow: { value: 0 },
-  uGlowColor: { value: [1, 0.34, 0.03] as [number, number, number] },
-  /** 1 while some leaves glow: the others calm (drain and pale a little) so the glow reads. */
-  uCalm: { value: 0 },
   /**
    * How far dead-wood leaves (`aFall` 1) have fallen, 0 to 1: each tumbles down to `uFloor`
    * after its own small delay and shrinks away as it lands.
@@ -110,7 +107,8 @@ if (uCategory >= 0.0 && !${OTHER_CATEGORY}) {
 
 /**
  * Leaves take their color from a palette slot, then shift it by their own [hue, lightness]. The
- * lightness shift scales rather than adds, so a dark slot varies as little as a light one.
+ * lightness shift scales rather than adds, so a dark slot varies as little as a light one. A
+ * fractional `aSlot` blends the two slots either side of it: the Changes gradient.
  */
 const LEAF_VERTEX = /* glsl */ `
 attribute float aSlot;
@@ -147,24 +145,12 @@ if (aFall > 0.5 && uFall > 0.0) {
 }
 `;
 /**
- * A hot leaf glows: its color turns EMBER of the way to a dark `uGlowColor` (light brings it up to
- * a vivid amber), and `uGlowColor` adds on top by its heat times `uGlow`. Every other leaf calms by
- * CALM while `uCalm` is 1, keeping its hue, so the glow reads on any leaf color and palette,
- * autumn's own oranges too. Both still fade with a highlight.
+ * A hot leaf keeps its color and lights up a little in it: its own color adds on as emission by
+ * its heat times `uGlow`. It still fades with a highlight.
  */
-const HOT_COLOR = /* glsl */ `
-diffuseColor.rgb *= vLeaf;
-diffuseColor.rgb = mix(diffuseColor.rgb, uGlowColor * EMBER_ALBEDO, step(0.001, vHeat) * EMBER);
-`;
 const HOT_GLOW = /* glsl */ `
 #include <emissivemap_fragment>
-totalEmissiveRadiance += uGlowColor * (step(0.001, vHeat) * (0.55 + 0.45 * vHeat) * uGlow * SELF_LIT);
-`;
-const CALM = /* glsl */ `
-if (uCalm > 0.5 && vHeat <= 0.0) {
-  float l = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(l * 0.7), CALM);
-}
+totalEmissiveRadiance += vLeaf * (step(0.001, vHeat) * (0.55 + 0.45 * vHeat) * uGlow * SELF_LIT);
 `;
 
 type Hook = (shader: WebGLProgramParametersWithUniforms) => void;
@@ -210,27 +196,28 @@ export const leafShader = <M extends Material>(m: M, slots: number) =>
       LEAF_VERTEX +
       shader.vertexShader.replace(
         '#include <begin_vertex>',
-        '#include <begin_vertex>\nvLeaf = offsetHSL(uSlots[int(aSlot)], aShade.x, aShade.y);\nvSlot = aSlot;\nvHeat = aHeat;\n' +
+        '#include <begin_vertex>\nint slot = int(aSlot);\nvLeaf = offsetHSL(mix(uSlots[slot], uSlots[min(slot + 1, SLOTS - 1)], fract(aSlot)), aShade.x, aShade.y);\nvSlot = aSlot;\nvHeat = aHeat;\n' +
           FALL,
       );
     shader.fragmentShader =
       LEAF_TUNING +
       FADE_UNIFORMS +
       'varying vec3 vLeaf;\nvarying float vSlot;\nvarying float vHeat;\n' +
-      '#define CALM 0.65\n#define SELF_LIT 1.4\n#define EMBER 0.85\n#define EMBER_ALBEDO 0.26\nuniform float uGlow;\nuniform vec3 uGlowColor;\nuniform float uCalm;\n' +
+      '#define SELF_LIT 0.5\nuniform float uGlow;\n' +
       HSL +
       shader.fragmentShader
-        .replace('#include <color_fragment>', HOT_COLOR)
+        .replace(
+          '#include <color_fragment>',
+          '#include <color_fragment>\ndiffuseColor.rgb *= vLeaf;',
+        )
         .replace('#include <emissivemap_fragment>', HOT_GLOW)
         .replace(
           '#include <dithering_fragment>',
-          CALM +
-            fade(
-              `${OTHER_CATEGORY} || ${OUTSIDE}`,
-              `float(${OTHER_CATEGORY})`,
-              `${OTHER_CATEGORY} ? FADE_OTHER : 0.78`,
-            ) +
-            POP,
+          fade(
+            `${OTHER_CATEGORY} || ${OUTSIDE}`,
+            `float(${OTHER_CATEGORY})`,
+            `${OTHER_CATEGORY} ? FADE_OTHER : 0.78`,
+          ) + POP,
         );
   });
 
@@ -278,12 +265,13 @@ void main() {
  * pushed a little away from the camera, so its own leaf covers its middle and the light spills
  * past its edges. It is brightest at the leaf's heart (`aRim` 0) and fades to nothing at its
  * rim (`aRim` 1), as bright as its `aHeat` times the pulse `uGlow`. Leaves nearer the camera
- * still cover it. It grows, waits for its birth and dims with a pin or highlight like the leaf.
+ * still cover it. Its color is its leaf's, lifted bright (a vertex color). It grows, waits for
+ * its birth and dims with a pin or highlight like the leaf.
  */
 export const glowShader = <M extends Material>(m: M) =>
   hook(m, 'glow', (shader) => {
     shader.vertexShader =
-      '#define SHELL 3.2\n#define PUSH 0.6\n' +
+      '#define SHELL 2.4\n#define PUSH 0.6\n' +
       'attribute float aHeat;\nattribute float aRim;\nattribute vec3 aCenter;\nuniform float uGlow;\nvarying float vGlow;\n' +
       shader.vertexShader
         .replace(
@@ -297,7 +285,7 @@ vGlow = aHeat > 0.0 ? (1.0 - aRim) * (0.55 + 0.45 * aHeat) * uGlow * GLOW_GAIN :
           '#include <project_vertex>',
           '#include <project_vertex>\nmvPosition.xyz += normalize(mvPosition.xyz) * reach * PUSH;\ngl_Position = projectionMatrix * mvPosition;',
         );
-    shader.vertexShader = '#define GLOW_GAIN 2.0\n' + shader.vertexShader;
+    shader.vertexShader = '#define GLOW_GAIN 1.2\n' + shader.vertexShader;
     shader.fragmentShader =
       'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\n' +
       shader.fragmentShader.replace(

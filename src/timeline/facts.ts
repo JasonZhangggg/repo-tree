@@ -33,6 +33,32 @@ export const CHANGES: readonly { label: string; atLeast: number }[] = [
 /** The CHANGES band of a file `churn` busy. */
 export const changeBand = (churn: number): number => CHANGES.findIndex((c) => churn >= c.atLeast);
 
+/**
+ * Where a file `churn` busy sits on the Changes gradient: 0 for a file that never changed up to
+ * CHANGES.length - 1 for the busiest, on a log scale. Each band's own stop is its color, and its
+ * edges (the `atLeast` counts) fall halfway between stops, so `CHANGES.length - 1 - level`
+ * rounds to the file's band. Past LEVEL_TOP changes a file is as busy as it gets.
+ */
+export const LEVEL_TOP = 100;
+const LEVEL_AT: readonly [number, number][] = [
+  [0, 0],
+  ...CHANGES.slice(0, -1)
+    .map((c, i): [number, number] => [c.atLeast, CHANGES.length - 1.5 - i])
+    .reverse(),
+  [LEVEL_TOP, CHANGES.length - 1],
+];
+export function changeLevel(churn: number): number {
+  const x = Math.log1p(churn);
+  for (let i = 1; i < LEVEL_AT.length; i++) {
+    const [c, l] = LEVEL_AT[i]!;
+    const [c0, l0] = LEVEL_AT[i - 1]!;
+    const x0 = Math.log1p(c0);
+    const x1 = Math.log1p(c);
+    if (x <= x1) return l0 + ((l - l0) * (x - x0)) / (x1 - x0);
+  }
+  return CHANGES.length - 1;
+}
+
 /** The band of a change at `changed` seen from `asOf`. */
 export const ageBand = (asOf: number, changed: number): number => {
   const age = asOf - changed;
@@ -59,6 +85,8 @@ export type Facts = {
   fileChurn: Uint32Array;
   /** Per sprig, the CHANGES band most of its files are in. */
   sprigChangeBand: Uint8Array;
+  /** Per sprig, the mean `changeLevel` of its files: where its leaves sit on the gradient. */
+  sprigChangeLevel: Float32Array;
   /** Per TreeModel folder, the CHANGES band most of the files under it are in. */
   folderChangeBand: Uint8Array;
   /** Per RepoIndex file, its hotspot heat: 0 for most, from HOT_FLOOR to 1 for the busiest. */
@@ -149,6 +177,7 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
   const sprigChangeBand = new Uint8Array(sprigCount);
   const changeTally = new Uint32Array(CHANGES.length);
   const sprigHeat = new Float32Array(sprigCount);
+  const sprigChangeLevel = new Float32Array(sprigCount);
   const nodeChanged = new Float64Array(nodes.parent.length).fill(-Infinity);
   const tally = new Uint32Array(bands);
   for (let s = 0; s < sprigCount; s++) {
@@ -161,7 +190,10 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
       changeTally[fileChangeBand[file]!]! += 1;
       newest = Math.max(newest, fileChanged[file]!);
       sprigHeat[s] = Math.max(sprigHeat[s]!, fileHeat[file]!);
+      sprigChangeLevel[s] = sprigChangeLevel[s]! + changeLevel(fileChurn[file]!);
     }
+    const files = sprigs.file[s + 1]! - sprigs.file[s]!;
+    if (files > 0) sprigChangeLevel[s] = sprigChangeLevel[s]! / files;
     sprigBand[s] = most(tally, 0);
     sprigChangeBand[s] = most(changeTally, 0);
     const twig = leaves.nodeId[sprigs.vertex[s]!]!;
@@ -181,6 +213,7 @@ export function historyFacts(history: History, tree: TreeModel, index: RepoIndex
     sprigBand,
     folderBand,
     sprigChangeBand,
+    sprigChangeLevel,
     folderChangeBand,
     nodeChanged,
     fileChurn,

@@ -27,7 +27,6 @@ describe('parseSettings', () => {
         labels: false,
         ground: false,
         weather: 'off',
-        hotspots: true,
         hidden: ['dist', 7],
         token: 'ghp_x',
       }),
@@ -38,7 +37,6 @@ describe('parseSettings', () => {
       quality: 'low',
       labels: false,
       ground: false,
-      hotspots: true,
       token: 'ghp_x',
     });
   });

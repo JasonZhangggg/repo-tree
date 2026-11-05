@@ -1,5 +1,6 @@
 import { langOf } from '../../repo/languages';
 import { leafMapping, PALETTES, slotColors, type PaletteId } from '../../render/palette';
+import { litColor } from '../../render/color';
 import { TOP_LANGS } from '../../load/repo-index';
 import { githubUrl, nameOf, type App } from '../app';
 import { byId, fill, h, icon, ICONS } from '../dom';
@@ -34,8 +35,6 @@ const colorWait = (state: AppState): string | null =>
 const SUB_ROWS = 5;
 /** Hottest files listed under the legend. */
 const HOT_ROWS = 5;
-/** The swatch of a hotspot row: the glow's own warm amber. */
-const HOT_COLOR = '#ff8a2a';
 /** A file's name with its folder, so `package.json` in two packages tells apart. */
 const tail = (path: string) => {
   const parts = path.split('/');
@@ -438,10 +437,15 @@ export function mountSide(app: App): void {
     ];
   };
 
-  /** The hotspots line under the legend, and the hottest files, each pinning its folder. */
+  /**
+   * Under the Changes legend: how many files glow, and the busiest, each pinning its folder.
+   * Their swatch is the gradient's busiest stop.
+   */
   const renderHot = (state: AppState) => {
-    hot.hidden = !state.settings.hotspots;
+    hot.hidden = state.settings.colorBy !== 'changes';
     if (hot.hidden) return;
+    const palette = PALETTES[state.settings.palette];
+    const swatch = litColor(palette.changes[0], palette);
     const repo = state.repo!;
     const facts = factsOf(state);
     const n = facts?.hot.length ?? 0;
@@ -467,7 +471,7 @@ export function mountSide(app: App): void {
               title: paths[file]!,
               onclick: () => app.select({ folder: folder[file]!, file }, true),
             },
-            h('i', { class: 'swatch', style: `--c:${HOT_COLOR}` }),
+            h('i', { class: 'swatch', style: `--c:${swatch}` }),
             h('span', { class: 'fn' }, tail(paths[file]!)),
             h(
               'span',
@@ -671,12 +675,7 @@ export function mountSide(app: App): void {
       state.settings.palette !== prev?.settings.palette ||
       state.settings.colorBy !== prev?.settings.colorBy ||
       state.history !== prev?.history;
-    if (
-      colorsChanged ||
-      state.settings.hotspots !== prev?.settings.hotspots ||
-      state.selection !== prev?.selection
-    )
-      renderHot(state);
+    if (colorsChanged || state.selection !== prev?.selection) renderHot(state);
     if (colorsChanged || state.selection !== prev?.selection) renderFolders(state);
     const focusChanged = state.selection !== prev?.selection || state.highlight !== prev?.highlight;
     if (colorsChanged) renderLegend(state);

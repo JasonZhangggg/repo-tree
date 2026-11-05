@@ -761,3 +761,32 @@ test('the desktop toolbar groups its actions, and Timeline leads the controls', 
   await expect(buttons.first()).toHaveAttribute('id', 'timeline');
   await expect(page.locator('.controls > .pill-btn.primary')).toHaveCount(1);
 });
+
+test('? lists the keyboard shortcuts, and D and T switch dark mode and the timeline', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'a phone has no keyboard');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await page.keyboard.press('?');
+  const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('dt')).toHaveCount(8);
+  // Escape closes the dialog alone; the next one reaches the page.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await page.getByRole('button', { name: 'Shortcuts' }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.keyboard.press('d');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.keyboard.press('d');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.keyboard.press('t');
+  await expect(page.getByRole('group', { name: 'Timeline' })).toBeVisible();
+  await page.keyboard.press('t');
+  await expect(page.getByRole('group', { name: 'Timeline' })).toBeHidden();
+});

@@ -26,6 +26,7 @@ import { mountQuick } from './app/ui/quick';
 import { mountSignIn } from './app/ui/signin';
 import { mountSearch } from './app/ui/search-dialog';
 import { mountSettings } from './app/ui/settings-dialog';
+import { mountShortcuts } from './app/ui/shortcuts';
 import { childrenOf, mountSide } from './app/ui/side';
 import { mountHistoryCompute } from './app/ui/history-compute';
 import { mountTimeline } from './app/ui/timeline';
@@ -335,6 +336,15 @@ byId('share').addEventListener('click', async () => {
     app.toast('Copy the link from the address bar');
   }
 });
+/** A phone's own share sheet, where the browser has one; it sits at the top of the More menu. */
+const nativeShare = byId<HTMLButtonElement>('native-share');
+nativeShare.hidden = typeof navigator.share !== 'function';
+nativeShare.addEventListener('click', () => {
+  const { repo } = store.get();
+  const name = repo ? `${repo.info.ref.owner}/${repo.info.ref.repo}` : 'Repo Tree';
+  // A dismissed sheet rejects; there is nothing to say then.
+  navigator.share({ title: `${name} · Repo Tree`, url: location.href }).catch(() => {});
+});
 byId('export').addEventListener('click', async () => {
   const { repo } = store.get();
   if (!repo) return;
@@ -446,6 +456,8 @@ addEventListener('resize', reframe);
 addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement;
   const typing = target.matches('input, textarea, select, [contenteditable]');
+  // The shortcuts dialog is modal and closes on Escape by itself.
+  if (shortcuts.isOpen()) return;
   if (event.key === 'Escape') {
     if (search.close() || settings.close() || compute.close() || typing) return;
     const { selection, highlight, load } = store.get();
@@ -466,6 +478,13 @@ addEventListener('keydown', (event) => {
     view.grow();
   } else if (event.key === 'f' || event.key === 'F') {
     view.frameFolder(0);
+  } else if (event.key === 'd' || event.key === 'D') {
+    themeButton.click();
+  } else if (event.key === 't' || event.key === 'T') {
+    byId('timeline').click();
+  } else if (event.key === '?') {
+    event.preventDefault();
+    shortcuts.open();
   }
 });
 
@@ -486,6 +505,8 @@ const timeline = mountTimeline(
   compute,
 );
 const settings = mountSettings(app);
+const shortcuts = mountShortcuts();
+byId('help-keys').addEventListener('click', () => shortcuts.open());
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 mountQuick(app);
 

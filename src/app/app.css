@@ -1392,6 +1392,84 @@ h1 a[aria-disabled] {
     background: var(--ink-hover);
   }
 }
+.help-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  margin-left: 4px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .help-keys:hover {
+    background: var(--card);
+    color: var(--ink);
+  }
+}
+/* Touch screens have no keys to list. */
+@media (hover: none) {
+  .help-keys {
+    display: none;
+  }
+}
+.shortcuts {
+  width: min(380px, calc(100% - 32px));
+  padding: 18px 20px 20px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--raised);
+  color: var(--ink);
+  box-shadow: var(--shadow-lift);
+}
+.shortcuts[open] {
+  animation: pop 0.18s var(--ease);
+}
+.shortcuts::backdrop {
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.shortcuts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.shortcuts h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+.shortcuts .close {
+  position: static;
+}
+.shortcuts dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px 14px;
+  align-items: center;
+  margin: 0;
+}
+.shortcuts dt {
+  justify-self: start;
+  display: flex;
+  gap: 4px;
+}
+.shortcuts kbd {
+  min-width: 24px;
+  text-align: center;
+}
+.shortcuts dd {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
 .help {
   margin: 0 0 0 6px;
   color: var(--muted);
@@ -2852,7 +2930,8 @@ body:has(.scrubber:not([hidden])) .toast {
     height: 44px;
     margin-left: -6px;
   }
-  .help {
+  .help,
+  .help-keys {
     display: none;
   }
   .pill {

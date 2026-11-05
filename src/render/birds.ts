@@ -4,8 +4,8 @@ import type { Vec3 } from '../grow/grow';
 /** A bird to perch: where it sits, which way is out from the trunk there, and its plumage. */
 export type Perched = { at: Vec3; out: Vec3; color: string };
 
-/** A bird's length, beak to tail, in world units: about two leaves. */
-export const BIRD_SIZE = 0.5;
+/** A bird's length, beak to tail, in world units: a little over two leaves. */
+export const BIRD_SIZE = 0.36;
 /** Birds sharing a twig sit this many bird lengths apart along it. */
 const SPACING = 1;
 /** How far past the crown's surface a bird sits, in bird lengths: its feet among the tips. */
@@ -16,7 +16,7 @@ export const BIRD_T: [number, number] = [0.82, 1];
 type Part = 'body' | 'wing' | 'breast' | 'beak' | 'eye';
 /**
  * One low-poly bird in its own frame: +x is where it looks, +y up, +z its right; its feet are at
- * the origin and it is one unit long. Each triangle names the part its color comes from.
+ * the origin and it is one unit long. Its head sits on a short neck. Each triangle names the part its color comes from.
  */
 const BIRD: [Part, Vec3, Vec3, Vec3][] = (() => {
   const F: Vec3 = [0.26, 0.2, 0]; // chest front
@@ -41,6 +41,22 @@ const BIRD: [Part, Vec3, Vec3, Vec3][] = (() => {
     [-0.38, 0.33, 0.16 * s],
     [0.02, 0.17, 0.17 * s],
   ];
+  // The neck: a short tapered sleeve from the top of the chest up into the head.
+  const ring = (c: Vec3, up: Vec3, side: number): [Vec3, Vec3, Vec3, Vec3] => [
+    [c[0] + up[0], c[1] + up[1], c[2]],
+    [c[0], c[1], c[2] + side],
+    [c[0] - up[0], c[1] - up[1], c[2]],
+    [c[0], c[1], c[2] - side],
+  ];
+  const low = ring([0.16, 0.28, 0], [-0.05, 0.07, 0], 0.1);
+  const high = ring([H[0] - 0.02, H[1] - 0.04, 0], [-0.04, 0.05, 0], 0.08);
+  const neck: [Part, Vec3, Vec3, Vec3][] = [0, 1, 2, 3].flatMap((i) => {
+    const j = (i + 1) % 4;
+    return [
+      ['body', low[i]!, low[j]!, high[j]!],
+      ['body', low[i]!, high[j]!, high[i]!],
+    ] as [Part, Vec3, Vec3, Vec3][];
+  });
   const [w1, w2, w3] = wing(1);
   const [v1, v2, v3] = wing(-1);
   return [
@@ -53,6 +69,7 @@ const BIRD: [Part, Vec3, Vec3, Vec3][] = (() => {
     ['body', B, R, D],
     ['body', B, D, L],
     ['body', B, L, U],
+    ...neck,
     // Head.
     ['body', hF, hU, hR],
     ['body', hF, hR, hD],

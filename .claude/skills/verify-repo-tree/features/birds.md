@@ -34,7 +34,7 @@ Preconditions:
 
 ## Gotchas
 
-- The tree is small in the whole view, and birds are a little over two leaves long: crop or zoom a screenshot to show them, and spin or drag to bring a bird on the far side round.
+- The tree is small in the whole view, and birds are under two leaves long: crop or zoom a screenshot to show them, and spin or drag to bring a bird on the far side round.
 - Open PRs are cached in IndexedDB for ten minutes per `owner/repo@branch`, like CI runs. Use a new repo name per case.
 - A sample reads its PRs live; none are bundled, so with `api.github.com` aborted (every journey) a sample has no birds unless the step serves some.
 - `api.github.com` is unreachable from this sandbox, so the PR endpoints have only been exercised through the stand-in.

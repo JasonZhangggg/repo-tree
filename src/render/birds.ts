@@ -4,8 +4,8 @@ import type { Vec3 } from '../grow/grow';
 /** A bird to perch: where it sits, which way is out from the trunk there, and its plumage. */
 export type Perched = { at: Vec3; out: Vec3; color: string };
 
-/** A bird's length, beak to tail, in world units: a little over two leaves. */
-export const BIRD_SIZE = 0.36;
+/** A bird's length, beak to tail, in world units: under two leaves. */
+export const BIRD_SIZE = 0.27;
 /** Birds sharing a twig sit this many bird lengths apart along it. */
 const SPACING = 1;
 /** How far past the crown's surface a bird sits, in bird lengths: its feet among the tips. */

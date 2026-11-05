@@ -758,6 +758,10 @@ h1 button svg {
 .title[data-loading] h1 {
   color: var(--muted);
 }
+/* Nothing to list under the name until the first tree is in. */
+.title[data-loading] .meta {
+  display: none;
+}
 .title > .weather {
   grid-area: weather;
   justify-self: end;
@@ -791,7 +795,15 @@ h1 button svg {
 }
 .title > #status {
   grid-area: status;
+}
+.title > #status > .status {
   margin: 8px 0 2px;
+}
+/* While the first tree loads there is no meta row, so the card is one line until progress shows. */
+.title[data-loading] {
+  grid-template-areas:
+    'switch name weather'
+    'status status status';
 }
 .meta .gh {
   margin-left: -2px;
@@ -978,7 +990,24 @@ h1 button svg {
   animation: rise 0.22s var(--ease);
 }
 .status.loading {
-  animation: rise 0.22s 0.15s var(--ease) both;
+  /* Held back a beat so a quick load never flashes it, but folded shut while it waits, so the
+     card never holds an empty box. */
+  animation: unfold 0.26s 0.15s var(--ease) backwards;
+  overflow: hidden;
+}
+@keyframes unfold {
+  from {
+    opacity: 0;
+    max-height: 0;
+    padding-block: 0;
+    margin-block: 0;
+  }
+  to {
+    max-height: 120px;
+  }
+}
+#status {
+  min-width: 0;
 }
 #status:empty {
   display: none;
@@ -1064,7 +1093,11 @@ h1 button svg {
 }
 .steps {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  gap: 4px 6px;
   align-items: center;
   font-size: 12.5px;
   color: var(--muted);
@@ -1106,12 +1139,45 @@ h1 button svg {
   display: block;
   height: 100%;
   width: calc(var(--done) * 100%);
-  background: var(--accent);
+  /* A light sweeps along the bar, so a slow fetch never looks stuck. */
+  background: linear-gradient(
+      90deg,
+      transparent 0 30%,
+      color-mix(in srgb, #fff 55%, transparent) 50%,
+      transparent 70% 100%
+    )
+    0 0 / 200% 100% var(--accent);
   border-radius: 2px;
   transition: width 0.4s var(--ease);
+  animation: sweep 1.3s linear infinite;
+}
+@keyframes sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+/* The header shows once the script has decided between the field and a repo's name, so the
+   empty field never flashes up on a link to a repo. */
+body:not([data-shell]) :is(.bar, .title) {
+  visibility: hidden;
 }
 
 /* Side panel: pinned detail, folders, legend. A bottom sheet on phones. */
+/* Before the first tree there is nothing to list: the desktop panel waits, then fades in. */
+@media (min-width: 761px) {
+  body:has(#title[data-loading]) .side {
+    opacity: 0;
+    visibility: hidden;
+  }
+  .side {
+    transition:
+      opacity 0.3s var(--ease),
+      visibility 0.3s;
+  }
+}
 .side {
   position: absolute;
   top: calc(env(safe-area-inset-top, 0px) + 84px);
@@ -2648,6 +2714,17 @@ body:has(.scrubber:not([hidden])) .toast {
     width: 100%;
     gap: 8px;
     padding: 9px 10px;
+  }
+  /* Progress sits in the repo card itself, under a hairline, not in a box of its own. */
+  .status.loading {
+    gap: 7px;
+    padding: 8px 4px 2px;
+    background: none;
+    border-radius: 0;
+    box-shadow: 0 -1px 0 var(--line);
+  }
+  .status.loading .btn {
+    height: 32px;
   }
   .status strong {
     font-size: 13.5px;

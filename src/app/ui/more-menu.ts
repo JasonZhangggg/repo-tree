@@ -5,7 +5,8 @@ const MENU_LABELS: Record<string, string> = { share: 'Copy link', export: 'Expor
 
 /**
  * On a phone the bottom row keeps Timeline, Search and Settings, and a short menu behind
- * `More actions` holds Sign in, Copy link, Export PNG and Open on GitHub. Grow again, Spin and
+ * `More actions` holds Copy link, Export PNG and Open on GitHub; Sign in, or the GitHub account
+ * once signed in, is a bubble of its own at the top right. Grow again, Spin and
  * Dark mode, which the desktop shows as buttons, are left off the phone: Spin and Dark mode are
  * switches in Settings, and a tree regrows when it loads. The buttons themselves move, so their
  * handlers, shortcuts and accessible names stay the same; on a wider screen they go back.
@@ -14,7 +15,8 @@ export function mountMoreMenu(phone: MediaQueryList): void {
   const more = byId<HTMLButtonElement>('more');
   const menu = byId('more-menu');
   /** Into the menu on a phone, in this order; back into the toolbar on a desktop. */
-  const moved = ['signin', 'share', 'export'].map((id) => byId<HTMLButtonElement>(id));
+  const moved = ['share', 'export'].map((id) => byId<HTMLButtonElement>(id));
+  const signin = byId<HTMLButtonElement>('signin');
   const desktopLabels = moved.map((el) => el.querySelector('.label')?.textContent ?? null);
   /** Desktop only. */
   const dropped = ['grow', 'spin', 'theme'].map((id) => byId<HTMLButtonElement>(id));
@@ -35,12 +37,16 @@ export function mountMoreMenu(phone: MediaQueryList): void {
         menu.append(el);
         if (label && menuLabel) label.textContent = menuLabel;
       } else {
-        // Desktop: Share and PNG share one group; Sign in stands last, after the view group.
-        if (el.id === 'signin') more.before(el);
-        else byId('share-group').append(el);
+        // Desktop: Share and PNG share one group.
+        byId('share-group').append(el);
         if (label && menuLabel) label.textContent = desktopLabels[i]!;
       }
     });
+    // Sign in stands last in the desktop toolbar, after the view group; on a phone, whose
+    // toolbar hides under the repo card, it floats at the top right.
+    if (phone.matches) document.body.append(signin);
+    else more.before(signin);
+    signin.classList.toggle('bubble', phone.matches);
     dropped.forEach((el) => el.classList.toggle('phone-off', phone.matches));
     // The way to the repo on GitHub, which the phone's repo row leaves to the menu, goes last.
     menu.append(byId('open-github'));

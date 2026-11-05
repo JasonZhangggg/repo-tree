@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { quietSettings, ready, serveRepo } from './github';
+import { quietSettings, ready, serveRateLimit, serveRepo } from './github';
 import { openRepoField } from './view';
 
 /**
@@ -162,7 +162,7 @@ test('the Sign in button signs in from anywhere, and GitHub reads then carry the
   await button.click();
   await closed(await popup);
   await expect(page.locator('#toast')).toHaveText('Signed in with GitHub');
-  await expect(page.getByRole('button', { name: 'Sign out of GitHub' })).toBeVisible();
+  await expect(button).toHaveAccessibleName('GitHub account');
 
   const input = page.getByLabel('GitHub repository');
   await input.fill('acme/gadgets');
@@ -181,16 +181,87 @@ test('the Sign in button signs in from anywhere, and GitHub reads then carry the
   await expect(button).toHaveAccessibleName('Sign in with GitHub');
 });
 
+test('the GitHub account button shows the requests left this hour, what Repo Tree sees, and Sign out', async ({
+  page,
+}) => {
+  const asked: (string | undefined)[] = [];
+  page.on('request', (req) => {
+    if (req.url() === 'https://api.github.com/rate_limit') asked.push(req.headers().authorization);
+  });
+  await serveRateLimit(page, 4812, 5000);
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const button = page.locator('#signin');
+  const popup = page.waitForEvent('popup');
+  await button.click();
+  await closed(await popup);
+  await expect(button).toHaveAccessibleName('GitHub account');
+
+  await button.click();
+  const panel = page.getByRole('dialog', { name: 'GitHub account' });
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('#account-usage')).toHaveText(/^4,812 of 5,000 left, resets at /);
+  // Asked with the sign-in token, so it is the account's own budget.
+  expect(asked.at(-1)).toMatch(/^Bearer \S+$/);
+  // Under the button, not off screen.
+  const at = (await button.boundingBox())!;
+  const box = (await panel.boundingBox())!;
+  expect(box.y).toBeGreaterThan(at.y + at.height);
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+
+  await expect(panel.locator('#account-privacy')).toBeHidden();
+  await panel.getByRole('button', { name: 'What Repo Tree can see' }).click();
+  await expect(panel.locator('#account-privacy')).toContainText('public data only');
+  await expect(panel.locator('#account-privacy')).toContainText('never file contents');
+
+  // Escape closes it; a click outside does too.
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await button.click();
+  await expect(panel).toBeVisible();
+  await page.mouse.click(400, 600);
+  await expect(panel).toBeHidden();
+
+  // GitHub not answering says so.
+  await page.route('https://api.github.com/rate_limit', (route) => route.fulfill({ status: 500 }));
+  await button.click();
+  await expect(panel.locator('#account-usage')).toHaveText(/GitHub didn’t answer/);
+
+  await panel.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.locator('#toast')).toHaveText('Signed out of GitHub');
+  await expect(panel).toBeHidden();
+  await expect(button).toHaveAccessibleName('Sign in with GitHub');
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
-  test('Sign in heads the More menu', async ({ page }) => {
+  test('Sign in is its own bubble at the top right, beside the repo card', async ({ page }) => {
+    await serveRateLimit(page, 4812, 5000);
     await page.goto('./');
     await ready(page, 'vitejs/vite');
+    const bubble = page.getByRole('button', { name: 'Sign in with GitHub' });
+    await expect(bubble).toBeVisible();
+    const at = (await bubble.boundingBox())!;
+    const card = (await page.locator('#title').boundingBox())!;
+    expect(at.y).toBeLessThan(card.y + card.height);
+    expect(at.x).toBeGreaterThanOrEqual(card.x + card.width);
+    expect(at.x + at.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    // The More menu no longer holds it.
     await page.getByRole('button', { name: 'More actions' }).tap();
-    const first = page.locator('#more-menu > :first-child');
-    await expect(first).toHaveAccessibleName('Sign in with GitHub');
-    await expect(first).toBeVisible();
+    await expect(page.locator('#more-menu #signin')).toHaveCount(0);
+    await page.getByRole('button', { name: 'More actions' }).tap();
+
+    const popup = page.waitForEvent('popup');
+    await bubble.tap();
+    await closed(await popup);
+    const account = page.getByRole('button', { name: 'GitHub account' });
+    await account.tap();
+    const panel = page.getByRole('dialog', { name: 'GitHub account' });
+    await expect(panel.locator('#account-usage')).toHaveText(/^4,812 of 5,000 left/);
+    const box = (await panel.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   });
 
   test('warns with the estimate before starting, and lets the visitor choose', async ({ page }) => {

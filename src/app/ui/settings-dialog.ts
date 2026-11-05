@@ -1,7 +1,7 @@
-import { githubToken, onAuthChange, signOut, signedInToken } from '../../repo/auth';
+import { onAuthChange, signOut, signedInToken } from '../../repo/auth';
 import { DEFAULT_FILTERS } from '../../repo/hierarchy';
 import { HISTORY_URL } from '../../repo/history';
-import { describeRateLimit, fetchRateLimit, type RateLimit } from '../../repo/rate-limit';
+import { PRIVACY } from './signin';
 import { PALETTES } from '../../render/palette';
 import type { App } from '../app';
 import { byId, h, icon, ICONS } from '../dom';
@@ -359,16 +359,11 @@ export function mountSettings(app: App): {
         addFolder,
       ),
       ...(HISTORY_URL ? [signInField()] : []),
-      rateField(state.settings),
       h(
         'div',
         { class: 'field', id: 'token-field' },
         h('p', { class: 'h' }, 'GitHub token'),
-        h(
-          'p',
-          { class: 'note' },
-          'For private repos and a higher rate limit. Kept in this browser, sent only to GitHub.',
-        ),
+        h('p', { class: 'note' }, 'For private repos. Kept in this browser, sent only to GitHub.'),
         tokenField,
       ),
     );
@@ -385,8 +380,8 @@ export function mountSettings(app: App): {
         'p',
         { class: 'note' },
         inside
-          ? 'Signed in: GitHub allows you 5,000 requests an hour for trees, CI weather, birds and history.'
-          : 'Raises GitHub’s limit from 60 requests an hour, shared with your network, to 5,000 of your own: for trees, CI weather, birds and history.',
+          ? 'Signed in: 5,000 GitHub requests an hour.'
+          : 'Raises GitHub’s limit from 60 requests an hour to 5,000.',
       ),
       h(
         'button',
@@ -408,60 +403,13 @@ export function mountSettings(app: App): {
       h(
         'p',
         { class: 'note', id: 'signin-privacy' },
-        h('strong', {}, 'What Repo Tree can see. '),
-        'Sign-in asks GitHub for no permissions, so it reaches public data only: no private repos, and nothing it can change. Repo Tree reads file names, sizes and commit dates, never file contents. Your token stays in this tab and goes only to GitHub and the Repo Tree history server, which uses it to check uploads with GitHub and never stores it.',
+        h('strong', {}, 'What Repo Tree can see: '),
+        PRIVACY,
       ),
     );
   };
-
-  /**
-   * How much of GitHub's hourly budget is left, asked of GitHub (a free request) each time
-   * Settings opens and whenever the token in use changes.
-   */
-  let rate: RateLimit | null | 'checking' = 'checking';
-  let rateAsk: AbortController | null = null;
-  const rateText = () =>
-    rate === 'checking'
-      ? 'Checking…'
-      : rate
-        ? describeRateLimit(rate)
-        : 'GitHub didn’t answer. Open Settings again to retry.';
-  const checkRate = () => {
-    rateAsk?.abort();
-    const ask = (rateAsk = new AbortController());
-    rate = 'checking';
-    paintRate();
-    void fetchRateLimit(githubToken(store.get().settings.token), ask.signal).then((answer) => {
-      if (ask !== rateAsk) return;
-      rate = answer;
-      paintRate();
-    });
-  };
-  const paintRate = () => {
-    const out = dialog.querySelector('#rate-left');
-    if (out) out.textContent = rateText();
-  };
-  const rateField = (settings: Settings) => {
-    const whose = settings.token
-      ? 'Your token’s own budget.'
-      : signedInToken() !== null
-        ? 'Your GitHub account’s own budget.'
-        : HISTORY_URL
-          ? 'Shared with everyone on your network. Signing in gives you 5,000 of your own.'
-          : 'Shared with everyone on your network. A token gives you 5,000 of your own.';
-    return h(
-      'div',
-      { class: 'field', id: 'rate-field' },
-      h('p', { class: 'h' }, 'GitHub requests this hour'),
-      h('p', { class: 'rate', id: 'rate-left', 'aria-live': 'polite' }, rateText()),
-      h('p', { class: 'note' }, whose),
-    );
-  };
-
   onAuthChange(() => {
-    if (dialog.hidden) return;
-    render(store.get());
-    checkRate();
+    if (!dialog.hidden) render(store.get());
   });
 
   const focusAfter = (selector: string) =>
@@ -475,7 +423,6 @@ export function mountSettings(app: App): {
       return;
     const key = (document.activeElement as HTMLElement | null)?.dataset?.key;
     render(state);
-    if (state.settings.token !== prev.settings.token) checkRate();
     if (key) dialog.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)?.focus();
   });
 
@@ -485,7 +432,6 @@ export function mountSettings(app: App): {
 
   function open(focus?: 'token' | 'hidden') {
     render(store.get());
-    checkRate();
     dialog.hidden = false;
     opener.setAttribute('aria-expanded', 'true');
     document.addEventListener('pointerdown', onOutside, true);
@@ -501,8 +447,6 @@ export function mountSettings(app: App): {
 
   function close(): boolean {
     if (dialog.hidden) return false;
-    rateAsk?.abort();
-    rateAsk = null;
     dialog.hidden = true;
     opener.setAttribute('aria-expanded', 'false');
     document.removeEventListener('pointerdown', onOutside, true);

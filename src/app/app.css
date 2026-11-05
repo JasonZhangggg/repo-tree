@@ -422,13 +422,89 @@ kbd {
     margin-left: auto;
   }
 }
-/* Signed in, the account button is the GitHub mark alone; its title says who and how to leave. */
+/* Signed in, the account button is the GitHub mark alone; it opens the account panel. */
 #signin[data-signed-in='true'] {
   width: 40px;
   padding: 0;
 }
 #signin[data-signed-in='true'] .label {
   display: none;
+}
+/* On a phone, Sign in or the account is its own round bubble at the top right, beside the repo
+   card (more-menu.ts moves it there). A dot says you're signed in. */
+#signin.bubble {
+  position: fixed;
+  z-index: 6;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: max(12px, env(safe-area-inset-right, 0px));
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--raised);
+}
+#signin.bubble .label {
+  display: none;
+}
+#signin.bubble svg {
+  width: 21px;
+  height: 21px;
+}
+#signin.bubble[data-signed-in='true']::after {
+  content: '';
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #2f9e57;
+  box-shadow: 0 0 0 2px var(--raised);
+}
+body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
+  right: calc(max(12px, env(safe-area-inset-right, 0px)) + 56px);
+}
+/* The account panel, under the GitHub account button (signin.ts places it). */
+.account {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: min(290px, calc(100vw - 24px));
+  padding: 16px;
+  background: var(--raised);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lift);
+  animation: pop 0.2s var(--ease);
+}
+.account[hidden] {
+  display: none;
+}
+.account .h {
+  margin: 0 0 4px;
+  font-weight: 650;
+}
+.account-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.account-usage {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.account .btn {
+  justify-content: center;
+}
+.account .note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 /* The More button and its menu exist only on a phone, where the menu holds the actions that
    don't fit the bottom row. */
@@ -1671,13 +1747,6 @@ h1 a[aria-disabled] {
   color: var(--muted);
   font-size: 12.5px;
   line-height: 1.45;
-}
-/* What's left of GitHub's hourly budget, over whose budget it is. */
-.field .rate {
-  margin: 0 0 4px;
-  font-size: 14px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 .swatches {
   display: grid;

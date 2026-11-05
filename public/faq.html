@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="What Repo Tree uses GitHub for, and what signing in lets it see."
+    />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <title>Repo Tree questions</title>
+    <script>
+      // The app's own theme setting, else the system's, before the page paints.
+      try {
+        const saved = JSON.parse(localStorage.getItem('repo-tree:settings') || '{}').theme;
+        const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      } catch {
+        document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light';
+      }
+    </script>
+    <style>
+      :root {
+        --stage: #f6f4f0;
+        --ink: #25221e;
+        --muted: #69635a;
+        --line: rgba(37, 34, 30, 0.1);
+        --wash: rgba(37, 34, 30, 0.05);
+        --raised: #fff;
+        --accent: #b8401f;
+        --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        color-scheme: light;
+      }
+      :root[data-theme='dark'] {
+        --stage: #050506;
+        --ink: #ece8e1;
+        --muted: #a7a197;
+        --line: rgba(236, 232, 225, 0.12);
+        --wash: rgba(236, 232, 225, 0.06);
+        --raised: #1b1c20;
+        --accent: #ef8a5f;
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--stage);
+        color: var(--ink);
+        font: 16px/1.6 var(--sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        max-width: 680px;
+        margin: 0 auto;
+        padding: calc(env(safe-area-inset-top, 0px) + 32px) 16px 64px;
+      }
+      .back {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 14px;
+        text-decoration: none;
+      }
+      .back:hover {
+        color: var(--ink);
+      }
+      .back svg {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      h1 {
+        margin: 20px 0 6px;
+        font-size: clamp(26px, 6vw, 34px);
+        line-height: 1.15;
+        letter-spacing: -0.01em;
+        text-wrap: balance;
+      }
+      .lede {
+        margin: 0 0 28px;
+        color: var(--muted);
+      }
+      section {
+        margin-top: 28px;
+      }
+      h2 {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      details {
+        background: var(--raised);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+      }
+      details + details {
+        margin-top: 8px;
+      }
+      summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        font-weight: 600;
+        cursor: pointer;
+        list-style: none;
+      }
+      summary::-webkit-details-marker {
+        display: none;
+      }
+      summary::after {
+        content: '';
+        flex: none;
+        width: 8px;
+        height: 8px;
+        margin-top: -4px;
+        border-right: 2px solid var(--muted);
+        border-bottom: 2px solid var(--muted);
+        transform: rotate(45deg);
+        transition: transform 0.2s;
+      }
+      details[open] summary::after {
+        margin-top: 4px;
+        transform: rotate(225deg);
+      }
+      summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+        border-radius: 14px;
+      }
+      .answer {
+        padding: 0 16px 14px;
+        color: var(--muted);
+      }
+      .answer p {
+        margin: 0 0 10px;
+      }
+      .answer p:last-child,
+      .answer ul:last-child {
+        margin-bottom: 0;
+      }
+      .answer ul {
+        margin: 0 0 10px;
+        padding-left: 20px;
+      }
+      .answer li + li {
+        margin-top: 4px;
+      }
+      .answer strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      a {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back" href="./">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6-6 6 6 6" /></svg>
+        Back to Repo Tree
+      </a>
+      <h1>Questions and answers</h1>
+      <p class="lede">How to read a tree, and what Repo Tree asks GitHub for.</p>
+
+      <section id="about" aria-labelledby="about-title">
+        <h2 id="about-title">The tree</h2>
+        <details id="what-is-it" open>
+          <summary>What is Repo Tree?</summary>
+          <div class="answer">
+            <p>
+              It grows a low-poly tree from any public GitHub repository, so you can see its shape
+              at a glance: where the code lives, how big each part is, and how it got there. Type
+              <strong>owner/repo</strong> or paste a GitHub link, or start from one of the samples.
+            </p>
+          </div>
+        </details>
+        <details id="read-the-tree">
+          <summary>How do I read the tree?</summary>
+          <div class="answer">
+            <ul>
+              <li><strong>Branches are folders.</strong> A branch forks where a folder splits.</li>
+              <li>
+                <strong>Thicker branches hold more files.</strong> A bigger repository grows a
+                taller tree.
+              </li>
+              <li>
+                <strong>Leaves are files</strong>, colored by language unless you choose another way
+                under <strong>Color leaves by</strong>: by top-level folder, how recently or how
+                often files changed, or who owns each folder.
+              </li>
+              <li>
+                <strong>Rocks on the island</strong> are the files at the top of the repository.
+              </li>
+            </ul>
+            <p>Point at a branch to see its folder, and click it to pin it and zoom in.</p>
+          </div>
+        </details>
+        <details id="weather-and-birds">
+          <summary>What do the weather and the birds mean?</summary>
+          <div class="answer">
+            <p>
+              <strong>The weather is the repository's CI.</strong> Sunny means recent GitHub Actions
+              runs passed, clouds mean some failed, rain means the latest run failed, and a storm
+              means several failed in a row. The chip under the title says which.
+            </p>
+            <p>
+              <strong>Birds are open pull requests</strong>, each perched on the folder it changes
+              most. Tap one to see which pull request it is.
+            </p>
+          </div>
+        </details>
+        <details id="timeline">
+          <summary>How does the timeline work?</summary>
+          <div class="answer">
+            <p>
+              <strong>Timeline</strong> replays the repository from its first commit: folders sprout
+              as they appear, and you can drag through the years or press play. The first time
+              anyone opens a repository's timeline, it is worked out in their browser and then
+              shared, so everyone after them gets it right away.
+            </p>
+          </div>
+        </details>
+        <details id="share">
+          <summary>Can I share or save a tree?</summary>
+          <div class="answer">
+            <p>
+              <strong>Share</strong> copies a link that opens the same repository, branch, colors
+              and pinned folder. <strong>PNG</strong> saves the view as an image. On a phone, they
+              are <strong>Copy link</strong> and <strong>Export PNG</strong> under
+              <strong>More actions</strong>.
+            </p>
+          </div>
+        </details>
+      </section>
+
+      <section id="github" aria-labelledby="github-title">
+        <h2 id="github-title">GitHub</h2>
+        <details id="what-can-it-see" open>
+          <summary>What can Repo Tree see when I sign in?</summary>
+          <div class="answer">
+            <p>
+              <strong>Public data only.</strong> Signing in asks GitHub for no permissions, so Repo
+              Tree can't see your private repositories, and it never writes anything. It reads what
+              anyone can see on github.com: folder and file names and sizes, Actions runs, open pull
+              requests, and commit history.
+            </p>
+            <p>
+              It doesn't read your code. The one file whose contents it reads is CODEOWNERS, to say
+              who owns each folder. For a private repository, paste a GitHub token under
+              <strong>GitHub token</strong> in Settings instead; it is kept in this browser and sent
+              only to GitHub.
+            </p>
+          </div>
+        </details>
+        <details id="why-sign-in">
+          <summary>Why sign in, and what are the “requests this hour”?</summary>
+          <div class="answer">
+            <p>
+              GitHub allows 60 requests an hour to anyone not signed in, shared by everyone on the
+              same network, and a big repository can use that up in minutes. Signed in, you get your
+              own 5,000 an hour. The account menu shows how many are left and when the count starts
+              over; checking it doesn't use any.
+            </p>
+          </div>
+        </details>
+        <details id="token">
+          <summary>Where does my sign-in go, and how do I sign out?</summary>
+          <div class="answer">
+            <p>
+              Signing in gives this browser tab a token. It stays in that tab and never goes into a
+              share link. The tab sends it only to GitHub, and to the Repo Tree history server when
+              that works out a timeline for you, which uses it for that request and never stores it.
+            </p>
+            <p>
+              To sign out, choose the GitHub button at the top right, then
+              <strong>Sign out</strong>, or close the tab. To remove Repo Tree from your GitHub
+              account altogether, revoke it under
+              <a href="https://github.com/settings/applications" rel="noopener"
+                >Settings, Applications</a
+              >
+              on GitHub.
+            </p>
+          </div>
+        </details>
+      </section>
+    </main>
+    <script>
+      // A link to one question opens it.
+      const open = () => {
+        const target = location.hash && document.querySelector(location.hash);
+        if (target instanceof HTMLDetailsElement) target.open = true;
+      };
+      addEventListener('hashchange', open);
+      open();
+    </script>
+  </body>
+</html>

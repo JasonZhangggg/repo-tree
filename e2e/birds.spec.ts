@@ -98,14 +98,14 @@ test('two PRs on one folder share its branch, and the card says they may conflic
   throw new Error('the pair never faced the camera');
 });
 
-test('Birds turn off in Settings', async ({ page, isMobile }) => {
+test('Show PRs turns birds off in Settings', async ({ page, isMobile }) => {
   test.skip(isMobile, 'Settings are the same on a phone');
   await servePulls(page, 'vitejs/vite', VITE_PULLS);
   await page.goto('./#/vitejs/vite');
   await ready(page, 'vitejs/vite');
   await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(VITE_PULLS.length);
   await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('switch', { name: /Birds/ }).click();
+  await page.getByRole('switch', { name: /Show PRs/ }).click();
   await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(0);
   expect(
     await page.evaluate(() => JSON.parse(localStorage.getItem('repo-tree:settings')!).birds),

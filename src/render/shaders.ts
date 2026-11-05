@@ -34,9 +34,86 @@ export const treeUniforms = {
    */
   uFall: { value: 0 },
   uFloor: { value: 0 },
+  /** The breeze's clock (seconds). */
+  uWindTime: { value: 0 },
+  /** How hard the breeze blows: 1 a gentle sway, 0 holds the scene still. */
+  uWind: { value: 0 },
+  /** The tree's height, so a tree of any size bends by the same share of it. */
+  uWindHeight: { value: 1 },
+  /**
+   * What the mouse is over, which stays while the rest fades: a rock's or a bird's pick id, -2
+   * for the sun or a cloud (the whole tree and ground fade), or -1 for nothing.
+   */
+  uFocus: { value: -1 },
 };
 
+/** Whether an element with pick id `id` fades because the mouse is over something else. */
+export const focusOut = (id: string) => `(uFocus != -1.0 && abs(${id} - uFocus) > 0.5)`;
+/** Whether an element with pick id `id` is the rock or bird under the mouse. */
+const focusOn = (id: string) => `(uFocus >= 0.0 && abs(${id} - uFocus) < 0.5)`;
+/**
+ * Shifts the color of what the mouse is over a little toward a warm light where `on` holds, so it
+ * stands out from the faded scene without glowing.
+ */
+export const HOVER_TINT = (on: string) => /* glsl */ `
+if (${on}) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0, 0.93, 0.74), 0.24);
+`;
+
+/**
+ * Fades every bird but the one under the mouse while it is over a rock, a bird, the sun or a
+ * cloud, and tints that one a little. Wraps the bird's own shader hook, so its motion is untouched.
+ */
+export function focusFading<M extends Material>(material: M): M {
+  const own = material.onBeforeCompile.bind(material);
+  const key = material.customProgramCacheKey.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    own(shader, renderer);
+    shader.fragmentShader =
+      'uniform float uFocus;\nuniform vec3 uFade;\n' +
+      shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        fade(focusOut('vId')) + HOVER_TINT(focusOn('vId')),
+      );
+  };
+  material.customProgramCacheKey = () => `${key()}-focus`;
+  return material;
+}
+
+/**
+ * A breeze: every point of the tree bends sideways by the square of its height, so the trunk
+ * barely moves and the crown's top sways by about a hundredth of the tree's height. Two slow waves
+ * that roll across the crown keep it from swaying as one stiff piece. `swayAt` is the offset at
+ * a point; the leaves, the birds and the grass all read it, so a bird rides its perch.
+ */
+const SWAY = /* glsl */ `
+uniform float uWindTime;
+uniform float uWind;
+uniform float uWindHeight;
+vec2 gust(vec3 p, float t) {
+  float s = 1.0 / uWindHeight;
+  return vec2(
+    0.8 * sin(t * 0.7 + (p.x * 1.8 + p.z * 1.1) * s) + 0.35 * sin(t * 1.55 + (p.z * 2.6 - p.y * 1.4) * s),
+    0.5 * sin(t * 0.53 + 1.7 + (p.z * 1.6 - p.x * 0.9) * s) + 0.3 * sin(t * 1.9 + (p.x * 3.1 + p.y) * s)
+  );
+}
+vec3 swayAt(vec3 p) {
+  float h = clamp(p.y / uWindHeight, 0.0, 1.5);
+  vec2 g = gust(p, uWindTime) * (uWind * 0.011 * uWindHeight * h * h);
+  return vec3(g.x, 0.0, g.y);
+}
+`;
+/**
+ * Grass and flowers sway too, each point by its height above its root (`aSway`, render/ground.ts):
+ * quicker than the tree, as small things do.
+ */
+export const GROUND_SWAY = {
+  head: SWAY + 'attribute float aSway;\n',
+  body: /* glsl */ `
+transformed.xz += aSway * uWind * 0.18 * gust(transformed * 3.0, uWindTime * 1.7);
+`,
+};
 const GROW_VERTEX = /* glsl */ `
+${SWAY}
 attribute vec3 aBase;
 attribute vec2 aT;
 attribute float aId;
@@ -53,9 +130,12 @@ float grown() {
 const GROW_BEGIN = /* glsl */ `
 #include <begin_vertex>
 transformed = mix(aBase, transformed, grown());
+transformed += swayAt(transformed);
 vId = aId;
 `;
-const OUTSIDE = '(uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5))';
+const SELECTED_OUT = '(uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5))';
+/** Outside the highlighted range, or, with none, not what the mouse is over. */
+const OUTSIDE = `(${SELECTED_OUT} || (uSel.y < 0.0 && ${focusOut('vId')}))`;
 const OTHER_CATEGORY = '(uCategory >= 0.0 && abs(vSlot - uCategory) > 0.5)';
 /**
  * Mixes a `faded` fragment toward the sky by `amount`. `grey` (0 to 1) first drains its color, so
@@ -70,7 +150,11 @@ if (${faded}) {
 }
 `;
 export const FADE = fade(OUTSIDE);
-const FADE_UNIFORMS = 'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uCategory;\n';
+/** The ground's fade: its rocks and grass read `vId` as the root folder, and `vPick` as their pick id. */
+export const GROUND_FADE =
+  fade(`${SELECTED_OUT} || ${focusOut('vPick')}`) + HOVER_TINT(focusOn('vPick'));
+const FADE_UNIFORMS =
+  'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uCategory;\nuniform float uFocus;\n';
 
 const HSL = /* glsl */ `
 vec3 hue2rgb(float h) {
@@ -138,6 +222,11 @@ vec3 offsetHSL(vec3 c, float dh, float dl) {
 `;
 
 /** A falling leaf tumbles about its stem as it drops and drifts, then shrinks away on the ground. */
+/** Each leaf flutters on its stem (`aBase`): its far edge bobs, on a beat of its own. */
+const FLUTTER = /* glsl */ `
+float flutter = sin(uWindTime * 3.1 + dot(aBase, vec3(9.1, 5.3, 7.7)));
+transformed.y += uWind * 0.05 * flutter * distance(transformed.xz, aBase.xz);
+`;
 const FALL = /* glsl */ `
 if (aFall > 0.5 && uFall > 0.0) {
   float r = fract(sin(dot(aBase.xz, vec2(12.9898, 78.233)) + aId) * 43758.5453);
@@ -206,6 +295,7 @@ export const leafShader = <M extends Material>(m: M, slots: number) =>
       shader.vertexShader.replace(
         '#include <begin_vertex>',
         '#include <begin_vertex>\nint slot = int(aSlot);\nvLeaf = offsetHSL(mix(uSlots[slot], uSlots[min(slot + 1, SLOTS - 1)], fract(aSlot)), aShade.x, aShade.y);\nvSlot = aSlot;\nvHeat = aHeat;\n' +
+          FLUTTER +
           FALL,
       );
     shader.fragmentShader =
@@ -235,6 +325,7 @@ export const PICK_VERTEX = /* glsl */ `
 ${GROW_VERTEX}
 void main() {
   vec3 transformed = mix(aBase, position, grown());
+  transformed += swayAt(transformed);
   vId = aId;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
 }
@@ -296,10 +387,99 @@ vGlow = aHeat > 0.0 ? (1.0 - aRim) * (0.55 + 0.45 * aHeat) * uGlow * GLOW_GAIN :
         );
     shader.vertexShader = '#define GLOW_GAIN 1.2\n' + shader.vertexShader;
     shader.fragmentShader =
-      'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\n' +
+      'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\nuniform float uFocus;\n' +
       shader.fragmentShader.replace(
         'vec4 diffuseColor = vec4( diffuse, opacity );',
         `vec4 diffuseColor = vec4( diffuse, opacity * clamp(vGlow, 0.0, 1.0) );
 if (${OUTSIDE} || uCategory >= 0.0) diffuseColor.a *= 0.25;`,
       );
+  });
+
+/** The birds' clock (seconds) and whether they move at all: 0 holds every bird at rest. */
+export const birdUniforms = {
+  uBirdTime: { value: 0 },
+  uBirdMotion: { value: 1 },
+  uBirdSize: { value: 0.27 },
+};
+
+/**
+ * Birds alive on their perches, all from one clock and each bird's own `aPhase`: every few
+ * seconds a bird pecks or glances about, flicks its tail or ruffles its wings, and every
+ * half minute or so it flies a short hop out from the crown, flapping, and lands where it
+ * took off. Each vertex moves with its part (`aMove`, render/birds.ts) in the bird's own frame
+ * (`aLocal`), which then turns to face where it is going and stands at its feet (`aBase`).
+ * The pick pass reads `position`, the bird at rest.
+ */
+const BIRD_VERTEX = /* glsl */ `
+attribute vec3 aLocal;
+attribute vec2 aLook;
+attribute vec2 aOut;
+attribute float aMove;
+attribute float aPhase;
+uniform float uBirdTime;
+uniform float uBirdMotion;
+uniform float uBirdSize;
+vec2 turn(vec2 v, float a) {
+  float c = cos(a);
+  float s = sin(a);
+  return vec2(c * v.x - s * v.y, s * v.x + c * v.y);
+}
+float burst(float x, float sharp) {
+  return pow(max(0.0, sin(x)), sharp);
+}
+`;
+const BIRD_BEGIN = /* glsl */ `
+vec3 l = aLocal;
+float t = uBirdTime + aPhase * 97.0;
+float period = 26.0 + aPhase * 16.0;
+float u = mod(t + aPhase * period, period);
+const float FLIGHT = 2.8;
+float flying = uBirdMotion * step(u, FLIGHT);
+float k = clamp(u / FLIGHT, 0.0, 1.0);
+float idle = uBirdMotion * (1.0 - flying);
+if (aMove > 0.5 && aMove < 1.5) {
+  // Pecks, then glances about.
+  vec2 neck = vec2(0.16, 0.3);
+  l.xy = neck + turn(l.xy - neck, -1.0 * idle * burst(t * 1.1, 24.0));
+  vec2 head = vec2(0.28, 0.0);
+  l.xz = head + turn(l.xz - head, 0.55 * idle * sin(t * 0.8) * step(0.2, sin(t * 0.31 + 1.0)));
+}
+if (aMove > 1.5 && aMove < 3.5) {
+  // Wings flap in flight and now and then ruffle at rest, rolling about the shoulder.
+  float side = aMove < 2.5 ? 1.0 : -1.0;
+  float ruffle = idle * burst(t * 0.45 + 2.0, 40.0) * (0.5 + 0.5 * sin(t * 30.0));
+  float beat = flying * (0.5 + 0.9 * sin(t * 24.0));
+  vec2 shoulder = vec2(0.3, 0.1 * side);
+  l.yz = shoulder + turn(l.yz - shoulder, side * (beat + ruffle * 0.8));
+}
+if (aMove > 3.5) {
+  vec2 rump = vec2(-0.24, 0.24);
+  l.xy = rump + turn(l.xy - rump, 0.35 * idle * burst(t * 0.9 + 4.0, 16.0));
+}
+// In flight the body streamlines, easing in after take-off and out before landing: the belly
+// tucks up under it, it stretches out long, and the head drops forward in line with the back.
+float sleek = flying * smoothstep(0.0, 0.12, k) * smoothstep(1.0, 0.88, k);
+if (l.y < 0.2) l.y = mix(l.y, 0.2 - (0.2 - l.y) * 0.25, sleek);
+l.x *= 1.0 + 0.14 * sleek;
+if (aMove > 0.5 && aMove < 1.5) l.xy += vec2(0.05, -0.07) * sleek;
+// A small hop now and then, and in flight a loop out from the crown and back.
+float hop = idle * burst(t * 0.37 + 3.0, 60.0) * 0.25;
+vec3 f0 = vec3(aLook.x, 0.0, aLook.y);
+vec3 o0 = vec3(aOut.x, 0.0, aOut.y);
+float a = k * 6.2831853;
+float reach = 1.6 * uBirdSize;
+vec3 path = flying * (reach * (o0 * (1.0 - cos(a)) + f0 * sin(a)) + vec3(0.0, sin(3.1415927 * k) * 1.4 * uBirdSize, 0.0));
+vec3 f = normalize(mix(f0, o0 * sin(a) + f0 * cos(a), flying));
+vec3 r = vec3(-f.z, 0.0, f.x);
+vec3 transformed = aBase + path + (f * l.x + vec3(0.0, l.y + hop, 0.0) + r * l.z) * uBirdSize;
+transformed = mix(aBase, transformed, grown());
+// The bird rides its perch as the crown sways.
+transformed += swayAt(aBase);
+vId = aId;
+`;
+
+export const birdShader = <M extends Material>(m: M) =>
+  hook(m, 'bird', (shader) => {
+    Object.assign(shader.uniforms, birdUniforms);
+    shader.vertexShader = BIRD_VERTEX + shader.vertexShader.replace(GROW_BEGIN, BIRD_BEGIN);
   });

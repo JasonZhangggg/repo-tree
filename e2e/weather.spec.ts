@@ -197,7 +197,7 @@ test('turning weather off in settings clears the sky and survives a reload', asy
 test.describe('with motion allowed', () => {
   test.use({ reducedMotion: 'no-preference' });
 
-  test('the sun and clouds in the scene keep moving, and a clear sky rests', async ({ page }) => {
+  test('the sun and clouds in the scene keep moving', async ({ page }) => {
     type Stats = { renders: number; calls: number };
     const stats = () =>
       page.evaluate(() =>
@@ -205,7 +205,8 @@ test.describe('with motion allowed', () => {
       );
     await page.goto('./?visit=clear#/vitejs/vite?wx=clear');
     await ready(page, 'vitejs/vite');
-    await settle(page);
+    // With motion allowed the breeze keeps the scene drawing, so a clear sky never comes to rest.
+    await page.waitForTimeout(1500);
     const clear = await stats();
 
     await page.goto('./?visit=cloudy#/vitejs/vite?wx=cloudy');
@@ -213,12 +214,63 @@ test.describe('with motion allowed', () => {
     const before = await stats();
     await page.waitForTimeout(1500);
     const after = await stats();
-    expect(
-      after.renders - before.renders,
-      'spin is off, so only the weather renders',
-    ).toBeGreaterThan(2);
+    expect(after.renders - before.renders, 'the scene keeps drawing').toBeGreaterThan(2);
     expect(after.calls, 'the sun and the clouds draw in the scene').toBe(clear.calls + 2);
   });
+});
+
+test('the sun or a cloud under the mouse shows a tag and fades the rest of the scene', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'hover');
+  await page.goto('./#/vitejs/vite?wx=cloudy');
+  await ready(page, 'vitejs/vite');
+  await settle(page);
+  const spots = await page.evaluate(() => {
+    type View = {
+      skyTargetAt(x: number, y: number): 'sun' | number | null;
+      pickAt(x: number, y: number): unknown;
+    };
+    const { view } = (window as unknown as { __repoTree: { view: View } }).__repoTree;
+    const box = document.querySelector('#view')!.getBoundingClientRect();
+    // The middle of the first cloud's and the sun's discs, off the tree and the panels.
+    const hits: Record<string, { x: number; y: number }[]> = {};
+    let cloud: number | null = null;
+    for (let y = 0; y < box.height; y += 8)
+      for (let x = 0; x < box.width; x += 8) {
+        const which = view.skyTargetAt(x, y);
+        if (which === null || view.pickAt(x, y) !== null) continue;
+        if (typeof which === 'number' && (cloud ??= which) !== which) continue;
+        if (!document.elementFromPoint(box.x + x, box.y + y)?.closest('#view')) continue;
+        (hits[which === 'sun' ? 'sun' : 'cloud'] ??= []).push({ x: box.x + x, y: box.y + y });
+      }
+    const middle = (points: { x: number; y: number }[] = []) =>
+      points.length === 0
+        ? null
+        : {
+            x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+            y: points.reduce((sum, p) => sum + p.y, 0) / points.length,
+          };
+    return { sun: middle(hits.sun), cloud: middle(hits.cloud) };
+  });
+  const view = page.locator('#view');
+  for (const kind of ['sun', 'cloud'] as const) {
+    const spot = spots[kind];
+    expect(spot, `a ${kind} is on screen`).toBeTruthy();
+    await page.mouse.move(5, page.viewportSize()!.height - 5);
+    await expect(view).not.toHaveCSS('cursor', 'pointer');
+    const before = await view.screenshot();
+    await page.mouse.move(spot!.x, spot!.y);
+    await expect(view).toHaveCSS('cursor', 'pointer');
+    // A tag says what the sky stands for, as a rock's names its file.
+    await expect(page.locator('#tip')).toContainText('click for details');
+    await expect
+      .poll(async () => (await view.screenshot()).equals(before), {
+        message: `the scene fades around the ${kind}`,
+      })
+      .toBe(false);
+  }
 });
 
 test('a tap on the sun says what the sky stands for before leaving for CI', async ({

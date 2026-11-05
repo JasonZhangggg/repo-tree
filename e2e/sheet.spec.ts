@@ -104,11 +104,57 @@ test('the open sheet scrolls its content, and closes from it only at the top', a
   await expect(sheet(page)).toHaveAttribute('aria-expanded', 'false');
 });
 
-test('the phone row keeps four buttons and a short menu sits behind More actions', async ({
+test('Settings opens as a drawer from the bottom, with a tab to drag or tap it closed', async ({
+  page,
+}) => {
+  const cdp = await page.context().newCDPSession(page);
+  const settings = page.locator('#settings');
+  const opener = page.getByRole('button', { name: 'Settings' });
+  await opener.tap();
+  await expect(settings).toBeVisible();
+  // Flush with the bottom and both sides once it has slid up, its tab centered on top.
+  const { width, height } = page.viewportSize()!;
+  await expect
+    .poll(async () => {
+      const b = (await settings.boundingBox())!;
+      return Math.round(b.y + b.height);
+    })
+    .toBe(height);
+  const box = (await settings.boundingBox())!;
+  expect(box.x).toBe(0);
+  expect(box.width).toBe(width);
+  const tab = page.locator('.settings-grip');
+  await expect(tab).toBeVisible();
+  await expect(tab).toHaveAccessibleName('Close settings');
+  const grip = (await tab.locator('.grip').boundingBox())!;
+  expect(Math.abs(grip.x + grip.width / 2 - width / 2)).toBeLessThan(2);
+  expect(grip.y - box.y).toBeLessThan(20);
+
+  // A short slow drag springs back; a longer one closes it.
+  const at = await center(page, '.settings-grip');
+  await swipe(cdp, at.x, at.y, at.y + 40, { steps: 6, ms: 40, hold: 200 });
+  await expect(settings).toBeVisible();
+  await expect(settings).not.toHaveAttribute('data-dragging');
+  await swipe(cdp, at.x, at.y, at.y + 260, { hold: 200 });
+  await expect(settings).toBeHidden();
+  await expect(opener).toHaveAttribute('aria-expanded', 'false');
+
+  // A tap on the tab closes it too.
+  await opener.tap();
+  await expect(settings).toBeVisible();
+  await tab.tap();
+  await expect(settings).toBeHidden();
+});
+
+test('the phone row keeps five buttons, Dark mode left of Search, and a short menu sits behind More actions', async ({
   page,
 }) => {
   const row = page.locator('.controls > button:visible, .controls .tools button:visible');
-  await expect(row).toHaveCount(4);
+  await expect(row).toHaveCount(5);
+  const theme = (await page.getByRole('button', { name: 'Dark mode' }).boundingBox())!;
+  const search = (await page.locator('#search-open').boundingBox())!;
+  expect(theme.x + theme.width, 'Dark mode sits left of Search').toBeLessThanOrEqual(search.x);
+  expect(theme.width).toBe(search.width);
   const more = page.getByRole('button', { name: 'More actions' });
   const menu = page.getByRole('group', { name: 'More actions' });
   await expect(menu).toBeHidden();
@@ -121,8 +167,8 @@ test('the phone row keeps four buttons and a short menu sits behind More actions
     'href',
     'https://github.com/vitejs/vite',
   );
-  // Spin and Dark mode are switches in Settings; Grow again is for a desktop.
-  for (const name of ['Grow again', 'Spin', 'Dark mode'])
+  // Spin is a switch in Settings; Grow again is for a desktop.
+  for (const name of ['Grow again', 'Spin'])
     await expect(page.getByRole('button', { name })).toBeHidden();
 
   await menu.getByRole('button', { name: /Copy link/ }).tap();

@@ -1,6 +1,4 @@
-import { onAuthChange, signOut, signedInToken } from '../../repo/auth';
 import { DEFAULT_FILTERS } from '../../repo/hierarchy';
-import { HISTORY_URL } from '../../repo/history';
 import { PALETTES } from '../../render/palette';
 import type { App } from '../app';
 import { byId, h, icon, ICONS } from '../dom';
@@ -11,7 +9,7 @@ import { COLOR_BY_HINT, COLOR_BY_ICON, COLOR_BY_LABEL } from './color-by';
 const QUALITY_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' };
 const FOLDER_NAME = /^[^/\\]{1,100}$/;
 
-/** The settings popover (a bottom sheet on phones). Every control applies live. */
+/** The settings popover (a drawer on phones, with a tab on top). Every control applies live. */
 export function mountSettings(app: App): {
   open(focus?: 'token' | 'hidden'): void;
   close(): boolean;
@@ -234,6 +232,17 @@ export function mountSettings(app: App): {
         })();
 
     dialog.replaceChildren(
+      // A phone's drawer tab: tap it to close, or drag it (or the title) down.
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'settings-grip',
+          'aria-label': 'Close settings',
+          onclick: () => close(),
+        },
+        h('span', { class: 'grip' }),
+      ),
       h('h2', { id: 'settings-title' }, 'Settings'),
       h(
         'button',
@@ -316,7 +325,9 @@ export function mountSettings(app: App): {
         toggle('Weather', 'Shows CI from GitHub Actions', settings.weather, (weather) =>
           set({ weather }),
         ),
-        toggle('Birds', 'Shows open pull requests', settings.birds, (birds) => set({ birds })),
+        toggle('Show PRs', 'Open pull requests perch as birds', settings.birds, (birds) =>
+          set({ birds }),
+        ),
         toggle(
           'Growth animation',
           reducedMotion.matches ? 'Off: your system asks for reduced motion' : null,
@@ -357,63 +368,15 @@ export function mountSettings(app: App): {
         ),
         addFolder,
       ),
-      ...(HISTORY_URL ? [signInField()] : []),
       h(
         'div',
         { class: 'field', id: 'token-field' },
         h('p', { class: 'h' }, 'GitHub token'),
-        h(
-          'p',
-          { class: 'note' },
-          'For private repos and a higher rate limit. Kept in this browser, sent only to GitHub.',
-        ),
+        h('p', { class: 'note' }, 'For private repos. Kept in this browser, sent only to GitHub.'),
         tokenField,
       ),
     );
   };
-
-  /** Sign in or out, with what signing in lets Repo Tree see: public data, never file contents. */
-  const signInField = () => {
-    const inside = signedInToken() !== null;
-    return h(
-      'div',
-      { class: 'field', id: 'signin-field' },
-      h('p', { class: 'h' }, 'GitHub sign-in'),
-      h(
-        'p',
-        { class: 'note' },
-        inside
-          ? 'Signed in: GitHub allows you 5,000 requests an hour for trees, CI weather, birds and history.'
-          : 'Raises GitHub’s limit from 60 requests an hour, shared with your network, to 5,000 of your own: for trees, CI weather, birds and history.',
-      ),
-      h(
-        'button',
-        {
-          type: 'button',
-          class: inside ? 'btn' : 'btn dark',
-          id: 'signin-settings',
-          onclick: () => {
-            if (inside) {
-              signOut();
-              app.toast('Signed out of GitHub');
-            } else {
-              app.signIn();
-            }
-          },
-        },
-        inside ? 'Sign out' : 'Sign in with GitHub',
-      ),
-      h(
-        'p',
-        { class: 'note', id: 'signin-privacy' },
-        h('strong', {}, 'What Repo Tree can see. '),
-        'Sign-in asks GitHub for no permissions, so it reaches public data only: no private repos, and nothing it can change. Repo Tree reads file names, sizes and commit dates, never file contents. Your token stays in this tab and goes only to GitHub and the Repo Tree history server, which uses it to check uploads with GitHub and never stores it.',
-      ),
-    );
-  };
-  onAuthChange(() => {
-    if (!dialog.hidden) render(store.get());
-  });
 
   const focusAfter = (selector: string) =>
     queueMicrotask(() => dialog.querySelector<HTMLElement>(selector)?.focus());
@@ -459,6 +422,7 @@ export function mountSettings(app: App): {
   }
 
   opener.addEventListener('click', () => (dialog.hidden ? open() : close()));
+  dragDown(dialog, close);
   dialog.addEventListener('keydown', (event) => {
     if (event.key !== 'Tab') return;
     const focusable = [
@@ -478,4 +442,97 @@ export function mountSettings(app: App): {
   });
 
   return { open, close };
+}
+
+/** A drag this far down, in px or share of the drawer's height, or a flick this fast, closes it. */
+const CLOSE_AT = { px: 96, share: 0.3, flick: 0.5 };
+
+/**
+ * On a phone the Settings drawer follows a finger dragged down from its tab or its title, and on
+ * release closes, sliding the rest of the way, or springs back.
+ */
+function dragDown(dialog: HTMLElement, close: () => boolean): void {
+  const phone = matchMedia('(max-width: 760px)');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+  let press: { id: number; y0: number; last: { y: number; t: number }[]; moved: boolean } | null =
+    null;
+  let swallowClick = false;
+
+  const reset = () => {
+    dialog.style.removeProperty('transform');
+    dialog.style.removeProperty('transition');
+    dialog.removeAttribute('data-dragging');
+  };
+  const slide = (to: string, then: () => void) => {
+    if (reduce.matches) return then();
+    dialog.style.transition = 'transform 0.24s var(--ease-drawer)';
+    dialog.style.transform = to;
+    let done = false;
+    const end = () => {
+      if (done) return;
+      done = true;
+      dialog.removeEventListener('transitionend', end);
+      then();
+    };
+    dialog.addEventListener('transitionend', end);
+    setTimeout(end, 320);
+  };
+
+  dialog.addEventListener('pointerdown', (event) => {
+    if (!phone.matches || press || !event.isPrimary || event.button > 0) return;
+    if (!(event.target as Element).closest('.settings-grip, #settings-title')) return;
+    swallowClick = false;
+    press = { id: event.pointerId, y0: event.clientY, last: [], moved: false };
+  });
+  dialog.addEventListener('pointermove', (event) => {
+    const p = press;
+    if (!p || event.pointerId !== p.id) return;
+    const dy = Math.max(0, event.clientY - p.y0);
+    if (!p.moved) {
+      if (dy < 6) return;
+      p.moved = true;
+      dialog.setAttribute('data-dragging', '');
+      dialog.style.transition = 'none';
+      dialog.setPointerCapture(p.id);
+    }
+    p.last.push({ y: event.clientY, t: event.timeStamp });
+    if (p.last.length > 6) p.last.shift();
+    dialog.style.transform = `translateY(${dy}px)`;
+  });
+  const release = (event: PointerEvent) => {
+    const p = press;
+    if (!p || event.pointerId !== p.id) return;
+    press = null;
+    if (!p.moved) return;
+    swallowClick = true;
+    const dy = Math.max(0, event.clientY - p.y0);
+    const recent = p.last.filter((s) => event.timeStamp - s.t < 100);
+    const first = recent[0];
+    const velocity =
+      first && event.timeStamp > first.t
+        ? (event.clientY - first.y) / (event.timeStamp - first.t)
+        : 0;
+    const shut =
+      event.type !== 'pointercancel' &&
+      (velocity > CLOSE_AT.flick ||
+        dy > Math.min(CLOSE_AT.px, dialog.offsetHeight * CLOSE_AT.share));
+    if (shut)
+      slide('translateY(100%)', () => {
+        close();
+        reset();
+      });
+    else slide('translateY(0)', reset);
+  };
+  dialog.addEventListener('pointerup', release);
+  dialog.addEventListener('pointercancel', release);
+  dialog.addEventListener(
+    'click',
+    (event) => {
+      if (!swallowClick) return;
+      swallowClick = false;
+      event.stopPropagation();
+      event.preventDefault();
+    },
+    true,
+  );
 }

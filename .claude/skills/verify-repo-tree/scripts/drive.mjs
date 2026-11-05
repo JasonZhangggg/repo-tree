@@ -696,7 +696,7 @@ const JOURNEYS = {
     const cursor = () => view.evaluate((el) => el.style.cursor);
     /**
      * Finds a point on what `kind` names, then shoots a close-up round it with the mouse away and
-     * with it over the thing, so the pair shows the highlight.
+     * with it over the thing, so the pair shows the scene fading around it.
      */
     const closeUp = async (kind, at) => {
       const box = await view.boundingBox();
@@ -758,11 +758,13 @@ const JOURNEYS = {
       );
       expect(at, 'a cloud on screen').not.toBeNull();
       await closeUp('cloud', { x: at.x + 30, y: at.y + 24 });
+      await expect(page.locator('#tip')).toContainText('click for details');
     });
     await step('sun', async () => {
       const at = await scan((v, x, y) => v.skyTargetAt(x, y) === 'sun' && !v.pickAt(x, y));
       expect(at, 'the sun on screen').not.toBeNull();
       await closeUp('sun', { x: at.x + 18, y: at.y + 18 });
+      await expect(page.locator('#tip')).toContainText('click for details');
     });
     await step('away', async () => {
       const box = await view.boundingBox();

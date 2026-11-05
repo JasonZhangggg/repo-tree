@@ -1,31 +1,31 @@
-# Hover highlight
+# Hover focus
 
-On a desktop, everything in the 3D scene that a click opens lights up under the mouse and takes a pointer cursor. A bird swells and shows a gold halo, drawn over the leaves so a half-hidden bird still shows where it is. A rock, a cloud and the sun (or moon) tint toward the same gold, and the sun and clouds swell a little. A folder's branch keeps its own hover preview: the rest of the tree fades (see [Explore](./explore.md)). Moving off the scene clears the highlight and the cursor. Touch screens have no hover, so nothing lights up there.
+On desktop, when the mouse is over something in the 3D scene that a click opens, everything else fades and a pointer cursor shows. This works the way a folder's hover preview already does. Over a bird, its perch folder stays too, and the rest of the tree, the ground, the other birds and the sky fade. Over a rock, only that rock stays. Over the sun (the moon in dark mode) or a cloud, only that one stays, and the tree, the ground and the rest of the sky fade. Moving off clears the fade and the cursor. Touch screens have no hover, so nothing changes there.
 
 ## Sub-features
 
-- `hover-bird` swells the bird under the mouse, rings it in gold and shows the PR tooltip.
-- `hover-rock` tints the rock under the mouse gold and shows its file tooltip.
-- `hover-cloud` tints and swells the cloud under the mouse.
-- `hover-sun` brightens and swells the sun, or the moon in dark mode.
-- `hover-cursor` sets the pointer cursor on each of these and clears it on empty sky.
-- `hover-night` reads the same gold on the night sky.
+- `hover-bird` keeps the bird and its perch folder while the rest fades, and shows the PR tooltip.
+- `hover-rock` keeps only the rock and shows its file tooltip.
+- `hover-cloud` keeps only the cloud under the mouse and shows a tag with the CI verdict, like a rock's file tag.
+- `hover-sun` keeps only the sun, or the moon in dark mode, with the same tag.
+- `hover-cursor` shows the pointer cursor over each of these and clears it over empty sky.
+- `hover-night` fades the same way against the night sky.
 
 ## How to get to it (user POV)
 
-- Move the mouse over a bird, a rock, a cloud or the sun on a desktop.
+- Move the mouse over a bird, a rock, a cloud or the sun on desktop.
 
 ## Driving it with drive.mjs
 
-Preconditions: desktop viewport. The journey serves `VITE_PULLS` for birds and opens `vitejs/vite` with `wx=cloudy`, so a sun and clouds are out.
+Preconditions: desktop viewport. The journey serves `VITE_PULLS` so birds perch, and opens `vitejs/vite` with `wx=cloudy` so the sun and clouds are out.
 
-- **Bird, rock, cloud, sun.** Steps `bird`, `rock`, `cloud` and `sun` each find a point on the object (birds through `view.birdsOnScreen()` and the tooltip, the rest by scanning `view.pickAt` and `view.skyTargetAt`), then save a close-up pair: `<kind>-off.png` with the mouse away and `<kind>-on.png` with it over the object. Each asserts the pointer cursor.
-- **Away.** Step `away` moves to a bare corner and the cursor clears.
-- **Night.** Step `night` seeds `theme: 'dark'`, reloads and saves `night-cloud-*` and `night-moon-*` pairs.
-- **Proof.** `report.json` passes, and each `*-on.png` shows the gold highlight its `*-off.png` lacks. Pass `--scale 2` for close-ups worth reading.
+- **Bird, rock, cloud, sun.** Steps `bird`, `rock`, `cloud` and `sun` each find a point on the object. Birds come from `view.birdsOnScreen()` and the tooltip, and the rest from scanning `view.pickAt` and `view.skyTargetAt`. Each step saves a close-up pair, `<kind>-off.png` with the mouse away and `<kind>-on.png` with it over the object, and asserts the pointer cursor. The `cloud` and `sun` steps also assert the tag reads `… click for details`. The numbered full-page screenshot after each step shows the whole scene faded around the object.
+- **Away.** Step `away` moves to a bare corner, and the fade and the cursor clear.
+- **Night.** Step `night` stores `theme: 'dark'`, reloads, and saves `night-cloud-*` and `night-moon-*` pairs.
+- **Proof.** `report.json` passes, and each numbered screenshot from `02-bird` to `05-sun` shows everything faded except that object.
 
 ## Gotchas
 
-- A bird the pick finds may be mostly behind leaves. The halo draws over them on purpose, so that is still a fair proof.
-- Hovering a bird also previews its perch folder, so the tree fades in `bird-on.png`. That is the bird's existing folder preview, not this feature.
-- `view.skyTargetAt` returns `'sun'` or a cloud's index, and 0 is a cloud. Test it against `null`, not for truthiness.
+- `bird-on.png` keeps the bird's perch folder in full color because of the bird's folder preview. That is intended.
+- A pinned folder keeps its own fade on the tree while a rock or the sky is hovered. Only the ground, the birds and the sky follow the hover.
+- `view.skyTargetAt` returns `'sun'` or a cloud's index, and index 0 is a cloud. Compare its result to `null`, because 0 is falsy.

@@ -48,5 +48,5 @@ Each feature file starts with an H1 and one paragraph on what the user sees. The
 - [Owner](./owner.md) covers leaf colors by each top-level folder's owner (CODEOWNERS or top commit author), the highlighted owner, the pinned card's top authors and repos with no history.
 - [Weather](./weather.md) covers the sky from recent Actions runs, the chip, sample snapshots, `wx=` previews, failing soft and the setting.
 - [Birds](./birds.md) covers open pull requests perched as birds, the tooltip, the PR card, the request budget, failing soft and the setting.
-- [Hover highlight](./hover.md) covers birds, rocks, clouds and the sun lighting up under the mouse with a pointer cursor, by day and night.
+- [Hover focus](./hover.md) covers the scene fading around a bird, rock, cloud or the sun under the mouse, with a pointer cursor, by day and night.
 - [Performance](./performance.md) covers `scripts/perf.mjs`, the plan's targets and the last measured numbers.

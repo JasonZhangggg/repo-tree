@@ -219,7 +219,7 @@ test.describe('with motion allowed', () => {
   });
 });
 
-test('the sun and clouds light up under the mouse and take a pointer', async ({
+test('the sun or a cloud under the mouse shows a tag and fades the rest of the scene', async ({
   page,
   isMobile,
 }) => {
@@ -260,13 +260,14 @@ test('the sun and clouds light up under the mouse and take a pointer', async ({
     expect(spot, `a ${kind} is on screen`).toBeTruthy();
     await page.mouse.move(5, page.viewportSize()!.height - 5);
     await expect(view).not.toHaveCSS('cursor', 'pointer');
-    const clip = { x: spot!.x - 30, y: spot!.y - 30, width: 60, height: 60 };
-    const before = await page.screenshot({ clip });
+    const before = await view.screenshot();
     await page.mouse.move(spot!.x, spot!.y);
     await expect(view).toHaveCSS('cursor', 'pointer');
+    // A tag says what the sky stands for, as a rock's names its file.
+    await expect(page.locator('#tip')).toContainText('click for details');
     await expect
-      .poll(async () => (await page.screenshot({ clip })).equals(before), {
-        message: `${kind} lights up`,
+      .poll(async () => (await view.screenshot()).equals(before), {
+        message: `the scene fades around the ${kind}`,
       })
       .toBe(false);
   }

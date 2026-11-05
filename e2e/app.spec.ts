@@ -240,7 +240,7 @@ test('a rock names its root file on hover and pins it on click', async ({ page, 
   await page.mouse.move(rock!.x, rock!.y);
   const tip = page.locator('#tip');
   await expect(tip).toBeVisible();
-  // It lights up and takes a pointer, as everything a click opens does.
+  // The rest fades around it and it takes a pointer, as everything a click opens does.
   await expect(page.locator('#view')).toHaveCSS('cursor', 'pointer');
   await expect.poll(async () => (await page.screenshot({ clip })).equals(before)).toBe(false);
   const root = ['MAINTAINERS', 'Makefile', 'CREDITS', 'COPYING', 'README', 'Kbuild', 'Kconfig'];

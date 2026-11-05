@@ -10,7 +10,7 @@ import type { Quality, TreeModel } from '../grow/grow';
 import { growGround, KIND, type GroundMesh, type GroundModel } from '../grow/ground';
 import { VIEW_DIRECTION } from './framing';
 import type { Palette } from './palette';
-import { FADE, GROUND_SWAY, HOVER_LIFT, treeUniforms } from './shaders';
+import { GROUND_FADE, GROUND_SWAY, treeUniforms } from './shaders';
 
 /** The trunk flares to this much of its base radius where it meets the ground. */
 const FLARE = 1.55;
@@ -222,12 +222,12 @@ export function swayOf(mesh: GroundMesh): Float32Array {
   return sway;
 }
 
-/** A rock under the mouse (its pick id is `uHover`) lights up, as birds do. */
+/** Only a rock under the mouse (its pick id is `uFocus`) stays while the rest fades. */
 function fading<M extends MeshStandardMaterial>(material: M, key: string, sways = false): M {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSel = treeUniforms.uSel;
     shader.uniforms.uFade = treeUniforms.uFade;
-    shader.uniforms.uHover = treeUniforms.uHover;
+    shader.uniforms.uFocus = treeUniforms.uFocus;
     if (sways) Object.assign(shader.uniforms, treeUniforms);
     shader.vertexShader =
       'attribute float aId;\nvarying float vId;\nvarying float vPick;\n' +
@@ -238,11 +238,8 @@ function fading<M extends MeshStandardMaterial>(material: M, key: string, sways 
           (sways ? GROUND_SWAY.body : ''),
       );
     shader.fragmentShader =
-      'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uHover;\nvarying float vId;\nvarying float vPick;\n' +
-      shader.fragmentShader.replace(
-        '#include <dithering_fragment>',
-        FADE + HOVER_LIFT('uHover >= 0.0 && abs(vPick - uHover) < 0.5'),
-      );
+      'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uFocus;\nvarying float vId;\nvarying float vPick;\n' +
+      shader.fragmentShader.replace('#include <dithering_fragment>', GROUND_FADE);
   };
   material.customProgramCacheKey = () => key;
   return material;

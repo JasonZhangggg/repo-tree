@@ -4,7 +4,6 @@ import {
   Color,
   DataTexture,
   DirectionalLight,
-  BackSide,
   DoubleSide,
   HemisphereLight,
   LinearFilter,
@@ -61,7 +60,7 @@ import {
   birdUniforms,
   growing,
   glowShader,
-  birdHover,
+  focusFading,
   leafShader,
   PICK_FRAGMENT,
   PICK_VERTEX,
@@ -83,7 +82,7 @@ import {
  * bird (an index into what setBirds was given) perched on a folder.
  */
 export type Picked = { folder: number; rock?: number; bird?: number };
-/** What lights up under the mouse: a rock or a bird as pickAt found it, or the sun or a cloud. */
+/** What the mouse is over: a rock or a bird as pickAt found it, or the sun or a cloud. */
 export type Hover = Picked | { sky: SkyTarget['which'] };
 /** A bird to perch on a folder's twig, in a plumage. */
 export type BirdPerch = { folder: number; color: string };
@@ -162,8 +161,9 @@ export interface TreeView {
   /** The sun (or moon) or the cloud under a point, as `Hover` names it, or null. */
   skyTargetAt(x: number, y: number): SkyTarget['which'] | null;
   /**
-   * Lights up what the mouse is over and a click would open: a rock, a bird, the sun or a cloud.
-   * A folder's branch shows by fading the rest instead (setHighlight), so it lights nothing.
+   * Fades everything but what the mouse is over, when a click on it opens something: a rock, a
+   * bird, the sun or a cloud. A bird's perch folder stays too, through setHighlight; a folder's
+   * branch alone fades nothing here (its preview is setHighlight).
    */
   setHover(hover: Hover | null): void;
   /**
@@ -216,8 +216,8 @@ const QUALITY: Record<Quality, { pixelRatio: number; shadowMap: number; antialia
   high: { pixelRatio: 2, shadowMap: 2048, antialias: true },
 };
 
-/** The halo round a hovered bird. */
-const HALO_COLOR = 0xffc940;
+/** uFocus while the mouse is over the sun or a cloud: the whole tree and ground fade. */
+const SKY_FOCUS = -2;
 const GROW_MS = 2600;
 const BAKED = 1;
 const LABELS_FROM = 0.55;
@@ -384,7 +384,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       toneMapped: false,
     }),
   );
-  const birdMaterial = birdHover(
+  const birdMaterial = focusFading(
     birdShader(
       new MeshStandardMaterial({
         vertexColors: true,
@@ -399,31 +399,6 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   birdMesh.frustumCulled = false;
   birdMesh.visible = false;
   scene.add(birdMesh);
-  /**
-   * A gold halo round the bird under the mouse, from the birds' own geometry. It draws after the
-   * tree and over it, then the bird over the halo, so a bird half hidden by leaves still shows
-   * where it is.
-   */
-  const birdHalo = new Mesh(
-    birdMesh.geometry,
-    birdHover(
-      birdShader(
-        new MeshBasicMaterial({
-          color: HALO_COLOR,
-          side: BackSide,
-          depthTest: false,
-          depthWrite: false,
-          toneMapped: false,
-        }),
-      ),
-      true,
-    ),
-  );
-  birdHalo.frustumCulled = false;
-  birdHalo.renderOrder = 1;
-  birdMesh.renderOrder = 2;
-  birdHalo.visible = false;
-  birdMesh.add(birdHalo);
   let birdPerches: readonly BirdPerch[] | null = null;
   /** Each bird's perch in the world, in setBirds order, while some show. */
   let birdSpots: Vec3[] = [];
@@ -1119,7 +1094,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   return {
     setTree(model) {
       releaseTree();
-      treeUniforms.uHover.value = -1;
+      treeUniforms.uFocus.value = -1;
       labelFolders = null;
       const bark = new Mesh(geometry(model.bark), barkMaterial);
       const leafGeometry = geometry(model.leaves).setAttribute(
@@ -1270,21 +1245,19 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     setHover(hover) {
       const nodes = shown?.model.nodes.folder.length ?? 0;
       const rocks = shown?.model.rocks.length ?? 0;
-      const id =
-        !hover || 'sky' in hover
-          ? -1
-          : hover.bird !== undefined
+      const sky = hover && 'sky' in hover ? hover.sky : null;
+      const focus =
+        sky !== null
+          ? SKY_FOCUS
+          : hover && 'bird' in hover && hover.bird !== undefined
             ? nodes + rocks + hover.bird
-            : hover.rock !== undefined
+            : hover && 'rock' in hover && hover.rock !== undefined
               ? nodes + hover.rock
               : -1;
-      const sky = hover && 'sky' in hover ? hover.sky : null;
-      if (id === treeUniforms.uHover.value && sky === skyHovered) return;
+      if (focus === treeUniforms.uFocus.value && sky === skyHovered) return;
       skyHovered = sky;
-      weather.setHover(sky);
-      treeUniforms.uHover.value = id;
-      birdHalo.geometry = birdMesh.geometry;
-      birdHalo.visible = !!hover && 'bird' in hover && hover.bird !== undefined;
+      weather.setFocus(sky, focus !== -1);
+      treeUniforms.uFocus.value = focus;
       requestRender();
     },
 
@@ -1424,7 +1397,6 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         pickMaterial,
         glowMaterial,
         birdMaterial,
-        birdHalo.material,
       ]) {
         material.dispose();
       }

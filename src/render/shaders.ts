@@ -40,51 +40,30 @@ export const treeUniforms = {
   uWind: { value: 0 },
   /** The tree's height, so a tree of any size bends by the same share of it. */
   uWindHeight: { value: 1 },
-  /** The pick id under the mouse (a rock or a bird), which lights up; -1 for none. */
-  uHover: { value: -1 },
+  /**
+   * What the mouse is over, which stays while the rest fades: a rock's or a bird's pick id, -2
+   * for the sun or a cloud (the whole tree and ground fade), or -1 for nothing.
+   */
+  uFocus: { value: -1 },
 };
 
-/**
- * Lights up a fragment under the mouse where `on` holds: tinted toward the gold of a hovered
- * bird's halo, so a rock, a cloud or the sun reads as the thing a click opens, by day and night.
- */
-export const HOVER_LIFT = (on: string, lift = 0.45) => /* glsl */ `
-if (${on}) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0, 0.82, 0.32), ${lift.toFixed(2)});
-`;
-/**
- * A hovered bird swells by HOVER_SWELL about the middle of its body, and a halo HOVER_HALO times
- * larger again shows round it: the bird drawn once more as a flat silhouette behind it.
- */
-const HOVER_SWELL = 1.3;
-const HOVER_HALO = 1.35;
-/** The middle of a bird's body over its feet, in bird lengths (render/birds.ts). */
-const BIRD_MIDDLE = 0.25;
+/** Whether an element with pick id `id` fades because the mouse is over something else. */
+export const focusOut = (id: string) => `(uFocus != -1.0 && abs(${id} - uFocus) > 0.5)`;
 
 /**
- * Swells the bird whose pick id is `uHover`, or with `halo` draws only its halo. Wraps the bird's
- * own shader hook, so its motion is untouched.
+ * Fades every bird but the one under the mouse while it is over a rock, a bird, the sun or a
+ * cloud. Wraps the bird's own shader hook, so its motion is untouched.
  */
-export function birdHover<M extends Material>(material: M, halo = false): M {
+export function focusFading<M extends Material>(material: M): M {
   const own = material.onBeforeCompile.bind(material);
   const key = material.customProgramCacheKey.bind(material);
-  const scale = (halo ? HOVER_SWELL * HOVER_HALO : HOVER_SWELL).toFixed(3);
   material.onBeforeCompile = (shader, renderer) => {
     own(shader, renderer);
-    shader.uniforms.uHover = treeUniforms.uHover;
-    shader.vertexShader =
-      'uniform float uHover;\n' +
-      shader.vertexShader.replace(
-        '#include <project_vertex>',
-        `{
-  vec3 middle = aBase + swayAt(aBase) + vec3(0.0, ${BIRD_MIDDLE.toFixed(2)} * uBirdSize, 0.0);
-  bool hovered = uHover >= 0.0 && abs(aId - uHover) < 0.5;
-  if (hovered) transformed = middle + (transformed - middle) * ${scale};
-  ${halo ? 'else transformed = vec3(0.0);' : ''}
-}
-#include <project_vertex>`,
-      );
+    shader.fragmentShader =
+      'uniform float uFocus;\nuniform vec3 uFade;\n' +
+      shader.fragmentShader.replace('#include <dithering_fragment>', fade(focusOut('vId')));
   };
-  material.customProgramCacheKey = () => `${key()}-hover${halo ? '-halo' : ''}`;
+  material.customProgramCacheKey = () => `${key()}-focus`;
   return material;
 }
 
@@ -142,7 +121,9 @@ transformed = mix(aBase, transformed, grown());
 transformed += swayAt(transformed);
 vId = aId;
 `;
-const OUTSIDE = '(uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5))';
+const SELECTED_OUT = '(uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5))';
+/** Outside the highlighted range, or, with none, not what the mouse is over. */
+const OUTSIDE = `(${SELECTED_OUT} || (uSel.y < 0.0 && ${focusOut('vId')}))`;
 const OTHER_CATEGORY = '(uCategory >= 0.0 && abs(vSlot - uCategory) > 0.5)';
 /**
  * Mixes a `faded` fragment toward the sky by `amount`. `grey` (0 to 1) first drains its color, so
@@ -157,7 +138,10 @@ if (${faded}) {
 }
 `;
 export const FADE = fade(OUTSIDE);
-const FADE_UNIFORMS = 'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uCategory;\n';
+/** The ground's fade: its rocks and grass read `vId` as the root folder, and `vPick` as their pick id. */
+export const GROUND_FADE = fade(`${SELECTED_OUT} || ${focusOut('vPick')}`);
+const FADE_UNIFORMS =
+  'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uCategory;\nuniform float uFocus;\n';
 
 const HSL = /* glsl */ `
 vec3 hue2rgb(float h) {
@@ -390,7 +374,7 @@ vGlow = aHeat > 0.0 ? (1.0 - aRim) * (0.55 + 0.45 * aHeat) * uGlow * GLOW_GAIN :
         );
     shader.vertexShader = '#define GLOW_GAIN 1.2\n' + shader.vertexShader;
     shader.fragmentShader =
-      'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\n' +
+      'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\nuniform float uFocus;\n' +
       shader.fragmentShader.replace(
         'vec4 diffuseColor = vec4( diffuse, opacity );',
         `vec4 diffuseColor = vec4( diffuse, opacity * clamp(vGlow, 0.0, 1.0) );

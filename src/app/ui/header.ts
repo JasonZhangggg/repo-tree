@@ -472,6 +472,7 @@ export function mountHeader(app: App): void {
     }
   };
   store.subscribe(render);
+  document.body.toggleAttribute('data-shell', true);
   const retry = (event: Event) => {
     if (weatherChip.dataset.sky !== 'unknown') return;
     event.preventDefault();

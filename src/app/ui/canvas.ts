@@ -374,7 +374,7 @@ export function mountCanvas(app: App): {
         const r = el.getBoundingClientRect();
         return { x: r.x - origin.x, y: r.y - origin.y, width: r.width, height: r.height };
       });
-    const placed = relaxLabels(anchors, crown, panels);
+    const placed = relaxLabels(anchors, crown, panels, layer.clientWidth, EDGE);
     // Kept whole on screen: a label cut by the edge can't be read or tapped.
     const room = layer.clientWidth;
     shown.forEach((pill, i) => {

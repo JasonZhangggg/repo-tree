@@ -214,8 +214,8 @@ test('the GitHub account menu shows the requests left this hour, links to the qu
   expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
 
   // What Repo Tree can see is on the questions page, which opens in a new tab.
-  const faq = panel.getByRole('link', { name: 'Q&A' });
-  await expect(faq).toHaveAttribute('href', './faq.html');
+  const faq = panel.getByRole('link', { name: 'Login Q&A' });
+  await expect(faq).toHaveAttribute('href', './faq.html#github');
   await expect(faq).toHaveAttribute('target', '_blank');
   const page2 = await page.context().newPage();
   await page2.goto(new URL('./faq.html#github', page.url()).href);

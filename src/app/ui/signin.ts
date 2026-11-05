@@ -5,13 +5,13 @@ import type { App } from '../app';
 import { byId, h, icon, ICONS } from '../dom';
 
 /** The questions page: how to read the tree, and what Repo Tree uses GitHub for and can see. */
-export const FAQ_URL = './faq.html';
+export const FAQ_URL = './faq.html#github';
 
 /**
  * The Sign in with GitHub button, last in the toolbar (its own box beside the repo card on a
  * phone). Signing in lifts GitHub's hourly limit from 60 requests per network address to 5,000 per
  * visitor, for trees, CI weather and history alike. Signed in, the same button opens the account
- * menu: the requests left this hour over a meter, a link to the questions page (Q&A), and Sign out.
+ * menu: the requests left this hour over a meter, a link to the questions page's GitHub section (Login Q&A), and Sign out.
  * Hidden when this build has no history server, which is what signs visitors in.
  */
 export function mountSignIn(
@@ -79,7 +79,7 @@ export function mountSignIn(
         rel: 'noopener',
       },
       icon(...ICONS.help),
-      h('span', {}, 'Q&A'),
+      h('span', {}, 'Login Q&A'),
       icon(...ICONS.external),
     ),
     h(

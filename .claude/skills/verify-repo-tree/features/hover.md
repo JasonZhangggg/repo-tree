@@ -1,6 +1,6 @@
 # Hover focus
 
-On desktop, when the mouse is over something in the 3D scene that a click opens, everything else fades and a pointer cursor shows. This works the way a folder's hover preview already does. Over a bird, its perch folder stays too, and the rest of the tree, the ground, the other birds and the sky fade. Over a rock, only that rock stays. Over the sun (the moon in dark mode) or a cloud, only that one stays, and the tree, the ground and the rest of the sky fade. Moving off clears the fade and the cursor. Touch screens have no hover, so nothing changes there.
+On desktop, when the mouse is over something in the 3D scene that a click opens, everything else fades and a pointer cursor shows. This works the way a folder's hover preview already does. Over a bird, its perch folder stays too, and the rest of the tree, the ground, the other birds and the sky fade. Over a rock, only that rock stays. Over the sun (the moon in dark mode) or a cloud, only that one stays, and the tree, the ground and the rest of the sky fade. The hovered object itself shifts a little toward a warm light (HOVER_TINT), so it stands out from the faded scene without glowing. Moving off clears the fade, the tint and the cursor. Touch screens have no hover, so nothing changes there.
 
 ## Sub-features
 

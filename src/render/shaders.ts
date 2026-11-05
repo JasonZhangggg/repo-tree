@@ -49,10 +49,19 @@ export const treeUniforms = {
 
 /** Whether an element with pick id `id` fades because the mouse is over something else. */
 export const focusOut = (id: string) => `(uFocus != -1.0 && abs(${id} - uFocus) > 0.5)`;
+/** Whether an element with pick id `id` is the rock or bird under the mouse. */
+const focusOn = (id: string) => `(uFocus >= 0.0 && abs(${id} - uFocus) < 0.5)`;
+/**
+ * Shifts the color of what the mouse is over a little toward a warm light where `on` holds, so it
+ * stands out from the faded scene without glowing.
+ */
+export const HOVER_TINT = (on: string) => /* glsl */ `
+if (${on}) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0, 0.93, 0.74), 0.24);
+`;
 
 /**
  * Fades every bird but the one under the mouse while it is over a rock, a bird, the sun or a
- * cloud. Wraps the bird's own shader hook, so its motion is untouched.
+ * cloud, and tints that one a little. Wraps the bird's own shader hook, so its motion is untouched.
  */
 export function focusFading<M extends Material>(material: M): M {
   const own = material.onBeforeCompile.bind(material);
@@ -61,7 +70,10 @@ export function focusFading<M extends Material>(material: M): M {
     own(shader, renderer);
     shader.fragmentShader =
       'uniform float uFocus;\nuniform vec3 uFade;\n' +
-      shader.fragmentShader.replace('#include <dithering_fragment>', fade(focusOut('vId')));
+      shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        fade(focusOut('vId')) + HOVER_TINT(focusOn('vId')),
+      );
   };
   material.customProgramCacheKey = () => `${key()}-focus`;
   return material;
@@ -139,7 +151,8 @@ if (${faded}) {
 `;
 export const FADE = fade(OUTSIDE);
 /** The ground's fade: its rocks and grass read `vId` as the root folder, and `vPick` as their pick id. */
-export const GROUND_FADE = fade(`${SELECTED_OUT} || ${focusOut('vPick')}`);
+export const GROUND_FADE =
+  fade(`${SELECTED_OUT} || ${focusOut('vPick')}`) + HOVER_TINT(focusOn('vPick'));
 const FADE_UNIFORMS =
   'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uCategory;\nuniform float uFocus;\n';
 

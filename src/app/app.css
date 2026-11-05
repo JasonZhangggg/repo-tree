@@ -578,6 +578,15 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
   color: var(--muted);
   font-size: 12px;
 }
+.account-signin {
+  justify-content: center;
+  margin: 2px 4px 4px;
+  min-height: 38px;
+}
+.account-signin[hidden],
+.account-item[hidden] {
+  display: none;
+}
 .account-sep {
   height: 1px;
   margin: 4px 6px;

@@ -8,11 +8,12 @@ import { byId, h, icon, ICONS } from '../dom';
 export const FAQ_URL = './faq.html#github';
 
 /**
- * The Sign in with GitHub button, last in the toolbar (its own box beside the repo card on a
- * phone). Signing in lifts GitHub's hourly limit from 60 requests per network address to 5,000 per
- * visitor, for trees, CI weather and history alike. Signed in, the same button opens the account
- * menu: the requests left this hour over a meter, a link to the questions page's GitHub section (Login Q&A), and Sign out.
- * Hidden when this build has no history server, which is what signs visitors in.
+ * The GitHub button, last in the toolbar (its own box beside the repo card on a phone). Signing in
+ * lifts GitHub's hourly limit from 60 requests per network address to 5,000 per visitor, for trees,
+ * CI weather and history alike. The button opens the account menu either way: the requests left
+ * this hour over a meter, then Sign in with GitHub or Sign out, and a link to the questions page's
+ * GitHub section (Login Q&A). Hidden when this build has no history server, which is what signs
+ * visitors in.
  */
 export function mountSignIn(
   app: App,
@@ -22,17 +23,20 @@ export function mountSignIn(
   const label = button.querySelector('.label')!;
   button.hidden = !HISTORY_URL;
 
+  button.setAttribute('aria-haspopup', 'dialog');
+  button.setAttribute('aria-expanded', 'false');
   const sync = () => {
     const inside = signedInToken() !== null;
     label.textContent = inside ? 'GitHub account' : 'Sign in';
-    button.setAttribute('aria-label', inside ? 'GitHub account' : 'Sign in with GitHub');
-    button.title = inside
-      ? 'Signed in with GitHub'
-      : 'Sign in with GitHub: 5,000 requests an hour instead of 60. Public data only.';
+    button.setAttribute('aria-label', inside ? 'GitHub account' : 'Sign in');
+    button.title = inside ? 'Signed in with GitHub' : 'Sign in with GitHub';
     button.dataset.signedIn = String(inside);
-    if (inside) button.setAttribute('aria-haspopup', 'dialog');
-    else button.removeAttribute('aria-haspopup');
-    if (!inside) close();
+    panel.dataset.signedIn = String(inside);
+    who.textContent = inside ? 'Signed in' : 'Not signed in';
+    signInButton.hidden = inside;
+    signOutButton.hidden = !inside;
+    // Open, the menu follows: signed in from it, it shows the account's own budget.
+    if (!panel.hidden) readUsage();
   };
 
   const usage = h('span', { class: 'account-count', id: 'account-usage', 'aria-live': 'polite' });
@@ -40,6 +44,33 @@ export function mountSignIn(
   const meter = h('div', { class: 'account-meter', 'aria-hidden': 'true' }, fillBar);
   const resets = h('p', { class: 'account-reset', id: 'account-reset' });
   const mark = button.querySelector('svg')?.cloneNode(true) ?? icon(...ICONS.person);
+  const who = h('small', {}, 'Signed in');
+  const signInButton = h(
+    'button',
+    {
+      type: 'button',
+      class: 'btn dark account-signin',
+      id: 'account-signin',
+      onclick: () => void signInNow(),
+    },
+    'Sign in with GitHub',
+  );
+  const signOutButton = h(
+    'button',
+    {
+      type: 'button',
+      class: 'account-item',
+      id: 'account-signout',
+      onclick: () => {
+        close();
+        signOut();
+        app.toast('Signed out of GitHub');
+        button.focus();
+      },
+    },
+    icon(...ICONS.signout),
+    h('span', {}, 'Sign out'),
+  );
   const panel = h(
     'div',
     {
@@ -54,7 +85,7 @@ export function mountSignIn(
       'div',
       { class: 'account-head' },
       h('span', { class: 'account-mark' }, mark),
-      h('span', { class: 'account-who' }, h('strong', {}, 'GitHub'), h('small', {}, 'Signed in')),
+      h('span', { class: 'account-who' }, h('strong', {}, 'GitHub'), who),
     ),
     h(
       'div',
@@ -68,6 +99,7 @@ export function mountSignIn(
       meter,
       resets,
     ),
+    signInButton,
     h('div', { class: 'account-sep', role: 'separator' }),
     h(
       'a',
@@ -82,21 +114,7 @@ export function mountSignIn(
       h('span', {}, 'Login Q&A'),
       icon(...ICONS.external),
     ),
-    h(
-      'button',
-      {
-        type: 'button',
-        class: 'account-item',
-        id: 'account-signout',
-        onclick: () => {
-          signOut();
-          app.toast('Signed out of GitHub');
-          button.focus();
-        },
-      },
-      icon(...ICONS.signout),
-      h('span', {}, 'Sign out'),
-    ),
+    signOutButton,
   );
   document.body.append(panel);
 
@@ -169,11 +187,7 @@ export function mountSignIn(
     else refreshRuns();
   }
 
-  button.addEventListener('click', () => {
-    if (signedInToken() === null) void signInNow();
-    else if (panel.hidden) open();
-    else close();
-  });
+  button.addEventListener('click', () => (panel.hidden ? open() : close()));
   // A sign-in token GitHub refuses has expired: forget it, so the next read goes without.
   app.store.subscribe((state, prev) => {
     if (

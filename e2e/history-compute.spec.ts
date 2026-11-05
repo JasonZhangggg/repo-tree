@@ -144,25 +144,50 @@ test('a signed-in visitor is offered to bring an out-of-date history up to date'
   expect(after.computedAt).toBeGreaterThan(before.computedAt);
 });
 
-test('the Sign in button signs in from anywhere, and GitHub reads then carry the token', async ({
+test('signed out, the GitHub button opens the menu, whose Sign in signs in; GitHub reads then carry the token', async ({
   page,
 }) => {
   const sent: (string | undefined)[] = [];
+  const asked: (string | undefined)[] = [];
   page.on('request', (req) => {
     if (req.url().startsWith('https://api.github.com/repos/acme/gadgets/git/trees/')) {
       sent.push(req.headers()['authorization']);
     }
+    if (req.url() === 'https://api.github.com/rate_limit') asked.push(req.headers().authorization);
   });
+  await serveRateLimit(page, 57, 60);
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   const button = page.locator('#signin');
-  await expect(button).toHaveAccessibleName('Sign in with GitHub');
+  await expect(button).toHaveAccessibleName('Sign in');
+  await expect(button).toHaveAttribute('aria-haspopup', 'dialog');
   await expect(button).toBeVisible();
-  const popup = page.waitForEvent('popup');
+
+  // A click opens the menu rather than GitHub: the network's own budget, Sign in and Login Q&A.
+  let popups = 0;
+  page.on('popup', () => popups++);
   await button.click();
+  const panel = page.getByRole('dialog', { name: 'GitHub account' });
+  await expect(panel).toBeVisible();
+  expect(popups).toBe(0);
+  await expect(panel).toContainText('Not signed in');
+  await expect(panel.locator('#account-usage')).toHaveText('57 of 60');
+  expect(asked.at(-1)).toBeUndefined();
+  await expect(panel.getByRole('link', { name: 'Login Q&A' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Sign out' })).toBeHidden();
+
+  // Sign in from the menu; it stays open and shows the account.
+  const popup = page.waitForEvent('popup');
+  await panel.getByRole('button', { name: 'Sign in with GitHub' }).click();
   await closed(await popup);
   await expect(page.locator('#toast')).toHaveText('Signed in with GitHub');
   await expect(button).toHaveAccessibleName('GitHub account');
+  await expect(panel).toContainText('Signed in');
+  await expect(panel.getByRole('button', { name: 'Sign in with GitHub' })).toBeHidden();
+  await expect(panel.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  await expect.poll(() => asked.at(-1)).toMatch(/^Bearer \S+$/);
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
 
   const input = page.getByLabel('GitHub repository');
   await input.fill('acme/gadgets');
@@ -190,13 +215,12 @@ test('the GitHub account menu shows the requests left this hour, links to the qu
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   const button = page.locator('#signin');
-  const popup = page.waitForEvent('popup');
-  await button.click();
-  await closed(await popup);
-  await expect(button).toHaveAccessibleName('GitHub account');
-
   await button.click();
   const panel = page.getByRole('dialog', { name: 'GitHub account' });
+  const popup = page.waitForEvent('popup');
+  await panel.getByRole('button', { name: 'Sign in with GitHub' }).click();
+  await closed(await popup);
+  await expect(button).toHaveAccessibleName('GitHub account');
   await expect(panel).toBeVisible();
   await expect(panel.locator('#account-usage')).toHaveText('4,812 of 5,000');
   await expect(panel.locator('#account-reset')).toHaveText(/^Resets at /);
@@ -244,7 +268,7 @@ test('the GitHub account menu shows the requests left this hour, links to the qu
   await panel.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.locator('#toast')).toHaveText('Signed out of GitHub');
   await expect(panel).toBeHidden();
-  await expect(button).toHaveAccessibleName('Sign in with GitHub');
+  await expect(button).toHaveAccessibleName('Sign in');
 });
 
 test.describe('on a phone', () => {
@@ -254,7 +278,7 @@ test.describe('on a phone', () => {
     await serveRateLimit(page, 4812, 5000);
     await page.goto('./');
     await ready(page, 'vitejs/vite');
-    const bubble = page.getByRole('button', { name: 'Sign in with GitHub' });
+    const bubble = page.getByRole('button', { name: 'Sign in', exact: true });
     await expect(bubble).toBeVisible();
     const at = (await bubble.boundingBox())!;
     const card = (await page.locator('#title').boundingBox())!;
@@ -268,12 +292,14 @@ test.describe('on a phone', () => {
     await expect(page.locator('#more-menu #signin')).toHaveCount(0);
     await page.getByRole('button', { name: 'More actions' }).tap();
 
-    const popup = page.waitForEvent('popup');
+    // A tap opens the menu; its Sign in signs in.
     await bubble.tap();
-    await closed(await popup);
-    const account = page.getByRole('button', { name: 'GitHub account' });
-    await account.tap();
     const panel = page.getByRole('dialog', { name: 'GitHub account' });
+    await expect(panel).toBeVisible();
+    const popup = page.waitForEvent('popup');
+    await panel.getByRole('button', { name: 'Sign in with GitHub' }).tap();
+    await closed(await popup);
+    await expect(page.locator('#signin')).toHaveAccessibleName('GitHub account');
     await expect(panel.locator('#account-usage')).toHaveText('4,812 of 5,000');
     const box = (await panel.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);

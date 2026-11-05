@@ -47,4 +47,5 @@ Each feature file starts with an H1 and one paragraph on what the user sees. The
 - [Busiest files](./busiest.md) covers, in Changes, the busiest files glowing in their own color, the busiest listed under the legend to pin, no glow in other modes and repos with no history.
 - [Owner](./owner.md) covers leaf colors by each top-level folder's owner (CODEOWNERS or top commit author), the highlighted owner, the pinned card's top authors and repos with no history.
 - [Weather](./weather.md) covers the sky from recent Actions runs, the chip, sample snapshots, `wx=` previews, failing soft and the setting.
+- [Birds](./birds.md) covers open pull requests perched as birds, the tooltip, the PR card, the request budget, failing soft and the setting.
 - [Performance](./performance.md) covers `scripts/perf.mjs`, the plan's targets and the last measured numbers.

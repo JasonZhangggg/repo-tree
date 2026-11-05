@@ -1,8 +1,9 @@
 import { AGES, CHANGES } from '../timeline/facts';
 import { githubToken } from '../repo/auth';
-import { cachedRuns, cacheRuns } from '../load/cache';
+import { cachedPulls, cachePulls, cachedRuns, cacheRuns } from '../load/cache';
 import { loadInWorker, type LoadSource } from '../load/load-in-worker';
 import { ciKey, fetchRuns, loadSampleRuns, type CiRun } from '../repo/ci';
+import { fetchPulls, pullsKey, type OpenPulls } from '../repo/pulls';
 import type { RepoRef } from '../repo/ref';
 import { PALETTES } from '../render/palette';
 import { leafCategories } from '../render/tree-view';
@@ -20,13 +21,41 @@ const KEEP = 4;
  * `highlight` a legend entry by label, each once the repo is ready and only if it has one;
  * `timeline` opens the timeline at that date.
  * Each load also reads the repo's recent Actions runs for its weather, beside the tree and as
- * soon as the branch is known, so the tree never waits on them.
+ * soon as the branch is known, so the tree never waits on them, and its open pull requests for
+ * its birds the same way.
  */
 export function createLoader(store: Store) {
   const memory = new Map<string, Repo>();
   let inFlight: AbortController | null = null;
   let lastId = 0;
   let runsInFlight: { key: string; abort: AbortController } | null = null;
+  let pullsInFlight: { key: string; abort: AbortController } | null = null;
+
+  /** Open pull requests, live for a sample too: there are none bundled, as they go stale fast. */
+  async function loadPulls(
+    ref: RepoRef,
+    branch: string,
+    { token, fresh }: { token?: string; fresh: boolean },
+  ) {
+    const key = pullsKey(ref, branch);
+    if (pullsInFlight?.key === key) return;
+    if (!fresh && store.get().pulls[key]) return;
+    pullsInFlight?.abort.abort();
+    const abort = new AbortController();
+    pullsInFlight = { key, abort };
+    try {
+      let pulls: OpenPulls | null | undefined = fresh ? undefined : await cachedPulls(key);
+      if (pulls === undefined) {
+        pulls = await fetchPulls(ref, branch, token, abort.signal);
+        if (pulls) void cachePulls(key, pulls);
+      }
+      store.dispatch({ type: 'pulls', key, pulls });
+    } catch {
+      // Aborted by a load of another repo, which reads its own.
+    } finally {
+      if (pullsInFlight?.abort === abort) pullsInFlight = null;
+    }
+  }
 
   async function loadRuns(
     ref: RepoRef,
@@ -83,6 +112,7 @@ export function createLoader(store: Store) {
     const runsFor = (branch: string) => {
       if (runsInFlight && runsInFlight.key !== ciKey(ref, branch)) runsInFlight.abort.abort();
       void loadRuns(ref, branch, { sample, token, fresh });
+      void loadPulls(ref, branch, { token, fresh });
     };
     const branch = sample?.branch ?? ref.ref;
     if (branch !== undefined) runsFor(branch);
@@ -142,7 +172,10 @@ export function createLoader(store: Store) {
     store.dispatch({ type: 'cancel' });
   }
 
-  /** Reads the repo on screen's Actions runs again, past the cache: after signing in, say. */
+  /**
+   * Reads the repo on screen's Actions runs and open pull requests again, past the cache: after
+   * signing in, say, which also lets more PRs perch.
+   */
   function refreshRuns() {
     const { repo, settings } = store.get();
     if (!repo) return;
@@ -150,11 +183,11 @@ export function createLoader(store: Store) {
     const sample = repo.sample ? sampleFor({ ...ref, ref: repo.info.branch }) : undefined;
     if (runsInFlight?.key === ciKey(ref, repo.info.branch)) runsInFlight.abort.abort();
     runsInFlight = null;
-    void loadRuns(ref, repo.info.branch, {
-      sample,
-      token: githubToken(settings.token),
-      fresh: true,
-    });
+    const token = githubToken(settings.token);
+    void loadRuns(ref, repo.info.branch, { sample, token, fresh: true });
+    if (pullsInFlight?.key === pullsKey(ref, repo.info.branch)) pullsInFlight.abort.abort();
+    pullsInFlight = null;
+    void loadPulls(ref, repo.info.branch, { token, fresh: true });
   }
 
   return { load, cancel, refreshRuns };

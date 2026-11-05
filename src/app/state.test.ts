@@ -22,6 +22,7 @@ const INITIAL: AppState = {
   settings: DEFAULT_SETTINGS,
   autoQuality: 'medium',
   ci: {},
+  pulls: {},
   preview: null,
   timeline: null,
   history: null,

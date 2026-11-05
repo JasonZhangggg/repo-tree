@@ -317,6 +317,7 @@ export function mountSettings(app: App): {
         toggle('Weather', 'Shows CI from GitHub Actions', settings.weather, (weather) =>
           set({ weather }),
         ),
+        toggle('Birds', 'Shows open pull requests', settings.birds, (birds) => set({ birds })),
         toggle(
           'Growth animation',
           reducedMotion.matches ? 'Off: your system asks for reduced motion' : null,
@@ -384,8 +385,8 @@ export function mountSettings(app: App): {
         'p',
         { class: 'note' },
         inside
-          ? 'Signed in: GitHub allows you 5,000 requests an hour for trees, CI weather and history.'
-          : 'Raises GitHub’s limit from 60 requests an hour, shared with your network, to 5,000 of your own: for trees, CI weather and history.',
+          ? 'Signed in: GitHub allows you 5,000 requests an hour for trees, CI weather, birds and history.'
+          : 'Raises GitHub’s limit from 60 requests an hour, shared with your network, to 5,000 of your own: for trees, CI weather, birds and history.',
       ),
       h(
         'button',

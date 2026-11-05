@@ -42,6 +42,27 @@ export async function quietSettings(page: Page) {
     }
   });
   await page.route('https://api.github.com/**', (route) => route.abort('internetdisconnected'));
+  // Settings asks how much of the hour's budget is left whenever it opens.
+  await serveRateLimit(page);
+}
+
+/** Answers GitHub's rate_limit endpoint: `remaining` of `limit` left, resetting in 42 minutes. */
+export async function serveRateLimit(page: Page, remaining = 4812, limit = 5000) {
+  await page.route('https://api.github.com/rate_limit', (route) =>
+    route.fulfill({
+      headers: { 'access-control-allow-origin': '*' },
+      json: {
+        resources: {
+          core: {
+            limit,
+            remaining,
+            used: limit - remaining,
+            reset: Math.floor(Date.now() / 1000) + 42 * 60,
+          },
+        },
+      },
+    }),
+  );
 }
 
 /**

@@ -104,6 +104,48 @@ test('the open sheet scrolls its content, and closes from it only at the top', a
   await expect(sheet(page)).toHaveAttribute('aria-expanded', 'false');
 });
 
+test('Settings opens as a drawer from the bottom, with a tab to drag or tap it closed', async ({
+  page,
+}) => {
+  const cdp = await page.context().newCDPSession(page);
+  const settings = page.locator('#settings');
+  const opener = page.getByRole('button', { name: 'Settings' });
+  await opener.tap();
+  await expect(settings).toBeVisible();
+  // Flush with the bottom and both sides once it has slid up, its tab centered on top.
+  const { width, height } = page.viewportSize()!;
+  await expect
+    .poll(async () => {
+      const b = (await settings.boundingBox())!;
+      return Math.round(b.y + b.height);
+    })
+    .toBe(height);
+  const box = (await settings.boundingBox())!;
+  expect(box.x).toBe(0);
+  expect(box.width).toBe(width);
+  const tab = page.locator('.settings-grip');
+  await expect(tab).toBeVisible();
+  await expect(tab).toHaveAccessibleName('Close settings');
+  const grip = (await tab.locator('.grip').boundingBox())!;
+  expect(Math.abs(grip.x + grip.width / 2 - width / 2)).toBeLessThan(2);
+  expect(grip.y - box.y).toBeLessThan(20);
+
+  // A short slow drag springs back; a longer one closes it.
+  const at = await center(page, '.settings-grip');
+  await swipe(cdp, at.x, at.y, at.y + 40, { steps: 6, ms: 40, hold: 200 });
+  await expect(settings).toBeVisible();
+  await expect(settings).not.toHaveAttribute('data-dragging');
+  await swipe(cdp, at.x, at.y, at.y + 260, { hold: 200 });
+  await expect(settings).toBeHidden();
+  await expect(opener).toHaveAttribute('aria-expanded', 'false');
+
+  // A tap on the tab closes it too.
+  await opener.tap();
+  await expect(settings).toBeVisible();
+  await tab.tap();
+  await expect(settings).toBeHidden();
+});
+
 test('the phone row keeps four buttons and a short menu sits behind More actions', async ({
   page,
 }) => {

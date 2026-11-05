@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { quietSettings, ready, serveRepo } from './github';
+import { quietSettings, ready, serveRateLimit, serveRepo } from './github';
 import { openRepoField } from './view';
 
 /**
@@ -162,7 +162,7 @@ test('the Sign in button signs in from anywhere, and GitHub reads then carry the
   await button.click();
   await closed(await popup);
   await expect(page.locator('#toast')).toHaveText('Signed in with GitHub');
-  await expect(page.getByRole('button', { name: 'Sign out of GitHub' })).toBeVisible();
+  await expect(button).toHaveAccessibleName('GitHub account');
 
   const input = page.getByLabel('GitHub repository');
   await input.fill('acme/gadgets');
@@ -171,42 +171,113 @@ test('the Sign in button signs in from anywhere, and GitHub reads then carry the
   expect(sent).toHaveLength(1);
   expect(sent[0]).toMatch(/^Bearer \S+$/);
 
-  // Settings says what signing in lets Repo Tree see.
+  // Settings no longer holds sign-in: the account button does.
   await page.getByRole('button', { name: 'Settings' }).click();
-  await expect(page.locator('#signin-privacy')).toContainText('public data only');
-  await expect(page.locator('#signin-privacy')).toContainText('never file contents');
-  await page.locator('#signin-settings').click();
+  await expect(page.locator('#settings')).toBeVisible();
+  await expect(page.locator('#settings')).not.toContainText('Sign out');
+  await expect(page.locator('#settings')).not.toContainText('GitHub sign-in');
+  await page.keyboard.press('Escape');
+});
+
+test('the GitHub account menu shows the requests left this hour, links to the questions page, and signs out', async ({
+  page,
+}) => {
+  const asked: (string | undefined)[] = [];
+  page.on('request', (req) => {
+    if (req.url() === 'https://api.github.com/rate_limit') asked.push(req.headers().authorization);
+  });
+  await serveRateLimit(page, 4812, 5000);
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const button = page.locator('#signin');
+  const popup = page.waitForEvent('popup');
+  await button.click();
+  await closed(await popup);
+  await expect(button).toHaveAccessibleName('GitHub account');
+
+  await button.click();
+  const panel = page.getByRole('dialog', { name: 'GitHub account' });
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('#account-usage')).toHaveText('4,812 of 5,000');
+  await expect(panel.locator('#account-reset')).toHaveText(/^Resets at /);
+  // The meter shows the share left.
+  const fill = await panel
+    .locator('.account-meter i')
+    .evaluate((el) => (el as HTMLElement).style.width);
+  expect(fill).toBe('96.2%');
+  // Asked with the sign-in token, so it is the account's own budget.
+  expect(asked.at(-1)).toMatch(/^Bearer \S+$/);
+  // Under the button, not off screen.
+  const at = (await button.boundingBox())!;
+  const box = (await panel.boundingBox())!;
+  expect(box.y).toBeGreaterThan(at.y + at.height);
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+
+  // What Repo Tree can see is on the questions page, which opens in a new tab.
+  const faq = panel.getByRole('link', { name: 'Login Q&A' });
+  await expect(faq).toHaveAttribute('href', './faq.html#github');
+  await expect(faq).toHaveAttribute('target', '_blank');
+  const page2 = await page.context().newPage();
+  await page2.goto(new URL('./faq.html#github', page.url()).href);
+  await expect(page2.getByRole('heading', { name: 'Questions and answers' })).toBeVisible();
+  // Most questions are about Repo Tree itself; a few are about GitHub.
+  await expect(page2.locator('#about details')).toHaveCount(5);
+  await expect(page2.locator('#github details')).toHaveCount(3);
+  await expect(page2.locator('#what-can-it-see')).toContainText('Public data only');
+  await expect(page2.locator('#what-can-it-see')).toContainText('CODEOWNERS');
+  await page2.close();
+
+  // Escape closes it; a click outside does too.
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await button.click();
+  await expect(panel).toBeVisible();
+  await page.mouse.click(400, 600);
+  await expect(panel).toBeHidden();
+
+  // GitHub not answering says so.
+  await page.route('https://api.github.com/rate_limit', (route) => route.fulfill({ status: 500 }));
+  await button.click();
+  await expect(panel.locator('#account-usage')).toHaveText(/GitHub didn’t answer/);
+  await expect(panel.locator('.account-meter')).toBeHidden();
+
+  await panel.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.locator('#toast')).toHaveText('Signed out of GitHub');
-  await expect(page.locator('#signin-settings')).toHaveText('Sign in with GitHub');
+  await expect(panel).toBeHidden();
   await expect(button).toHaveAccessibleName('Sign in with GitHub');
 });
 
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
-  test('Sign in heads the More menu', async ({ page }) => {
+  test('Sign in is its own box at the top right, beside the repo card', async ({ page }) => {
+    await serveRateLimit(page, 4812, 5000);
     await page.goto('./');
     await ready(page, 'vitejs/vite');
+    const bubble = page.getByRole('button', { name: 'Sign in with GitHub' });
+    await expect(bubble).toBeVisible();
+    const at = (await bubble.boundingBox())!;
+    const card = (await page.locator('#title').boundingBox())!;
+    // A rounded box like the repo card, not a circle.
+    expect(await bubble.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('14px');
+    expect(at.y).toBeLessThan(card.y + card.height);
+    expect(at.x).toBeGreaterThanOrEqual(card.x + card.width);
+    expect(at.x + at.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    // The More menu no longer holds it.
     await page.getByRole('button', { name: 'More actions' }).tap();
-    const first = page.locator('#more-menu > :first-child');
-    await expect(first).toHaveAccessibleName('Sign in with GitHub');
-    await expect(first).toBeVisible();
-    await expect(first.locator('.label')).toHaveText('Sign in');
+    await expect(page.locator('#more-menu #signin')).toHaveCount(0);
+    await page.getByRole('button', { name: 'More actions' }).tap();
 
-    // Signed in, the row reads Sign out, lined up with the rows under it: not the toolbar's bare
-    // 40 px mark.
     const popup = page.waitForEvent('popup');
-    await first.tap();
+    await bubble.tap();
     await closed(await popup);
-    await expect(page.locator('#toast')).toHaveText('Signed in with GitHub');
-    await page.getByRole('button', { name: 'More actions' }).tap();
-    await expect(first).toHaveAccessibleName('Sign out of GitHub');
-    await expect(first.locator('.label')).toBeVisible();
-    await expect(first.locator('.label')).toHaveText('Sign out');
-    const row = (await first.boundingBox())!;
-    const next = (await page.locator('#more-menu > :nth-child(2)').boundingBox())!;
-    expect(row.x).toBeCloseTo(next.x, 0);
-    expect(row.width).toBeGreaterThan(120);
+    const account = page.getByRole('button', { name: 'GitHub account' });
+    await account.tap();
+    const panel = page.getByRole('dialog', { name: 'GitHub account' });
+    await expect(panel.locator('#account-usage')).toHaveText('4,812 of 5,000');
+    const box = (await panel.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   });
 
   test('warns with the estimate before starting, and lets the visitor choose', async ({ page }) => {

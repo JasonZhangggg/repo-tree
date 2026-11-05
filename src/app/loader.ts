@@ -82,7 +82,9 @@ export function createLoader(store: Store) {
     const key = `${name}|${hidden.join('/')}|${quality}`;
     const runsFor = (branch: string) => {
       if (runsInFlight && runsInFlight.key !== ciKey(ref, branch)) runsInFlight.abort.abort();
-      void loadRuns(ref, branch, { sample, token, fresh });
+      // A sample reloaded live from GitHub still falls back to its bundled runs.
+      const bundled = sample ?? sampleFor({ ...ref, ref: branch });
+      void loadRuns(ref, branch, { sample: bundled, token, fresh });
     };
     const branch = sample?.branch ?? ref.ref;
     if (branch !== undefined) runsFor(branch);
@@ -147,7 +149,7 @@ export function createLoader(store: Store) {
     const { repo, settings } = store.get();
     if (!repo) return;
     const ref = repo.info.ref;
-    const sample = repo.sample ? sampleFor({ ...ref, ref: repo.info.branch }) : undefined;
+    const sample = sampleFor({ ...ref, ref: repo.info.branch });
     if (runsInFlight?.key === ciKey(ref, repo.info.branch)) runsInFlight.abort.abort();
     runsInFlight = null;
     void loadRuns(ref, repo.info.branch, {

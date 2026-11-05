@@ -111,6 +111,7 @@ const app: App = {
   },
   openSettings: (focus) => settings.open(focus),
   signIn: () => void signin.signIn(),
+  refreshRuns: () => loader.refreshRuns(),
   openSearch: () => search.open(),
   toast(message) {
     const long = message.length > 120;

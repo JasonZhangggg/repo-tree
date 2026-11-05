@@ -7,6 +7,7 @@ import {
   needsHistory,
   qualityOf,
   reduce,
+  ciFailed,
   weatherOf,
   type AppState,
   type Repo,
@@ -184,6 +185,15 @@ describe('weather', () => {
     expect(weatherOf(reduce(shown, { type: 'ci', key: 'acme/web@main', runs: [] }))?.sky).toBe(
       'clear',
     );
+  });
+
+  test('says the runs failed only once they could not be read, for the repo on screen', () => {
+    const failed = reduce(shown, { type: 'ci', key: 'acme/web@main', runs: null });
+    expect(ciFailed(shown)).toBe(false);
+    expect(ciFailed(failed)).toBe(true);
+    expect(ciFailed(reduce(shown, { type: 'ci', key: 'acme/other@main', runs: null }))).toBe(false);
+    expect(ciFailed(reduce(shown, failing))).toBe(false);
+    expect(ciFailed(reduce(failed, { type: 'preview', sky: 'storm' }))).toBe(false);
   });
 
   test('a preview replaces the repo weather, and the setting turns both off', () => {

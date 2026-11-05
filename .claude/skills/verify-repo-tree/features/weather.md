@@ -1,14 +1,14 @@
 # Weather
 
-The scene's weather reflects the repo's recent GitHub Actions health on its default branch. A chip under the title says what it stands for and links to the Actions runs. Passing CI is sunny, some failures are partly cloudy, a failing latest run is rain (snow in Winter), several failures in a row are a storm with lightning, and a repo with no runs has a plain clear sky. Weather never blocks the tree and never shows an error.
+The scene's weather reflects the repo's recent GitHub Actions health on its default branch. A chip under the title says what it stands for and links to the Actions runs. Passing CI is sunny, some failures are partly cloudy, a failing latest run is rain (snow in Winter), several failures in a row are a storm with lightning, and a repo with no runs has a plain clear sky. Weather never blocks the tree and never shows an error; runs GitHub won't send leave a plain sky and a `CI unavailable` chip that asks again when tapped.
 
 ## Sub-features
 
 - `weather-sky` dresses the sky, light, sun, clouds, rain or snow and lightning for clear, sunny, cloudy, rain and storm. The sun and clouds are low-poly 3D objects in the island's world, so they turn with it; light rain falls from under the clouds onto the island (none past its rim) and lightning strikes from a cloud.
-- `weather-chip` names the verdict and the runs behind it (`CI passing · 20 of 20 recent runs`, `CI failing · last run failed 2 hours ago`) and links to the Actions page filtered to the branch. On a phone it shows only its icon.
-- `weather-samples` gives each bundled sample its own runs snapshot (`public/samples/<id>.runs.json`): vite is sunny, dotfiles and linux have no CI. A sample reads its live runs first and uses the snapshot only when that fails, so journeys (which abort `api.github.com`) see the snapshot; `serveRuns` on a sample's name shows its live sky instead.
+- `weather-chip` names the verdict and the runs behind it (`CI passing · 20 of 20 recent runs`, `CI failing · last run failed 2 hours ago`) and links to the Actions page filtered to the branch. On a phone it shows its icon and a short verdict.
+- `weather-samples` gives each bundled sample its own runs snapshot (`public/samples/<id>.runs.json`): vite is sunny, dotfiles and linux have no CI. A sample reads its live runs first and uses the snapshot only when that fails, after `Reload from GitHub` too, so journeys (which abort `api.github.com`) see the snapshot; `serveRuns` on a sample's name shows its live sky instead.
 - `weather-preview` shows any weather from a link's `wx=clear|sunny|cloudy|rain|storm`, which the chip calls a preview.
-- `weather-fail-soft` shows no weather and no chip when the runs endpoint is rate limited, errors or is unreachable.
+- `weather-fail-soft` shows no weather when the runs endpoint is rate limited, errors or is unreachable, and the chip says `CI unavailable` (a button, `CI unavailable, try again`); a tap reads the runs again past the cache. e2e: `a rate-limited Actions API leaves the tree, says CI is unavailable, and a tap asks again`.
 - `weather-off` turns weather off from Settings, persisted with the other settings.
 - `weather-motion` turns the sun's rays, breathes its halo and rolls its faceted core (sunny and cloudy), drifts clouds round the trunk, falls rain or snow and flashes lightning, and holds a still frame under reduced motion.
 - `weather-deck` floats the clouds and the sun above both the crown's top and the framed camera's height, so in the whole view they never cover the crown or its labels, for a sapling and for linux alike, on a desktop and a phone.
@@ -28,7 +28,7 @@ Preconditions:
 
 - **Sample.** Open `/`. Step `sample-sunny`. The chip reads `CI passing, 20 of 20 recent runs` and a pale sun shows in a warm sky.
 - **Cloudy, rain, storm.** Enter `acme/cloudy`, `acme/rain` and `acme/storm` from the stand-in. Steps `cloudy`, `rain` and `storm`. The chip's `data-sky` matches and the screenshots show white clouds beside the sun, grey clouds with rain falling from them onto the island, and dark clouds with heavier slanted rain, all above the crown.
-- **Rate limited.** Enter `acme/limited`, whose runs answer 403. Step `rate-limited`. The tree loads, `#status` stays empty and the chip is hidden.
+- **Rate limited.** Enter `acme/limited`, whose runs answer 403. Step `rate-limited`. The tree loads, `#status` stays empty and the chip reads `CI unavailable`.
 - **Winter storm.** Open `#/vitejs/vite?palette=winter&wx=storm`. Step `winter-preview`. The chip reads `Weather preview, storm` and snow falls instead of rain.
 - **Off.** Turn off `Weather` in Settings. Step `off`. The chip is hidden and the sky is the palette's plain one.
 - **Proof.** `report.json` passes, and `01-sample-sunny.png` through `06-winter-preview.png` show each sky.

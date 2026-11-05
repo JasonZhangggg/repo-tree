@@ -99,6 +99,7 @@ const app: App = {
   },
   hover(folder) {
     hovered = folder;
+    debug.previewed = folder;
     applyHighlight();
   },
   highlight(label) {

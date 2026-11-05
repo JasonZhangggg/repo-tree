@@ -2,7 +2,9 @@ import { describe, expect, test } from 'vitest';
 import { ISLAND_RADIUS, roundBox, treeHeight } from '../grow/size';
 import { SKIES } from '../repo/ci';
 import { frameTree, SKY_LIFT, skyTop, stage, type Box } from './framing';
-import { cloudCount, cloudDeck, DECK } from './weather';
+import { InstancedBufferGeometry, Mesh, PerspectiveCamera, ShaderMaterial, Vector4 } from 'three';
+import { PALETTES } from './palette';
+import { cloudCount, cloudDeck, createWeather, DECK } from './weather';
 
 /** A tree of this many files: its crown about two thirds of its height wide. */
 const treeOf = (files: number): Box => {
@@ -53,4 +55,66 @@ test('more clouds gather as CI breaks, and a clear sky has none', () => {
   const counts = SKIES.map(cloudCount);
   expect(counts[0]).toBe(0);
   for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeGreaterThan(counts[i - 1]!);
+});
+
+describe('rain', () => {
+  /**
+   * Where each drop's head is, as FALL_VERTEX places it (wind and snow aside): `k` how far down
+   * its fall, `y` its height, or null where it never falls.
+   */
+  const heads = (fall: Mesh, count: number) => {
+    const u = (fall.material as ShaderMaterial).uniforms;
+    const clouds = u.uClouds!.value as Vector4[];
+    const [g0, g1] = u.uGround!.value as [number, number];
+    const drop = fall.geometry.getAttribute('aDrop');
+    const which = fall.geometry.getAttribute('aWhich');
+    const n = u.uCount!.value as number;
+    return Array.from({ length: count }, (_, i) => {
+      const cloud = clouds[Math.min(Math.floor(which.getX(i) * n), n - 1)]!;
+      const x = cloud.x + drop.getX(i) * u.uFootprint!.value * cloud.w;
+      const z = cloud.z + drop.getY(i) * u.uFootprint!.value * cloud.w;
+      const r = Math.hypot(x, z);
+      if (r > u.uRim!.value || cloud.w < 0.001) return null;
+      const top = cloud.y + 0.05 * cloud.w;
+      const ground = g0 - g1 * Math.min(1, r / u.uRadius!.value) ** 2;
+      const k = (drop.getZ(i) + u.uFallen!.value * (0.8 + 0.4 * drop.getW(i))) % 1;
+      return { k, y: top - k * (top - ground) };
+    });
+  };
+
+  test('a drop only ever falls, however long the page is open and the view changes', () => {
+    const camera = new PerspectiveCamera();
+    const weather = createWeather(camera);
+    const fall = weather.objects[3] as Mesh;
+    const tree = treeOf(TREES.vite);
+    const views = [
+      { eye: 2, top: 9 },
+      { eye: 3.5, top: 12 },
+    ];
+    weather.set({
+      sky: 'storm',
+      palette: PALETTES.spring,
+      quality: 'high',
+      still: false,
+      night: false,
+    });
+    weather.setStage(tree, views[0]!, true);
+    const count = (fall.geometry as InstancedBufferGeometry).instanceCount;
+    expect(count).toBeGreaterThan(0);
+    let before = heads(fall, count);
+    let rises = 0;
+    // Ten minutes at 20 frames a second, the view changing every half minute.
+    for (let frame = 1; frame <= 20 * 60 * 10; frame++) {
+      if (frame % 600 === 0) weather.setStage(tree, views[(frame / 600) % 2]!, true);
+      weather.tick(1 / 20);
+      const now = heads(fall, count);
+      now.forEach((head, i) => {
+        const was = before[i];
+        // A drop that starts over at its cloud is a new drop.
+        if (head && was && head.k > was.k && head.y > was.y) rises++;
+      });
+      before = now;
+    }
+    expect(rises).toBe(0);
+  }, 30_000);
 });

@@ -3347,115 +3347,182 @@ body:has(.scrubber:not([hidden])) .toast {
   }
 }
 
-/* Compare trees: the repo card holds a row per compared repo under A's own, alike (letter,
-   name, CI chip, branch and counts, ×), then "Compare with another repo", which turns the search
-   bar's Grow into Compare. A letter marks each row and the tag under its island; the side panel
-   sets the trees side by side (compare.ts). */
-.cmp-letter {
-  display: none;
+/* Compare trees, as a grove: while comparing the repo card becomes the grove's list, a head
+   ("Side by side · 3 trees", Done), one line per tree (seed, name, files, CI glyph, ×) and the
+   add row. A seed in the tree's own soft color marks its line, its island's tag and its bars in
+   the side panel (compare.ts). */
+:root {
+  --seed-0: #7f9c5f;
+  --seed-1: #c4825f;
+  --seed-2: #6f98b8;
+  --seed-3: #a084b0;
+  --seed-4: #c4a04a;
+}
+:root[data-theme='dark'] {
+  --seed-0: #9cbb7a;
+  --seed-1: #dc9d7c;
+  --seed-2: #8cb3d1;
+  --seed-3: #bba0cb;
+  --seed-4: #dcbb66;
+}
+[data-seed='0'] {
+  --seed: var(--seed-0);
+}
+[data-seed='1'] {
+  --seed: var(--seed-1);
+}
+[data-seed='2'] {
+  --seed: var(--seed-2);
+}
+[data-seed='3'] {
+  --seed: var(--seed-3);
+}
+[data-seed='4'] {
+  --seed: var(--seed-4);
+}
+/* A small seed, a little rounder at the bottom, with a soft shade under it. */
+.cmp-seed {
   flex: none;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  background: var(--ink);
-  color: var(--on-ink);
-  font: 700 13px/1 var(--sans);
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50% 50% 50% 50% / 58% 58% 42% 42%;
+  background: var(--seed);
+  box-shadow: inset 0 -1.5px 0 rgba(0, 0, 0, 0.12);
 }
-.cmp-letter:not([data-side='a']) {
-  background: var(--raised);
-  color: var(--ink);
-  box-shadow: inset 0 0 0 1.5px var(--ink);
+.cmp-seed[data-off] {
+  opacity: 0.32;
 }
-body[data-compare] .cmp-letter,
-.cmp-panel .cmp-letter {
-  display: inline-grid;
-}
-/* While comparing, A's letter stands where the GitHub mark was. */
-body[data-compare] .repo-switch > svg {
-  display: none;
-}
-/* While comparing, A's row makes room for its own ×. */
+/* While comparing, the card's own name, meta and CI make way for the grove's list. */
 body[data-compare] .title:not([data-loading]) {
-  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto;
-  grid-template-areas:
-    'switch name weather x'
-    'switch meta meta x'
-    'status status status status';
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'status';
+  padding: 0;
 }
-.title > .cmp-x {
-  grid-area: x;
-}
-.cmp-x {
-  align-self: start;
-  margin-left: 2px;
-}
-.cmp-x[hidden] {
+body[data-compare] .title:not([data-loading]) > :is(.repo-switch, .meta, .weather) {
   display: none;
+}
+body[data-compare] .title:not([data-loading]) h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .cmp-rows {
   grid-column: 1 / -1;
   display: grid;
   margin: 6px -12px -8px -8px;
 }
+body[data-compare] .title:not([data-loading]) > .cmp-rows {
+  margin: 0;
+}
 .cmp-rows[hidden] {
   display: none;
+}
+.cmp-head {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 6px 16px;
+}
+body[data-compare] .cmp-head {
+  display: flex;
+}
+.cmp-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cmp-done {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: 600 13px/1.2 var(--sans);
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cmp-done:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
 }
 .cmp-list-rows {
   display: grid;
 }
 .cmp-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto;
-  grid-template-areas:
-    'letter name weather x'
-    'letter meta meta x';
+  display: flex;
   align-items: center;
-  gap: 2px 10px;
-  padding: 8px 12px 8px 14px;
+  gap: 4px;
+  padding: 0 8px 0 6px;
   border-top: 1px solid var(--line);
 }
-.cmp-row > .cmp-letter {
-  grid-area: letter;
-  margin-right: 6px;
+.cmp-pick {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 4px 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink);
+  font: 400 14px/1.2 var(--sans);
+  text-align: left;
+  cursor: pointer;
 }
-.cmp-row > .name {
-  grid-area: name;
+.cmp-pick:disabled {
+  cursor: default;
 }
-.cmp-row > .name a {
-  display: block;
-  padding: 1px 4px;
+@media (hover: hover) and (pointer: fine) {
+  .cmp-pick:not(:disabled):hover {
+    background: var(--hover);
+  }
+}
+.cmp-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.cmp-name b {
+  font-weight: 600;
+}
+.cmp-owner {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  color: inherit;
-  text-decoration: none;
+  color: var(--muted);
 }
-.cmp-row > .weather {
-  grid-area: weather;
-  justify-self: end;
-  min-width: 0;
-  margin: 0 0 0 6px;
-}
-.cmp-row > .meta,
-.cmp-row > .cmp-status {
-  grid-area: meta;
-  padding-left: 4px;
-}
-.cmp-row > .cmp-x {
-  grid-area: x;
-}
-.cmp-status {
-  margin: 0;
+.cmp-files {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
   color: var(--muted);
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.cmp-row[aria-busy] .name,
-.cmp-row[aria-busy] .cmp-status {
+.cmp-row[aria-busy] :is(.cmp-name, .cmp-files) {
   color: var(--muted);
 }
-.cmp-row[aria-busy] .cmp-status {
+.cmp-row[aria-busy] .cmp-files {
   animation: cmp-pulse 1.2s ease-in-out infinite alternate;
+}
+.cmp-row[data-failed] .cmp-files {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--danger);
 }
 @keyframes cmp-pulse {
   to {
@@ -3463,8 +3530,33 @@ body[data-compare] .title:not([data-loading]) {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cmp-row[aria-busy] .cmp-status {
+  .cmp-row[aria-busy] .cmp-files {
     animation: none;
+  }
+}
+/* A row's CI is its chip's glyph alone; the words stay in its tooltip and label. */
+.cmp-row > .weather {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+}
+.cmp-row > .weather[hidden] {
+  display: none;
+}
+.cmp-row > .weather > :not(svg) {
+  display: none;
+}
+.cmp-row > .cmp-x {
+  flex: none;
+}
+/* × shows on the row under the pointer, or always where there is no pointer to hover with. */
+@media (hover: hover) and (pointer: fine) {
+  .cmp-row:not(:hover, :focus-within) > .cmp-x {
+    opacity: 0;
   }
 }
 .cmp-add {
@@ -3482,6 +3574,9 @@ body[data-compare] .title:not([data-loading]) {
   text-align: left;
   cursor: pointer;
 }
+.cmp-add[hidden] {
+  display: none;
+}
 .cmp-plus {
   display: grid;
   place-items: center;
@@ -3491,6 +3586,24 @@ body[data-compare] .title:not([data-loading]) {
   box-shadow: inset 0 0 0 1.5px var(--faint);
   font-size: 16px;
   font-weight: 500;
+}
+body[data-compare] .cmp-add .cmp-plus {
+  width: 16px;
+  box-shadow: none;
+}
+.cmp-back .cmp-plus svg {
+  width: 16px;
+  height: 16px;
+  rotate: 90deg;
+}
+.cmp-back .cmp-seeds {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: auto;
+}
+.cmp-back .cmp-seed {
+  width: 8px;
+  height: 8px;
 }
 @media (hover: hover) and (pointer: fine) {
   .cmp-add:not(:disabled):hover {
@@ -3521,7 +3634,7 @@ body[data-compare] .title:not([data-loading]) {
 body[data-compare] #overview {
   display: none;
 }
-/* Name tags under the islands, in the folder labels' pill. */
+/* Name tags under the islands, in the folder labels' pill; each shows its tree alone. */
 #island-tags {
   position: absolute;
   inset: 0;
@@ -3541,37 +3654,32 @@ body[data-compare] #overview {
   gap: 7px;
   max-width: 240px;
   margin: 10px 0 0;
-  padding: 4px 11px 4px 4px;
+  padding: 5px 12px 5px 10px;
+  border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--raised) 92%, transparent);
   color: var(--ink);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.06),
     0 4px 14px rgba(60, 40, 20, 0.08);
-  font-size: 13px;
-  font-weight: 600;
+  font: 600 13px/1.2 var(--sans);
   translate: -50% 0;
   white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
 }
 .island-tag[hidden] {
   display: none;
 }
-.island-tag b {
-  display: inline-grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--ink);
-  color: var(--on-ink);
-  font-size: 11px;
+@media (hover: hover) and (pointer: fine) {
+  .island-tag:hover {
+    box-shadow:
+      0 0 0 1.5px var(--ink),
+      0 4px 14px rgba(60, 40, 20, 0.12);
+  }
 }
-.island-tag:not([data-side='a']) b {
-  background: var(--raised);
-  color: var(--ink);
-  box-shadow: inset 0 0 0 1.5px var(--ink);
-}
-.island-tag span {
+.island-tag > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -3583,114 +3691,157 @@ body[data-compare] #overview {
   color: var(--muted);
   font-size: 13px;
 }
+/* Files, folders, depth or size: one at a time, so a row per tree stays one line. */
+.cmp-switch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--wash);
+}
+.cmp-switch button {
+  flex: 1;
+  padding: 5px 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: 500 12.5px/1.2 var(--sans);
+  cursor: pointer;
+}
+.cmp-switch button[aria-pressed='true'] {
+  background: var(--raised);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
 .cmp-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
-  table-layout: fixed;
 }
 .cmp-table th,
 .cmp-table td {
-  padding: 4px 4px;
+  padding: 5px 0;
   text-align: left;
-  border-bottom: 1px solid var(--line);
   font-weight: 400;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.cmp-table th {
+  width: 34%;
+  max-width: 0;
+  padding-right: 10px;
+}
+.cmp-table td + td {
+  width: 1%;
+  padding-left: 10px;
+  text-align: right;
   white-space: nowrap;
 }
-.cmp-table tr:last-child :is(th, td) {
-  border-bottom: 0;
+.cmp-tall td {
+  padding: 6px 0;
 }
-.cmp-table thead th {
-  font-size: 13px;
-  font-weight: 600;
-  padding-bottom: 7px;
-}
-.cmp-col,
-.cmp-list-head {
+.cmp-who {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
+  margin: 0;
 }
-.cmp-col > span:last-child,
-.cmp-list-head > span:last-child {
+.cmp-who > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cmp-panel .cmp-letter {
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  font-size: 10.5px;
+.cmp-track {
+  display: flex;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--wash);
 }
-.cmp-table tbody th {
-  width: 34%;
+.cmp-track > i {
+  display: block;
+  flex: none;
+  width: var(--w);
+  min-width: 3px;
+  height: 100%;
+  background: var(--c, var(--seed));
+}
+.cmp-bars .cmp-track > i {
+  border-radius: 99px;
+}
+.cmp-stack > i {
+  min-width: 0;
+}
+.cmp-stack > i + i {
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--raised) 70%, transparent);
+}
+.cmp-note {
   color: var(--muted);
+  font-size: 12.5px;
 }
-.cmp-lang {
+.cmp-own {
+  display: grid;
+  gap: 5px;
+}
+.cmp-top {
+  display: flex;
+  gap: 2px 10px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.cmp-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.cmp-key {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
-  color: var(--ink);
+  color: var(--muted);
 }
-.cmp-lang > span {
-  min-width: 0;
+.cmp-key > span {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.cmp-list li > .cmp-lang {
-  display: flex;
-}
-.cmp-lang i {
+.cmp-key i {
   flex: none;
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 3px;
-}
-.cmp-share {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.cmp-fill {
-  flex: none;
-  width: calc(var(--w) * 0.5);
-  height: 7px;
-  border-radius: 4px;
-  background: var(--c);
 }
 .cmp-num {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-/* Each tree's own list, side by side: its folders, or its busiest files. */
+/* Each tree's busiest files, one tree under another. */
 .cmp-lists {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 12px;
 }
 .cmp-list {
   display: grid;
-  gap: 6px;
-  align-content: start;
+  gap: 5px;
   min-width: 0;
 }
-.cmp-list-head {
-  margin: 0;
+.cmp-list > .cmp-who {
   font-size: 13px;
   font-weight: 600;
 }
 .cmp-list ol {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   margin: 0;
-  padding: 0;
+  padding: 0 0 0 18px;
   list-style: none;
   font-size: 12.5px;
 }
@@ -3713,36 +3864,32 @@ body[data-compare] #overview {
   margin-top: 4px;
 }
 @media (max-width: 760px) {
-  /* Each compared repo is one row like A's: letter, name, CI and ×. The add row shows once
-     comparing; until then Compare under More actions starts it. */
+  /* The grove's list sits under the bar, a line per tree; the add row shows once comparing,
+     and until then Compare under More actions starts it. */
   .cmp-rows {
     order: 4;
     flex: 1 0 100%;
     margin: 2px -8px -6px;
   }
-  .title > .cmp-x {
-    order: 3;
-    align-self: center;
+  body[data-compare] .title:not([data-loading]) {
+    padding: 0;
   }
-  .cmp-row {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-    grid-template-areas: 'letter name weather x';
-    padding: 6px 8px 6px 10px;
+  .cmp-head {
+    padding: 8px 8px 4px 14px;
   }
-  .cmp-row > .meta {
+  .cmp-pick {
+    padding: 7px 4px 7px 8px;
+  }
+  .cmp-owner {
     display: none;
-  }
-  .cmp-row > .cmp-status {
-    grid-area: auto;
-    grid-column: 2 / -1;
-  }
-  .cmp-row > .cmp-x {
-    align-self: center;
   }
   .cmp-row > .weather {
     order: 0;
   }
-  body:not([data-compare]) .cmp-rows {
+  body:not([data-compare]) .cmp-rows:not(:has(.cmp-back:not([hidden]))) {
+    display: none;
+  }
+  body:not([data-compare]) .cmp-rows .cmp-add:not(.cmp-back) {
     display: none;
   }
   .cmp-add {
@@ -3913,13 +4060,6 @@ body[data-compare] #overview {
     grid-area: close;
     margin-left: 0;
   }
-}
-/* With more than two trees the columns are narrow, so the shares go without their bars. */
-.cmp-panel:not([data-trees='2']) .cmp-fill {
-  display: none;
-}
-.cmp-panel:not([data-trees='2']) .cmp-table :is(th, td) {
-  padding-inline: 3px;
 }
 
 /* Rows from GitHub's search: the name over its description, the typed part in bold. */

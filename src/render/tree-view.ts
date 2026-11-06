@@ -280,6 +280,12 @@ const DEPTH = { near: 0.2, far: -0.7 };
 /** How much of the tree's reach, and from what share of its height up, the crown's outline covers. */
 const CROWN = { reach: 0.8, from: 0.4 };
 const SPIN_SPEED = 0.55;
+/**
+ * With trees side by side, spin sways the camera this far either side of the front instead of
+ * going round, so the row always reads in the card's order; it slows toward each end.
+ */
+const SWAY = 0.5;
+const FRONT = Math.atan2(VIEW_DIRECTION[0], VIEW_DIRECTION[2]);
 /** Added to the companion's node ids, past any real tree's, still exact in a float. */
 const COMPANION_IDS = 4_000_000;
 /** The open ground between a tree's island and its companion's. */
@@ -734,6 +740,25 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     requestRender();
   };
 
+  /** Which way spin sways the row, +1 toward a larger azimuth. */
+  let swayWay = 1;
+  /** Spin goes round one tree; beside others it sways about the front (SWAY). */
+  const sway = () => {
+    if (!companions.length) {
+      controls.autoRotateSpeed = SPIN_SPEED;
+      return;
+    }
+    const off = Math.atan2(
+      Math.sin(controls.getAzimuthalAngle() - FRONT),
+      Math.cos(controls.getAzimuthalAngle() - FRONT),
+    );
+    if (off >= SWAY) swayWay = -1;
+    else if (off <= -SWAY) swayWay = 1;
+    const ease = Math.abs(off) >= SWAY ? 1 : Math.max(0.2, Math.cos((off / SWAY) * (Math.PI / 2)));
+    // OrbitControls turns a positive speed toward a smaller azimuth.
+    controls.autoRotateSpeed = -swayWay * SPIN_SPEED * 1.6 * ease;
+  };
+
   const requestRender = () => {
     if (!raf) raf = requestAnimationFrame(frame);
   };
@@ -761,6 +786,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       placeCamera();
       busy = true;
     }
+    if (controls.autoRotate) sway();
     if (controls.update(dt)) busy = true;
     if (fallStart >= 0) {
       const k = (now - fallStart) / FALL_MS;

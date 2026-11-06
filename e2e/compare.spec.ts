@@ -17,7 +17,13 @@ const field = (page: Page) => page.getByLabel('GitHub repository');
 /** The tag in the repo field that says it adds to the comparison rather than growing. */
 const mode = (page: Page) => page.locator('#repo-mode');
 const rows = (page: Page) => page.getByRole('group', { name: 'Compared repos' });
-const rowNames = (page: Page) => rows(page).getByRole('heading', { level: 2 });
+/** The grove's lines, the repo on show first, by full name. */
+const rowNames = (page: Page) =>
+  expect.poll(() =>
+    rows(page)
+      .locator('.cmp-row')
+      .evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.repo)),
+  );
 const add = (page: Page) => page.locator('#compare-add');
 /** Every compared repo has grown in on its island beside the one on show. */
 const besideReady = (page: Page, ...repos: string[]) =>
@@ -64,24 +70,32 @@ test('the card adds a repo to compare through the search bar, and × takes it aw
   await expect(mode(page)).toBeHidden();
   expect(page.url()).toContain('vs=mathiasbynens/dotfiles');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('vitejs/vite');
-  await expect(rowNames(page)).toHaveText(['mathiasbynens/dotfiles']);
+  await rowNames(page).toEqual(['vitejs/vite', 'mathiasbynens/dotfiles']);
+  await expect(rows(page)).toContainText('Side by side · 2 trees');
   // A name tag under each island; folder labels belong to one tree, so they go.
-  await expect(page.locator('.island-tag:visible')).toHaveText(['Avite', 'Bdotfiles']);
+  await expect(page.locator('.island-tag:visible')).toHaveText(['vite', 'dotfiles']);
   await expect(page.locator('#labels')).toBeHidden();
 
   await showPanel(page);
   await expect(page.locator('#compare-line')).toHaveText(/vite has \d+× the files of dotfiles/);
-  const files = table(page, 'All trees side by side').getByRole('row', { name: /^Files/ });
-  await expect(files.getByRole('cell')).toHaveText([/^\d{1,3},\d{3}$/, '36']);
+  const bars = table(page, 'All trees side by side');
+  await expect(bars.getByRole('row').locator('.cmp-num')).toHaveText([/^\d{1,3},\d{3}$/, '36']);
+  // The switch sets them side by side by another number.
+  await panel(page).getByRole('button', { name: 'Folders' }).click();
+  await expect(panel(page).getByRole('button', { name: 'Folders' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(bars.getByRole('row').locator('.cmp-num')).toHaveText([/^\d+$/, '8']);
   await expect(
-    table(page, 'Languages side by side').getByRole('row', { name: /JSON/ }),
-  ).toBeAttached();
+    table(page, 'Languages side by side').getByRole('img', { name: /JSON \d+%/ }),
+  ).toHaveCount(2);
   if (await page.locator('#sheet-toggle').isVisible()) await page.locator('#sheet-toggle').click();
 
   await page
     .getByRole('button', { name: 'Remove mathiasbynens/dotfiles from the comparison' })
     .click();
-  await expect(rowNames(page)).toHaveCount(0);
+  await rowNames(page).toEqual([]);
   await expect(page.locator('.island-tag:visible')).toHaveCount(0);
   expect(page.url()).not.toContain('vs=');
 });
@@ -102,18 +116,17 @@ test('a link compares several repos, a typed one adds on, and A hands over to B'
   await field(page).press('Enter');
   await besideReady(page, 'mathiasbynens/dotfiles', 'acme/widgets');
   expect(page.url()).toContain('vs=mathiasbynens/dotfiles&vs=acme/widgets');
-  await expect(rowNames(page)).toHaveText(['mathiasbynens/dotfiles', 'acme/widgets']);
+  await rowNames(page).toEqual(['vitejs/vite', 'mathiasbynens/dotfiles', 'acme/widgets']);
   await showPanel(page);
-  const files = table(page, 'All trees side by side').getByRole('row', { name: /^Files/ });
-  await expect(files.getByRole('cell')).toHaveCount(3);
+  await expect(table(page, 'All trees side by side').getByRole('row')).toHaveCount(3);
   if (await page.locator('#sheet-toggle').isVisible()) await page.locator('#sheet-toggle').click();
 
   // Taking A away puts B on show, and C stays beside it.
-  await page.getByRole('button', { name: 'Remove A from the comparison' }).click();
+  await page.getByRole('button', { name: 'Remove vitejs/vite from the comparison' }).click();
   await ready(page, 'mathiasbynens/dotfiles');
   await besideReady(page, 'acme/widgets');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('mathiasbynens/dotfiles');
-  await expect(rowNames(page)).toHaveText(['acme/widgets']);
+  await rowNames(page).toEqual(['mathiasbynens/dotfiles', 'acme/widgets']);
 });
 
 test('the add row goes quiet once five repos are compared', async ({ page }) => {
@@ -122,7 +135,7 @@ test('the add row goes quiet once five repos are compared', async ({ page }) => 
     './#/vitejs/vite?vs=mathiasbynens/dotfiles&vs=acme/one&vs=acme/two&vs=acme/three',
   );
   await besideReady(page, 'mathiasbynens/dotfiles', 'acme/one', 'acme/two', 'acme/three');
-  await expect(rowNames(page)).toHaveCount(4);
+  await expect(rows(page).locator('.cmp-row')).toHaveCount(5);
   await expect(add(page)).toBeDisabled();
   await expect(add(page)).toHaveText(/5 repos is the most/);
   await expect(page.locator('.island-tag:visible')).toHaveCount(5);
@@ -135,10 +148,42 @@ test('the side by side follows Color by', async ({ page }) => {
 
   // Both histories are bundled, so both columns fill in, and each tree lists its busiest files.
   const changes = table(page, 'How often files change side by side');
-  await expect(changes.getByRole('row', { name: /^Rarely/ }).getByRole('cell')).toHaveText([
-    /%$/,
-    /%$/,
-  ]);
+  await expect(changes.getByRole('img', { name: /Rarely \d+%/ })).toHaveCount(2);
   await expect(panel(page).locator('.cmp-list')).toHaveCount(2);
   await expect(panel(page).locator('.cmp-list').nth(1).locator('li')).not.toHaveCount(0);
+});
+
+test("a tree's tag or line shows it alone, and the card brings the grove back", async ({
+  page,
+}) => {
+  await serveRepo(page, 'acme/widgets');
+  await page.goto('./#/vitejs/vite?vs=mathiasbynens/dotfiles&vs=acme/widgets');
+  await besideReady(page, 'mathiasbynens/dotfiles', 'acme/widgets');
+
+  // The tag under dotfiles' island puts it on show alone.
+  await page.locator('.island-tag', { hasText: 'dotfiles' }).click();
+  await ready(page, 'mathiasbynens/dotfiles');
+  expect(page.url()).not.toContain('vs=');
+  await expect(page.locator('.island-tag:visible')).toHaveCount(0);
+  const back = page.locator('#compare-back');
+  await expect(back).toHaveText(/Back to all 3 trees/);
+  await expect(add(page)).toBeHidden();
+
+  // Back puts the grove as it was, the same repo on show.
+  await back.click();
+  await ready(page, 'vitejs/vite');
+  await besideReady(page, 'mathiasbynens/dotfiles', 'acme/widgets');
+  await rowNames(page).toEqual(['vitejs/vite', 'mathiasbynens/dotfiles', 'acme/widgets']);
+  await expect(back).toBeHidden();
+
+  // The line of the repo on show shows it alone in place, and Done ends the comparison.
+  await page.getByRole('button', { name: 'Show only vitejs/vite' }).click();
+  await expect(page.locator('.island-tag:visible')).toHaveCount(0);
+  await expect(back).toBeVisible();
+  await back.click();
+  await besideReady(page, 'mathiasbynens/dotfiles', 'acme/widgets');
+  await page.getByRole('button', { name: 'Done' }).click();
+  await rowNames(page).toEqual([]);
+  await expect(back).toBeHidden();
+  expect(page.url()).not.toContain('vs=');
 });

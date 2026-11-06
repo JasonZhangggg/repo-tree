@@ -9,6 +9,8 @@ export const debug: {
   hovered: string | null;
   /** The folder the tree previews (fades the rest for), from the canvas or a side-panel row. */
   previewed: number | null;
+  /** The rock a pin keeps lit while the rest fades, by its index in the tree's rocks. */
+  keptRock: number | null;
   labels: { path: string; x: number; y: number }[];
   timings: Record<string, number>;
   view?: TreeView;
@@ -24,6 +26,7 @@ export const debug: {
   ready: false,
   hovered: null,
   previewed: null,
+  keptRock: null,
   labels: [],
   timings: {},
   timeline: null,

@@ -222,12 +222,13 @@ export function swayOf(mesh: GroundMesh): Float32Array {
   return sway;
 }
 
-/** Only a rock under the mouse (its pick id is `uFocus`) stays while the rest fades. */
+/** Only a rock under the mouse or pinned (its pick id is `uFocus`) stays while the rest fades. */
 function fading<M extends MeshStandardMaterial>(material: M, key: string, sways = false): M {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSel = treeUniforms.uSel;
     shader.uniforms.uFade = treeUniforms.uFade;
     shader.uniforms.uFocus = treeUniforms.uFocus;
+    shader.uniforms.uFocusTint = treeUniforms.uFocusTint;
     if (sways) Object.assign(shader.uniforms, treeUniforms);
     shader.vertexShader =
       'attribute float aId;\nvarying float vId;\nvarying float vPick;\n' +
@@ -238,7 +239,7 @@ function fading<M extends MeshStandardMaterial>(material: M, key: string, sways 
           (sways ? GROUND_SWAY.body : ''),
       );
     shader.fragmentShader =
-      'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uFocus;\nvarying float vId;\nvarying float vPick;\n' +
+      'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uFocus;\nuniform float uFocusTint;\nvarying float vId;\nvarying float vPick;\n' +
       shader.fragmentShader.replace('#include <dithering_fragment>', GROUND_FADE);
   };
   material.customProgramCacheKey = () => key;

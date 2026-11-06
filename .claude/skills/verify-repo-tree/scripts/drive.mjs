@@ -224,6 +224,13 @@ const branchNear = (page, at, folder) =>
     { at, folder },
   );
 /** Waits until the view renders on demand again, so the camera has come to rest. */
+/** Chooses a tree action, opening `More actions` first on a phone, where the action lives. */
+async function chooseAction(page, name) {
+  const more = page.getByRole('button', { name: 'More actions' });
+  if (await more.isVisible()) await more.click();
+  await page.getByRole('button', { name }).click();
+}
+
 async function settle(page) {
   let renders = -1;
   await expect
@@ -473,7 +480,7 @@ const JOURNEYS = {
     await step('export-png', async () => {
       const [download] = await Promise.all([
         page.waitForEvent('download'),
-        page.getByRole('button', { name: 'Export PNG' }).click(),
+        chooseAction(page, 'Export PNG'),
       ]);
       expect(download.suggestedFilename()).toBe('vitejs-vite-tree.png');
       await download.saveAs(`${out}/vitejs-vite-tree.png`);
@@ -570,7 +577,7 @@ const JOURNEYS = {
     await step('export-png', async () => {
       const [download] = await Promise.all([
         page.waitForEvent('download'),
-        page.getByRole('button', { name: 'Export PNG' }).click(),
+        chooseAction(page, 'Export PNG'),
       ]);
       expect(download.suggestedFilename()).toBe('vitejs-vite-tree-2022-06-15.png');
       await download.saveAs(`${out}/vitejs-vite-tree-2022-06-15.png`);

@@ -23,6 +23,7 @@ import { mountHeader } from './app/ui/header';
 import { mountHint } from './app/ui/hint';
 import { mountMoreMenu } from './app/ui/more-menu';
 import { mountQuick } from './app/ui/quick';
+import { mountPinTray } from './app/ui/pin-tray';
 import { mountSignIn } from './app/ui/signin';
 import { mountSearch } from './app/ui/search-dialog';
 import { mountSettings } from './app/ui/settings-dialog';
@@ -177,6 +178,9 @@ function describe(state: AppState): string {
 const repoKey = (s: AppState) =>
   s.repo ? `${s.repo.info.ref.owner}/${s.repo.info.ref.repo}@${s.repo.info.branch}` : '';
 
+/** The pin tray's folders for a link; set once the tray is mounted. */
+let pinsOf: (state: AppState) => string[] | undefined = () => undefined;
+
 function linkOf(state: AppState): string | null {
   const { repo, selection, highlight, settings: s } = state;
   if (!repo) return null;
@@ -192,6 +196,7 @@ function linkOf(state: AppState): string | null {
     wx: state.preview ?? undefined,
     t: state.timeline ?? undefined,
     vs: state.compare ?? undefined,
+    pins: pinsOf(state),
   });
 }
 
@@ -202,6 +207,7 @@ function applyLink(link: ViewLink) {
   if (Object.keys(patch).length) store.dispatch({ type: 'settings', patch });
   store.dispatch({ type: 'preview', sky: link.wx ?? null });
   store.dispatch({ type: 'compare', ref: link.vs ?? null });
+  pinTray.receive(link.ref, link.pins ?? []);
   const { repo } = store.get();
   const same =
     repo &&
@@ -559,6 +565,16 @@ const settings = mountSettings(app);
 mountCompare(app);
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 mountQuick(app);
+const pinTray = mountPinTray(app, () => {
+  const link = linkOf(store.get());
+  if (link && link !== location.hash) history.replaceState(null, '', link);
+});
+pinsOf = (state) => {
+  // A tray of only the pin on show adds nothing to the link's sel.
+  const pins = pinTray.pinsFor(state);
+  const sel = state.selection && state.repo?.tree.folders.path[state.selection.folder];
+  return pins.some((p) => p !== sel) ? pins : undefined;
+};
 
 const link = parseLink(location.hash);
 if (link) applyLink(link);

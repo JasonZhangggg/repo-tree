@@ -588,52 +588,40 @@ export function paintWeather(chip: HTMLAnchorElement, state: AppState, repo: Loa
 }
 
 /**
- * Keeps the errors and notices in their own place, clear of the cards. On a desktop that is the
- * open stretch between the repo card and the side panel, just under the header row; when that
- * stretch is too narrow, the middle of the screen. On a phone it is a full-width row right under
- * whichever card is up top: the repo card, or the repo field open in its place.
+ * Keeps the errors and notices in their own corner, clear of the tree and the cards: the bottom
+ * left, just above the bottom row's buttons (or the timeline, while it shows). On a phone that is
+ * a full-width row above the bottom buttons and the sheet, lifted over the keyboard while it is up.
  */
 function placeAlerts(alerts: HTMLElement): void {
   const phone = matchMedia('(max-width: 760px)');
-  const bar = byId('repo-form');
-  const title = byId('title');
-  const side = document.getElementById('side');
   const shown = (el: Element | null) => {
     if (!el) return null;
     const box = el.getBoundingClientRect();
     return box.width && box.height && getComputedStyle(el).visibility !== 'hidden' ? box : null;
   };
-  const GAP = 10;
+  const GAP = 12;
   const place = () => {
     if (!alerts.querySelector(':scope > :not(:empty)')) return;
-    const boxes = [shown(bar), shown(title)].filter((b): b is DOMRect => !!b);
-    if (phone.matches) {
-      const below = Math.max(0, ...boxes.map((b) => b.bottom));
-      alerts.style.top = `${Math.round(below + GAP)}px`;
-      alerts.style.left = alerts.style.width = '';
-      return;
-    }
-    const barBox = shown(bar);
-    alerts.style.top = `${Math.round((barBox?.bottom ?? 16) + 12)}px`;
-    const from = Math.max(0, ...boxes.map((b) => b.right)) + 24;
-    const to = (shown(side)?.left ?? innerWidth) - 24;
-    const width = Math.min(460, to - from);
-    if (width >= 340) {
-      alerts.style.left = `${Math.round(from + (to - from - width) / 2)}px`;
-      alerts.style.width = `${Math.round(width)}px`;
-    } else {
-      alerts.style.width = `${Math.min(460, innerWidth - 32)}px`;
-      alerts.style.left = `${Math.round((innerWidth - Math.min(460, innerWidth - 32)) / 2)}px`;
-    }
+    const below = ['#timeline', '#grow', '#spin', '#scrubber', ...(phone.matches ? ['#side'] : [])]
+      .map((sel) => shown(document.querySelector(sel)))
+      .filter((b): b is DOMRect => !!b && b.top > innerHeight / 2);
+    const top = Math.min(innerHeight, ...below.map((b) => b.top));
+    // The keyboard, where the browser lays it over the page rather than shrinking it.
+    const view = window.visualViewport;
+    const keyboard = view ? Math.max(0, innerHeight - view.height - view.offsetTop) : 0;
+    alerts.style.bottom = `${Math.round(Math.max(innerHeight - top, keyboard) + GAP)}px`;
   };
   const resize = new ResizeObserver(place);
-  for (const el of [bar, title, side, alerts]) if (el) resize.observe(el);
+  for (const sel of ['#side', '#scrubber', '#alerts']) {
+    const el = document.querySelector(sel);
+    if (el) resize.observe(el);
+  }
   new MutationObserver(place).observe(alerts, { childList: true, subtree: true });
-  new MutationObserver(place).observe(document.body, {
-    attributes: true,
-    attributeFilter: ['data-repo-open', 'data-compare'],
-  });
+  new MutationObserver(place).observe(document.body, { attributes: true, subtree: false });
+  const scrubber = document.querySelector('#scrubber');
+  if (scrubber) new MutationObserver(place).observe(scrubber, { attributes: true });
   addEventListener('resize', place);
+  window.visualViewport?.addEventListener('resize', place);
   phone.addEventListener('change', place);
   place();
 }

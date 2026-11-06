@@ -258,14 +258,16 @@ kbd {
   }
 }
 
-/* Errors and notices: their own place under the header, clear of the cards (header.ts places
-   it). The field's own error is one line; a load error is a card with its actions. */
+/* Errors and notices: their own corner at the bottom left, above the bottom row's buttons and
+   clear of the tree and the cards (header.ts sets how high). The field's own error is one line;
+   a load error is a card with its actions. */
 .alerts {
   position: fixed;
   z-index: 7;
-  top: calc(env(safe-area-inset-top, 0px) + 74px);
-  left: calc(50% - min(230px, 50% - 16px));
-  width: min(460px, calc(100% - 32px));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+  left: max(var(--edge), env(safe-area-inset-left, 0px));
+  width: min(420px, var(--col), calc(100% - 32px));
+  align-content: end;
   display: grid;
   gap: 8px;
   pointer-events: none;
@@ -2682,7 +2684,6 @@ body:has(.scrubber:not([hidden])) .toast {
     --edge: 12px;
   }
   .alerts {
-    left: max(12px, env(safe-area-inset-left, 0px));
     right: max(12px, env(safe-area-inset-right, 0px));
     width: auto;
   }

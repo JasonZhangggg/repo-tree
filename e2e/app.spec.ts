@@ -366,6 +366,7 @@ type Debug = {
     view: {
       stats(): { distance: number; renders: number; triangles: number };
       pickAt(x: number, y: number): { folder: number; rock?: number } | null;
+      skyAt(x: number, y: number): boolean;
     };
   };
 };
@@ -895,6 +896,86 @@ test('clearing a pin glides back to the whole tree; Reset view undoes a zoom', a
   await reset.click();
   expect((await settle(page)).distance, 'reset').toBeCloseTo(home, 1);
   await expect(reset).toBeHidden();
+});
+
+test('a pinch zooms toward the fingers, and Reset view brings the whole tree back', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, 'a pinch is a touch gesture');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const before = await settle(page);
+  const box = (await page.locator('#view').boundingBox())!;
+  // Two fingers spread apart over the left of the crown.
+  const cdp = await page.context().newCDPSession(page);
+  const [x, y] = [box.x + box.width * 0.28, box.y + box.height * 0.45];
+  const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', d: number) =>
+    cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints:
+        type === 'touchEnd'
+          ? []
+          : [
+              { x: x - d, y, id: 0 },
+              { x: x + d, y, id: 1 },
+            ],
+    });
+  await touch('touchStart', 20);
+  for (let d = 25; d <= 90; d += 5) await touch('touchMove', d);
+  await touch('touchEnd', 0);
+  const after = await settle(page);
+  expect(after.distance, 'zoomed in').toBeLessThan(before.distance * 0.8);
+  const moved = Math.hypot(...after.target.map((v, i) => v - before.target[i]!));
+  expect(moved, 'the orbit point followed the fingers').toBeGreaterThan(0.2);
+
+  const reset = page.getByRole('button', { name: 'Reset view' });
+  await expect(reset).toBeVisible();
+  await reset.click();
+  const home = await settle(page);
+  expect(home.distance).toBeCloseTo(before.distance, 1);
+  expect(Math.hypot(...home.target.map((v, i) => v - before.target[i]!))).toBeLessThan(0.05);
+});
+
+test('a double tap glides to a branch, and from the sky back out', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'a double tap is a touch gesture');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const whole = (await settle(page)).distance;
+  const box = (await page.locator('#view').boundingBox())!;
+  const at = await page.evaluate(() => {
+    const { view } = (window as unknown as Debug).__repoTree;
+    const r = document.getElementById('view')!.getBoundingClientRect();
+    for (let y = r.height * 0.5; y < r.height * 0.7; y += 6)
+      for (let x = r.width * 0.45; x < r.width * 0.7; x += 6) {
+        const p = view.pickAt(x, y);
+        if (p && p.folder !== 0 && p.rock === undefined) return { x, y };
+      }
+    return null;
+  });
+  expect(at, 'a branch near the middle').not.toBeNull();
+  const tapTwice = async (x: number, y: number) => {
+    await page.touchscreen.tap(x, y);
+    await page.touchscreen.tap(x, y);
+  };
+  await tapTwice(box.x + at!.x, box.y + at!.y);
+  expect((await settle(page)).distance, 'glided in').toBeLessThan(whole * 0.9);
+  // Empty sky: no branch, cloud or sun under it, and no panel over it.
+  const sky = await page.evaluate(() => {
+    const { view } = (window as unknown as Debug).__repoTree;
+    const el = document.getElementById('view')!;
+    const r = el.getBoundingClientRect();
+    for (let y = r.height * 0.2; y < r.height * 0.8; y += 8)
+      for (const x of [16, r.width - 16, 40, r.width - 40]) {
+        const over = document.elementFromPoint(r.left + x, r.top + y);
+        if (!over || !el.contains(over)) continue;
+        if (view.pickAt(x, y) === null && !view.skyAt(x, y)) return { x, y };
+      }
+    return null;
+  });
+  expect(sky, 'some empty sky').not.toBeNull();
+  await tapTwice(box.x + sky!.x, box.y + sky!.y);
+  expect((await settle(page)).distance, 'back out').toBeCloseTo(whole, 1);
 });
 
 test('a pinned folder deep in the crown gets its own label', async ({ page }) => {

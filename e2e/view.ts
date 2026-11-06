@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 
-type Stats = { distance: number; renders: number; triangles: number };
+type Stats = { distance: number; renders: number; triangles: number; target: number[] };
 type Debug = { __repoTree: { view: { stats(): Stats } } };
 
 const statsOf = (page: Page) =>

@@ -127,3 +127,26 @@ test("linux's folders go to their recent maintainers, else the heaviest author",
   // Nobody touched drivers/ lately, so weight decides.
   expect(owners.folders.get('drivers')!.owner).toBe('Linus Torvalds');
 });
+
+describe('leafCategories with a shared language rank', () => {
+  test('a language takes its slot in the shared ranking, whatever this tree has', async () => {
+    const tree = growTree(buildHierarchy(await sample('mathiasbynens-dotfiles'), DEFAULT_FILTERS), {
+      seed: 42,
+      quality: 'low',
+    });
+    const palette = PALETTES.autumn;
+    const mine = tree.langs[0]!;
+    // A language only another tree has ranks first, so this tree's top language comes second.
+    const rank = new Map<string, number>([
+      ['Elsewhere', 1e9],
+      [mine.lang, 1e8],
+    ]);
+    const { slotOf, legend } = leafCategories(tree, 'language', palette, null, rank);
+    expect(slotOf[0]).toBe(1);
+    expect(legend[0]).toMatchObject({ label: 'Elsewhere', files: 0 });
+    expect(legend[1]).toMatchObject({ label: mine.lang, files: mine.files });
+    expect(legend.reduce((sum, e) => sum + e.files, 0)).toBe(
+      tree.langs.reduce((sum, l) => sum + l.files, 0),
+    );
+  });
+});

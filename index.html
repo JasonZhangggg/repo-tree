@@ -159,6 +159,7 @@
       <p class="meta" id="repo-meta"></p>
       <a class="weather" id="weather" target="_blank" rel="noopener" hidden></a>
       <div id="status"></div>
+      <div class="compare" id="compare" role="group" aria-label="Compared tree" hidden></div>
     </section>
 
     <aside class="side" id="side" aria-label="Repository details">
@@ -187,6 +188,12 @@
       <div class="quick" id="quick"></div>
       <div class="side-body" id="side-body">
         <section class="panel color-by" id="color-by" aria-label="Color leaves by"></section>
+        <section
+          class="panel cmp-panel"
+          id="compare-panel"
+          aria-label="Side by side"
+          hidden
+        ></section>
         <article class="panel detail" id="detail" hidden aria-label="Pinned folder"></article>
         <section class="panel" id="overview">
           <h2 class="h">Top-level folders</h2>
@@ -241,6 +248,21 @@
           <path d="M12 8v4l2.5 1.5" />
         </svg>
         <span>Timeline</span>
+      </button>
+      <button
+        type="button"
+        class="pill-btn"
+        id="compare-open"
+        aria-label="Compare trees"
+        aria-pressed="false"
+        aria-disabled="true"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4v16" />
+          <path d="M7 18v-4m0 0c-2 0-3-1.3-3-3 2 0 3 1.3 3 3Zm0-2c0-2 1-3 3-3 0 1.7-1 3-3 3Z" />
+          <path d="M17 18v-5m0 1c-2 0-3-1.3-3-3 2 0 3 1.3 3 3Zm0-1c0-2 1-3 3-3 0 1.7-1 3-3 3Z" />
+        </svg>
+        <span>Compare</span>
       </button>
       <button
         type="button"

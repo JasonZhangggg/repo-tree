@@ -693,6 +693,17 @@ export function mountSide(app: App): void {
     );
     detail.setAttribute('aria-label', `Pinned folder ${path[folder] || repoName}`);
     detail.hidden = false;
+    if (file !== undefined) {
+      // A pinned file (a rock, or a busy file) names itself in the sheet's peek, not its folder.
+      const filePath = repo.index.files.paths[file]!;
+      sheetTitle.textContent = nameOf(filePath);
+      sheetStat.textContent = [
+        langOf(filePath),
+        bytes(repo.index.files.size[file]!),
+        `in ${folder === 0 ? repoName : path[folder]}/`,
+      ].join(' · ');
+      return;
+    }
     sheetTitle.textContent = `${label(folder)}/`;
     sheetStat.textContent = [
       plural(files[folder]!, 'file'),

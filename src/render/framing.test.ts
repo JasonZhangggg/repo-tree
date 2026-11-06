@@ -1,7 +1,15 @@
 import { PerspectiveCamera, Vector3 } from 'three';
 import { describe, expect, test } from 'vitest';
 import type { Vec3 } from '../grow/grow';
-import { distanceOf, FOLDER_MIN_SHARE, FOV, frameFolder, frameTree, type Box } from './framing';
+import {
+  distanceOf,
+  FOLDER_MIN_SHARE,
+  FOV,
+  frameFolder,
+  frameGrove,
+  frameTree,
+  type Box,
+} from './framing';
 
 const TREES: Record<string, Box> = {
   'wide crown': { min: [-1.4, -0.06, -1.1], max: [1.3, 2.2, 1.2] },
@@ -108,5 +116,42 @@ describe('frameFolder', () => {
   test('never stands further back than the whole tree', () => {
     const crown = frameFolder({ center: [0, 1.1, 0], radius: 3 }, tree, 1.6);
     expect(crown.distance).toBeCloseTo(whole(1.6));
+  });
+});
+
+describe('frameGrove', () => {
+  const grove = { center: [0, 2, 0] as [number, number, number], across: 12, deep: 6, tall: 4 };
+
+  test('a wide grove in a wide region is fitted by its width, snugly', () => {
+    const { position, target } = frameGrove(grove, 1.6, 0, 0.45);
+    const distance = distanceOf(position, target);
+    // The width it shows is no more than the view's, and not much less.
+    const view =
+      2 *
+      (distance - (grove.deep / 2) * Math.cos(0.45)) *
+      Math.tan((FOV / 2) * (Math.PI / 180)) *
+      1.6;
+    expect(grove.across / view).toBeGreaterThan(0.8);
+    expect(grove.across / view).toBeLessThanOrEqual(1);
+  });
+
+  test('stands nearer than a sphere round the same grove would put it', () => {
+    const box = {
+      min: [-6, 0, -3] as [number, number, number],
+      max: [6, 4, 3] as [number, number, number],
+    };
+    const sphere = frameTree(box, 1.6);
+    const snug = frameGrove(grove, 1.6, 0, 0.45);
+    expect(distanceOf(snug.position, snug.target)).toBeLessThan(
+      distanceOf(sphere.position, sphere.target),
+    );
+  });
+
+  test('a narrow region stands further back for the same grove', () => {
+    const wide = frameGrove(grove, 1.6, 0, 0.45);
+    const narrow = frameGrove(grove, 0.6, 0, 0.45);
+    expect(distanceOf(narrow.position, narrow.target)).toBeGreaterThan(
+      distanceOf(wide.position, wide.target),
+    );
   });
 });

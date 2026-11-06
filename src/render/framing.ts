@@ -56,6 +56,40 @@ export function frameTree({ min, max }: Box, aspect: number, lift = 0): Framing 
   };
 }
 
+/** A grove fills this share of the view either way, leaving a margin round it. */
+const GROVE_FILL = 0.86;
+
+/**
+ * What a grove of trees side by side covers, as seen from the front: its middle, its width
+ * across the view, its depth toward the camera and its height.
+ */
+export type Grove = { center: Vec3; across: number; deep: number; tall: number };
+
+/**
+ * A grove framed from the front: it only sways about the front, so it is fitted by what the
+ * camera sees from there (its width, and its height and depth as they show from `level` above
+ * the horizon), not by a sphere every spin angle would need.
+ */
+export function frameGrove(
+  { center, across, deep, tall }: Grove,
+  aspect: number,
+  lift: number,
+  level: number,
+): Framing {
+  const high = tall * Math.cos(level) + deep * Math.sin(level);
+  const a = Math.max(0.3, aspect);
+  const distance =
+    Math.max(high / 2 / TAN_HALF_FOV, across / 2 / (TAN_HALF_FOV * a)) / GROVE_FILL +
+    (deep / 2) * Math.cos(level);
+  const target: Vec3 = [center[0], center[1] + tall * lift, center[2]];
+  return {
+    target,
+    position: along(target, VIEW_DIRECTION, distance),
+    minDistance: distance * 0.35,
+    maxDistance: distance * 2.2,
+  };
+}
+
 /** A pinned folder's bounding sphere, padded by this much, fills the view. */
 const FOLDER_PADDING = 1.7;
 /**

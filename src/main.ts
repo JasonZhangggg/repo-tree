@@ -26,7 +26,6 @@ import { mountQuick } from './app/ui/quick';
 import { mountSignIn } from './app/ui/signin';
 import { mountSearch } from './app/ui/search-dialog';
 import { mountSettings } from './app/ui/settings-dialog';
-import { mountShortcuts } from './app/ui/shortcuts';
 import { childrenOf, mountSide } from './app/ui/side';
 import { mountHistoryCompute } from './app/ui/history-compute';
 import { mountTimeline } from './app/ui/timeline';
@@ -496,8 +495,6 @@ addEventListener('resize', reframe);
 addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement;
   const typing = target.matches('input, textarea, select, [contenteditable]');
-  // The shortcuts dialog is modal and closes on Escape by itself.
-  if (shortcuts.isOpen()) return;
   // The compare view covers the app: Escape closes it, and the app's shortcuts wait.
   if (compare.isOpen()) {
     if (event.key === 'Escape') compare.close();
@@ -527,9 +524,6 @@ addEventListener('keydown', (event) => {
     themeButton.click();
   } else if (event.key === 't' || event.key === 'T') {
     byId('timeline').click();
-  } else if (event.key === '?') {
-    event.preventDefault();
-    shortcuts.open();
   }
 });
 
@@ -559,8 +553,6 @@ const compare = mountCompare(app, {
     view.setReducedMotion(paused || reducedMotion(state.settings));
   },
 });
-const shortcuts = mountShortcuts();
-byId('help-keys').addEventListener('click', () => shortcuts.open());
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 mountQuick(app);
 

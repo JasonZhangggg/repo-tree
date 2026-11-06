@@ -300,7 +300,7 @@ export function createWeather(camera: PerspectiveCamera) {
       )
       .replace(
         '#include <begin_vertex>',
-        'vFaded = uFocusCloud != -1.0 && abs(aCloud - uFocusCloud) > 0.5 ? 1.0 : 0.0;\nvec4 cloud = uClouds[int(aCloud + 0.5)];\nvec3 transformed = position * cloud.w + cloud.xyz;',
+        'vFaded = uFocusCloud > -2.5 && uFocusCloud != -1.0 && abs(aCloud - uFocusCloud) > 0.5 ? 1.0 : 0.0;\nvec4 cloud = uClouds[int(aCloud + 0.5)];\nvec3 transformed = position * cloud.w + cloud.xyz;',
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -309,7 +309,7 @@ export function createWeather(camera: PerspectiveCamera) {
       )
       .replace(
         '#include <dithering_fragment>',
-        `#include <dithering_fragment>\nif (vFaded > 0.5) gl_FragColor.rgb = mix(gl_FragColor.rgb, uFade, 0.78);\n${HOVER_TINT('uFocusCloud >= 0.0 && vFaded < 0.5')}`,
+        `#include <dithering_fragment>\nif (vFaded > 0.5) gl_FragColor.rgb = mix(gl_FragColor.rgb, uFade, 0.78);\n${HOVER_TINT('(uFocusCloud >= 0.0 || uFocusCloud < -2.5) && vFaded < 0.5')}`,
       );
   };
   const clouds = new Mesh(new BufferGeometry(), cloudMaterial);
@@ -508,14 +508,15 @@ export function createWeather(camera: PerspectiveCamera) {
       return out;
     },
     /**
-     * Fades the sun and every cloud but the one under the mouse, or all of them when `others`
-     * (the mouse is over a rock or a bird), or none.
+     * Lights the sun and every cloud together when the mouse is over any of them, since they
+     * all stand for the same CI weather; fades them all when `others` (the mouse is over a rock
+     * or a bird); or neither. Clouds take -3 for all lit, -2 for all faded, -1 for neither.
      */
     setFocus(which: SkyTarget['which'] | null, others = false) {
-      const any = which !== null || others;
-      sunMaterial.uniforms.uFaded!.value = any && which !== 'sun' ? 1 : 0;
-      sunMaterial.uniforms.uFocused!.value = which === 'sun' ? 1 : 0;
-      focusCloud$.value = typeof which === 'number' ? which : any ? -2 : -1;
+      const lit = which !== null;
+      sunMaterial.uniforms.uFaded!.value = !lit && others ? 1 : 0;
+      sunMaterial.uniforms.uFocused!.value = lit ? 1 : 0;
+      focusCloud$.value = lit ? -3 : others ? -2 : -1;
     },
     /** Whether the weather moves, so the view keeps rendering. */
     animated,

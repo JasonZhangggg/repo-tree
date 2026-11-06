@@ -46,6 +46,14 @@ function fetchRateLimit(token?: string, signal?: AbortSignal): Promise<RateLimit
 function describeRateLimit(rate: RateLimit, now?: number): string; // "4,812 of 5,000 left, resets at 6:42 PM"; "resets within a minute" when due
 function resetsIn(rate: RateLimit, now?: number): string; // "resets at 6:42 PM" | "resets within a minute"
 function formatCount(n: number): string; // "4,812"
+// repo/repo-search.ts  (boundary: network; the repo field's GitHub suggestions)
+type RepoHit = { name: string /* owner/repo */; description: string; stars: number };
+type RepoSearchResult = { kind: 'ok'; hits: RepoHit[] } | { kind: 'rate-limited'; resetAt: number /* ms */ } | { kind: 'error' };
+type RepoQuery = { q: string; byStars: boolean };
+function repoQuery(input: string): RepoQuery | null; // "vite" → name search; "vitejs/" → user:vitejs by stars; "vitejs/vi" narrows; a GitHub URL counts as its path; null under 2 letters or not a name
+function searchRepos(query: RepoQuery, token?: string, signal?: AbortSignal): Promise<RepoSearchResult>; // GET /search/repositories per_page=6 (search budget: 10/min anonymous, 30 with a token); never throws
+function createRepoSuggester(opts: { onResult(input: string, result: RepoSearchResult | null): void; token?(): string | undefined; search?; delay?: number /* 300 */; now?(): number }): { update(input: string): void; cancel(): void }; // debounced, aborts superseded searches, caches per query, asks nothing until a spent budget resets
+function matchLocal(input: string, names: readonly string[]): string[]; // recent/sample names holding the input, case-insensitive
 // repo/ci.ts  (boundary: network, plus the pure health rule)
 type CiRun = { passed: boolean; at: number /* ms, when it finished */ };
 type Sky = 'clear' | 'sunny' | 'cloudy' | 'rain' | 'storm'; // clear: no CI to report on

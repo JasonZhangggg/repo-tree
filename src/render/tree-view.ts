@@ -43,6 +43,7 @@ import {
 import { LIGHT, litColor } from './color';
 import { AGES, ageBand, CHANGES, changeBand, DEAD, type Facts } from '../timeline/facts';
 import { ownerCategories } from '../timeline/owners';
+import { groveSpots } from './grove';
 import { birdGeometry, BIRD_SIZE, perchOnCrown, type Perched } from './birds';
 import { createGround } from './ground';
 import {
@@ -155,7 +156,7 @@ export interface TreeView {
    */
   setLanguageRank(rank: ReadonlyMap<string, number> | null): void;
   /**
-   * Grows other trees each on its own island in a row to the right of this one in the default
+   * Grows other trees each on its own island beside this one in a small grove (grove.ts) in the default
    * view, in the same world, the camera framing and orbiting them all. `scale` shrinks any tree
    * (not its island) from its own height, so they can show their sizes against each other; all
    * are 1 unless told, and none puts the tree on show back at 1. Their leaves follow `setColorBy`
@@ -191,7 +192,7 @@ export interface TreeView {
   atHome(): boolean;
   /** Frames the tree into the part of the container the insets leave free, easing there. */
   setInsets(insets: Insets): void;
-  /** The stage the whole view frames: one island's room, or the row of them while comparing. */
+  /** The stage the whole view frames: one island's room, or the grove of them while comparing. */
   room(): TreeModel['bounds'];
   /** The folder or rock under a point in CSS pixels relative to the container, from a GPU id pass. */
   pickAt(x: number, y: number): Picked | null;
@@ -282,7 +283,7 @@ const CROWN = { reach: 0.8, from: 0.4 };
 const SPIN_SPEED = 0.55;
 /**
  * With trees side by side, spin sways the camera this far either side of the front instead of
- * going round, so the row always reads in the card's order; it slows toward each end.
+ * going round, so the grove never shows backwards; it slows toward each end.
  */
 const SWAY = 0.5;
 const FRONT = Math.atan2(VIEW_DIRECTION[0], VIEW_DIRECTION[2]);
@@ -295,6 +296,12 @@ const SIDEWAYS = (() => {
   const [x, , z] = VIEW_DIRECTION;
   const length = Math.hypot(x, z);
   return [z / length, -x / length] as const;
+})();
+/** Toward the camera in the default view, on the ground (x, z). */
+const TOWARD = (() => {
+  const [x, , z] = VIEW_DIRECTION;
+  const length = Math.hypot(x, z);
+  return [x / length, z / length] as const;
 })();
 /** Spring rates: the camera settles in about a second, the free region in about a third. */
 const GLIDE_RATE = 6.5;
@@ -606,7 +613,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
   /**
    * The stage the whole view frames. With companions it repeats: the same room again where each
-   * companion stands, so the row is framed together, and spins, about its middle.
+   * companion stands, so the grove is framed together, and sways, about its middle.
    */
   const roomOf = () => {
     const one = stage(groundOn);
@@ -614,8 +621,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     for (const { group } of companions) {
       const at = group.position;
       room = union(room, {
-        min: [one.min[0] + at.x, one.min[1], one.min[2] + at.z],
-        max: [one.max[0] + at.x, one.max[1], one.max[2] + at.z],
+        min: [one.min[0] + at.x, one.min[1] + at.y, one.min[2] + at.z],
+        max: [one.max[0] + at.x, one.max[1] + at.y, one.max[2] + at.z],
       });
     }
     return room;
@@ -740,7 +747,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     requestRender();
   };
 
-  /** Which way spin sways the row, +1 toward a larger azimuth. */
+  /** Which way spin sways the grove, +1 toward a larger azimuth. */
   let swayWay = 1;
   /** Spin goes round one tree; beside others it sways about the front (SWAY). */
   const sway = () => {
@@ -1042,12 +1049,15 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       };
     });
     // The underside of each island, or the foot of the trunk with the ground off.
-    const foot = (bounds: TreeModel['bounds'], at: { x: number; z: number }): IslandFoot => {
-      const { x, y, z } = screen(anchor.set(at.x, groundOn ? bounds.min[1] : 0, at.z));
+    const foot = (
+      bounds: TreeModel['bounds'],
+      at: { x: number; y: number; z: number },
+    ): IslandFoot => {
+      const { x, y, z } = screen(anchor.set(at.x, at.y + (groundOn ? bounds.min[1] : 0), at.z));
       return { x, y, visible: z < 1 && x >= left && x <= left + w && y >= top && y <= top + h };
     };
     const islands = {
-      main: foot(shown.groundBounds, { x: 0, z: 0 }),
+      main: foot(shown.groundBounds, { x: 0, y: 0, z: 0 }),
       companions: companions.map((c) => foot(c.groundBounds, c.group.position)),
     };
     const crown = crownOnScreen(scaled(bounds, mainScale));
@@ -1199,23 +1209,31 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const tree = scaled(model.bounds, mainScale);
     shown.bounds = groundOn ? union(tree, groundBounds) : tree;
     terrain.land.visible = terrain.cover.visible = groundOn;
-    // In a row across the default view, each an island's width apart from trunk to trunk.
+    // In a small grove (grove.ts): a row of two, a triangle, a square, or two rows, one island's
+    // width apart from trunk to trunk, the tree on show where it always stands.
     const reachOf = (b: TreeModel['bounds']) => Math.max(-b.min[0], b.max[0], -b.min[2], b.max[2]);
-    let along = 0;
-    let last = reachOf(shown.bounds);
-    for (const c of companions) {
+    const islands = companions.map((c) => {
       const own = scaled(c.model.bounds, c.bark.scale.x);
-      const other = groundOn ? union(own, c.groundBounds) : own;
-      along += last + reachOf(other) + COMPANION_GAP;
-      last = reachOf(other);
-      c.group.position.set(SIDEWAYS[0] * along, 0, SIDEWAYS[1] * along);
+      return { own, other: groundOn ? union(own, c.groundBounds) : own };
+    });
+    const pitch =
+      2 * Math.max(reachOf(shown.bounds), ...islands.map((i) => reachOf(i.other))) + COMPANION_GAP;
+    const spots = groveSpots([tree.max[1], ...islands.map((i) => i.own.max[1])]);
+    companions.forEach((c, k) => {
+      const { across, toward, lift } = spots[k + 1]!;
+      c.group.position.set(
+        (SIDEWAYS[0] * across + TOWARD[0] * toward) * pitch,
+        lift * pitch,
+        (SIDEWAYS[1] * across + TOWARD[1] * toward) * pitch,
+      );
       c.terrain.land.visible = c.terrain.cover.visible = groundOn;
-      const { x, z } = c.group.position;
-      shown.bounds = union(shown.bounds, {
-        min: [other.min[0] + x, other.min[1], other.min[2] + z],
-        max: [other.max[0] + x, other.max[1], other.max[2] + z],
+      const { x, y, z } = c.group.position;
+      const { other } = islands[k]!;
+      shown!.bounds = union(shown!.bounds, {
+        min: [other.min[0] + x, other.min[1] + y, other.min[2] + z],
+        max: [other.max[0] + x, other.max[1] + y, other.max[2] + z],
       });
-    }
+    });
     for (const mesh of [ground, contact, baked]) mesh.visible = !groundOn;
     const { min, max } = shown.bounds;
     const center: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];

@@ -61,7 +61,7 @@ const MODE_TITLE: Record<ColorBy, string> = {
 
 /**
  * Compare trees, as a grove: the repo on show and up to four more, each on its own island in the
- * same world, in a row that always reads in the card's order. While comparing, the repo card turns
+ * same world, in a small grove whose rows keep the card's order. While comparing, the repo card turns
  * into the grove's list: a head ("Side by side · 3 trees", Done), then one line per tree (its seed,
  * name, files, CI glyph and ×), then "Add another repo", which turns the search bar to adding
  * (header.ts) and goes quiet at MAX_COMPARED. A tag with the same seed hangs under each island.

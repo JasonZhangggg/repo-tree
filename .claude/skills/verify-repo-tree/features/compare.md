@@ -1,6 +1,6 @@
 # Compare trees
 
-A user compares up to five repos in one world, a grove. The repo on show comes first; each repo added is grown on its own island in a row to its right, and the camera frames the row. Spin sways the camera gently about the front instead of going round, so the row always reads in the card's order.
+A user compares up to five repos in one world, a grove. Each repo is grown on its own island, and the islands stand in a shape: two side by side, three in a triangle, four in a square, five as three behind and two in front. The tallest trees take the back row, which floats higher; each row keeps the card's order left to right. The camera frames them all, and spin sways it gently about the front instead of going round, so the grove never shows backwards.
 
 There is one search bar, with no button: a pick or Enter loads a repo in place of the one on show. The repo card ends with `Compare with another repo` (`Add another repo` once comparing). That row shows a `Compare` tag in the bar (`#repo-mode`) and turns its placeholder into `Compare owner/repo with…`, and the next pick adds a repo beside the others instead. Clicking out or Escape takes the tag away. While comparing the card becomes the grove's list: a head `Side by side · N trees` with `Done`, then one line per tree, the one on show first: a seed in the tree's own soft color, its name and owner, its files, its CI chip as a glyph alone (the words in its tooltip), and × (`Remove owner/repo from the comparison`; on a desktop it shows on hover). The first tree's × puts the next on show and keeps the rest. At five trees the add row turns off and says `5 repos is the most at once`. A tag with the same seed and the repo's name hangs under each island. A line (`Show only owner/repo`) or a tag shows that tree alone: the comparison ends and the card's add row becomes `Back to all N trees`, which brings the grove back as it was.
 
@@ -9,7 +9,7 @@ While comparing, the side panel's repo sections give way to `Side by side`: a si
 ## Sub-features
 
 - `compare-add` the card's add row (or `Compare trees` under `More actions` on a phone) focuses the bar in its Compare state; it lists recent repos and samples not already compared, refuses one already in (`That one is already in the comparison…`), and drops the Compare tag on click-out or Escape. The refusal shows in `#alerts`, not under the field.
-- `compare-world` the islands sit in a row across the default view with a small gap; Reset view frames the row, spin sways about the front so the row never shows backwards, and the view takes the free region that fits the row best.
+- `compare-world` the islands stand in the grove's shape (`groveSpots`) a small gap apart; Reset view frames them, spin sways about the front so the grove never shows backwards, and the view takes the free region that fits it best.
 - `compare-scale` the biggest tree keeps its height and each other shrinks to the cube root of its file ratio of it (`sizeScales`); islands keep their size, and stopping puts the tree back at its own height.
 - `compare-rows` one line per tree, the one on show first; a line shows `Growing…` or the error in place of its files while it loads.
 - `compare-focus` a line or a tag shows that tree alone; `Back to all N trees` (`#compare-back`) brings the grove back; `Done` ends the comparison.

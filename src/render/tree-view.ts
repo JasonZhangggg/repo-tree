@@ -156,11 +156,17 @@ export interface TreeView {
   setLanguageRank(rank: ReadonlyMap<string, number> | null): void;
   /**
    * Grows a second tree on its own island beside this one, in the same world: to the `side`
-   * (right unless told) in the default view, the camera framing and orbiting both. Its leaves follow `setColorBy` for
+   * (right unless told) in the default view, the camera framing and orbiting both. `scale`
+   * shrinks either tree (not its island) from its own height, so the pair can show their sizes
+   * against each other; both are 1 unless told, and null puts the tree on show back at 1. Its leaves follow `setColorBy` for
    * languages (ranked by `setLanguageRank` while set) and folders, and languages otherwise; it is
    * not picked, labeled or highlighted. Null removes it.
    */
-  setCompanion(model: TreeModel | null, side?: 'left' | 'right'): void;
+  setCompanion(
+    model: TreeModel | null,
+    side?: 'left' | 'right',
+    scale?: { main: number; companion: number },
+  ): void;
   /**
    * What the repo's history says about the tree on show (timeline/facts.ts), or null; a new
    * tree clears it. Activity colors need it; without it they fall back to language.
@@ -410,6 +416,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   scene.add(sky, hemi, key, key.target, fill, ground, contact, baked);
   const terrain = createGround();
   scene.add(terrain.land, terrain.cover);
+  /** How much setCompanion shrank the tree on show, 1 when alone; its island keeps its size. */
+  let mainScale = 1;
   /** A second tree beside the first (setCompanion), on its own island, moved by its group. */
   let companion: {
     model: TreeModel;
@@ -978,9 +986,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const folders = labelFolders ?? shown.model.labels.map((l) => l.folder);
     const labels = folders.map((folder) => {
       const [ax, ay, az] = [
-        anchors[folder * 3]!,
-        anchors[folder * 3 + 1]!,
-        anchors[folder * 3 + 2]!,
+        anchors[folder * 3]! * mainScale,
+        anchors[folder * 3 + 1]! * mainScale,
+        anchors[folder * 3 + 2]! * mainScale,
       ];
       const reach = Math.hypot(ax, az);
       const facing = (ax * camera.position.x + az * camera.position.z) / (reach || 1);
@@ -1008,7 +1016,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       main: foot(shown.groundBounds, { x: 0, z: 0 }),
       companion: companion && foot(companion.groundBounds, companion.group.position),
     };
-    const crown = crownOnScreen(bounds);
+    const crown = crownOnScreen(scaled(bounds, mainScale));
     for (const listener of listeners) listener({ growth, labels, crown, islands });
   };
 
@@ -1148,12 +1156,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const placeScene = () => {
     if (!shown) return;
     const { model, groundBounds } = shown;
-    shown.bounds = groundOn ? union(model.bounds, groundBounds) : model.bounds;
+    const tree = scaled(model.bounds, mainScale);
+    shown.bounds = groundOn ? union(tree, groundBounds) : tree;
     terrain.land.visible = terrain.cover.visible = groundOn;
     if (companion) {
-      const other = groundOn
-        ? union(companion.model.bounds, companion.groundBounds)
-        : companion.model.bounds;
+      const own = scaled(companion.model.bounds, companion.bark.scale.x);
+      const other = groundOn ? union(own, companion.groundBounds) : own;
       // Side by side across the default view, an island's width apart from trunk to trunk.
       const reach = (b: TreeModel['bounds']) => Math.max(-b.min[0], b.max[0], -b.min[2], b.max[2]);
       const apart = reach(shown.bounds) + reach(other) + COMPANION_GAP;
@@ -1294,6 +1302,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         mesh.receiveShadow = true;
         mesh.frustumCulled = false;
       }
+      for (const mesh of [bark, leaves]) mesh.scale.setScalar(mainScale);
       scene.add(bark, leaves);
       if (!linked) staged = [terrain.cover, bark, leaves, ...weather.objects];
       linked = true;
@@ -1394,8 +1403,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       applyColorBy();
     },
 
-    setCompanion(model, side = 'right') {
+    setCompanion(model, side = 'right', scale = { main: 1, companion: 1 }) {
       releaseCompanion();
+      mainScale = model ? scale.main : 1;
+      if (shown) for (const mesh of [shown.bark, shown.leaves]) mesh.scale.setScalar(mainScale);
       if (model) {
         const bark = new Mesh(geometry(model.bark), barkMaterial);
         const leafGeometry = geometry(model.leaves).setAttribute(
@@ -1439,6 +1450,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
           groundBounds,
           side: side === 'left' ? -1 : 1,
         };
+        for (const mesh of [bark, leaves]) mesh.scale.setScalar(scale.companion);
       }
       if (!shown) return;
       applyColorBy();
@@ -1480,7 +1492,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
           ? { kind: 'tree' }
           : {
               kind: 'folder',
-              ...folderSphere(shown.boxes, range[2 * folder]!, range[2 * folder + 1]!),
+              ...scaledSphere(
+                folderSphere(shown.boxes, range[2 * folder]!, range[2 * folder + 1]!),
+                mainScale,
+              ),
             };
       reaim(false);
     },
@@ -1773,6 +1788,15 @@ function geometry(mesh: MeshData): BufferGeometry {
     .setAttribute('aT', new BufferAttribute(mesh.timing, 2))
     .setAttribute('aId', new BufferAttribute(mesh.nodeId, 1))
     .setIndex(new BufferAttribute(mesh.index, 1));
+}
+
+/** Bounds grown or shrunk about the foot of the trunk. */
+function scaled(b: TreeModel['bounds'], by: number): TreeModel['bounds'] {
+  if (by === 1) return b;
+  return { min: b.min.map((v) => v * by) as Vec3, max: b.max.map((v) => v * by) as Vec3 };
+}
+function scaledSphere(s: { center: Vec3; radius: number }, by: number) {
+  return { center: s.center.map((v) => v * by) as Vec3, radius: s.radius * by };
 }
 
 function union(a: TreeModel['bounds'], b: TreeModel['bounds']): TreeModel['bounds'] {

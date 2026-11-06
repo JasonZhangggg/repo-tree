@@ -1,3 +1,4 @@
+import { treeHeight } from '../grow/size';
 import type { Loaded } from '../load/load-in-worker';
 import { parseRepoRef, type RepoRef } from '../repo/ref';
 import { FIRST_VISIT, SAMPLES } from './samples';
@@ -100,3 +101,20 @@ export function rankOf({ repo, companion }: Pick<AppState, 'repo' | 'companion'>
   return ranked.rank;
 }
 let ranked: { repo: Loaded; companion: Loaded; rank: Map<string, number> } | null = null;
+
+/** The least height a tree shrinks to beside a bigger one, so it can still be seen and pointed at. */
+const LEAST_HEIGHT = 0.35;
+
+/**
+ * How much to shrink each of two trees grown side by side so their heights show their sizes:
+ * the bigger keeps its own height, and the smaller stands at the cube root of their file ratio
+ * of it, as a crown's volume would hold its files. On its own a tree's height follows the files
+ * gently (grow/size.ts), so a few times the files looks alike; beside each other the gap shows.
+ */
+export function pairScale(a: number, b: number): { a: number; b: number } {
+  const [big, small] = a >= b ? [a, b] : [b, a];
+  const tall = treeHeight(big);
+  const goal = Math.max(LEAST_HEIGHT, tall * Math.cbrt(Math.max(1, small) / Math.max(1, big)));
+  const shrink = Math.min(1, goal / treeHeight(small));
+  return a >= b ? { a: 1, b: shrink } : { a: shrink, b: 1 };
+}

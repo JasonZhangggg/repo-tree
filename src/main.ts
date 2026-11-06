@@ -31,7 +31,7 @@ import { childrenOf, mountSide } from './app/ui/side';
 import { mountHistoryCompute } from './app/ui/history-compute';
 import { mountTimeline } from './app/ui/timeline';
 import { mountCompare } from './app/ui/compare';
-import { rankOf } from './app/compare';
+import { pairScale, rankOf, treeStats } from './app/compare';
 
 const SETTINGS_KEY = 'repo-tree:settings';
 const MEASURE_MS = 2000;
@@ -249,7 +249,16 @@ store.subscribe((state, prev) => {
     state.compareFirst !== prev.compareFirst
   ) {
     view.setLanguageRank(rankOf(state));
-    view.setCompanion(companion(state)?.tree ?? null, state.compareFirst ? 'left' : 'right');
+    const other = companion(state);
+    // The pair's heights show their sizes against each other.
+    const scale =
+      other && state.repo
+        ? pairScale(treeStats(state.repo).files, treeStats(other).files)
+        : { a: 1, b: 1 };
+    view.setCompanion(other?.tree ?? null, state.compareFirst ? 'left' : 'right', {
+      main: scale.a,
+      companion: scale.b,
+    });
   }
   const birds = birdsOf(state);
   if (birds !== birdsOf(prev) || state.repo !== prev.repo) {

@@ -10,6 +10,7 @@ The side panel gains a `Side by side` table: files, folders, deepest folder, siz
 
 - `compare-open` opens beside the most recent other repo, else `vitejs/vite`, else `mathiasbynens/dotfiles` (samples grow with no network). The button shows pressed, and a second press stops comparing.
 - `compare-world` both islands sit side by side across the default view with a small gap; Reset view and spin frame the pair.
+- `compare-scale` the bigger tree keeps its height and the smaller shrinks to the cube root of their file ratio of it (vite beside dotfiles: dotfiles stands about a quarter of vite's height); its island keeps its size, and Exit puts the tree back at its own height.
 - `compare-card` two alike rows, A and B, each with a letter, name, files · folders (or `Growing…` / the error), and `Change`; the shown row is outlined and marked `In panels`.
 - `compare-tags` a tag under each island with the row's letter and name; a click shows that tree's details.
 - `compare-table` the table and the size line fill once both trees have grown; columns follow A then B, with badges; language rows show swatches in the shared leaf colors.

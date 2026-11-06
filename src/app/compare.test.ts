@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'vitest';
 import type { Loaded } from '../load/load-in-worker';
 import { parseRepoRef, type RepoRef } from '../repo/ref';
-import { defaultPartner, languageRows, sharedRank, sizeLine, treeStats } from './compare';
+import { treeHeight } from '../grow/size';
+import {
+  defaultPartner,
+  languageRows,
+  pairScale,
+  sharedRank,
+  sizeLine,
+  treeStats,
+} from './compare';
 
 const ref = (input: string) => parseRepoRef(input) as RepoRef;
 const stats = (langs: [string, number][]) => ({
@@ -74,5 +82,21 @@ describe('compare', () => {
     );
     expect(defaultPartner(ref('acme/web'), [])).toEqual(ref('vitejs/vite'));
     expect(defaultPartner(ref('ViteJS/vite'), [])).toEqual(ref('mathiasbynens/dotfiles'));
+  });
+});
+
+describe('pairScale', () => {
+  test('keeps the bigger tree and shrinks the smaller by the cube root of their files', () => {
+    const { a, b } = pairScale(2898, 900);
+    expect(a).toBe(1);
+    // vite is 3.2× the files: a tree beside it stands about 1/1.48 of its height.
+    expect((treeHeight(900) * b) / treeHeight(2898)).toBeCloseTo(Math.cbrt(900 / 2898), 5);
+    expect(pairScale(900, 2898)).toEqual({ a: b, b: 1 });
+  });
+
+  test('never grows a tree, and keeps a tiny one big enough to see', () => {
+    expect(pairScale(500, 500)).toEqual({ a: 1, b: 1 });
+    const { b } = pairScale(80_000, 1);
+    expect(treeHeight(1) * b).toBeCloseTo(0.35, 5);
   });
 });

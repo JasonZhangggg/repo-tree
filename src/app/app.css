@@ -3364,41 +3364,36 @@ body:has(.scrubber:not([hidden])) .toast {
   display: grid;
   gap: 6px;
 }
-/* The letters: A dark, B light, the same in the rows, the tags and the table. */
+/* The letters, chips like the branch's; the tree in the panels has its letter in ink, as a
+   pinned folder's label is. */
+.cmp-tree[data-shown] .cmp-badge {
+  background: var(--ink);
+  color: var(--on-ink);
+}
 .cmp-badge {
   flex: none;
   display: inline-grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  font: 700 12px var(--sans);
-  line-height: 1;
-}
-.cmp-badge[data-side='a'] {
-  background: var(--ink);
-  color: var(--on-ink);
-}
-.cmp-badge[data-side='b'] {
-  background: var(--raised);
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: var(--wash);
   color: var(--ink);
-  box-shadow: inset 0 0 0 1.5px var(--ink);
+  font: 600 12px/1 var(--mono);
 }
 .cmp-tree {
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
-  padding: 4px 4px 4px 0;
-  border-radius: 11px;
-  box-shadow: inset 0 0 0 1px var(--line);
-  transition:
-    background 0.15s,
-    box-shadow 0.15s;
+  margin: 0 -6px;
+  padding: 2px 2px 2px 0;
+  border-radius: 10px;
+  transition: background 0.15s;
 }
 .cmp-tree[data-shown] {
-  background: var(--raised);
-  box-shadow: inset 0 0 0 1.5px var(--ink);
+  background: var(--hover);
 }
 .cmp-pick {
   flex: 1;
@@ -3406,7 +3401,7 @@ body:has(.scrubber:not([hidden])) .toast {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 4px 4px 10px;
+  padding: 5px 4px 5px 6px;
   cursor: pointer;
 }
 /* The radio lies over the whole row, unseen, so the row is what is clicked or tapped. */
@@ -3439,11 +3434,13 @@ body:has(.scrubber:not([hidden])) .toast {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 600 13px var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .cmp-sub {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 12.5px;
   font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3464,12 +3461,8 @@ body:has(.scrubber:not([hidden])) .toast {
 }
 .cmp-state {
   flex: none;
-  padding: 2px 7px;
-  border-radius: 6px;
-  background: var(--wash);
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
 }
 .cmp-tree:not([data-shown]) .cmp-state {
   visibility: hidden;
@@ -3580,42 +3573,46 @@ body:has(.scrubber:not([hidden])) .toast {
   left: 0;
   top: 0;
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 7px;
-  max-width: 220px;
+  max-width: 240px;
   margin: 10px 0 0;
-  padding: 4px 11px 4px 4px;
+  padding: 6px 11px;
   border: 0;
   border-radius: 999px;
-  background: var(--card);
+  background: color-mix(in srgb, var(--raised) 92%, transparent);
   color: var(--ink);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  font: 600 12.5px var(--mono);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 4px 14px rgba(60, 40, 20, 0.08);
+  font-size: 13px;
+  font-weight: 600;
   translate: -50% 0;
   pointer-events: auto;
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 .island-tag[hidden] {
   display: none;
-}
-.island-tag .cmp-badge {
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  font-size: 11px;
 }
 .island-tag .tag-name {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.island-tag b {
+  font-weight: 450;
+  color: var(--muted);
+}
+.island-tag[data-shown] b {
+  color: color-mix(in srgb, var(--on-ink) 72%, transparent);
+}
 .island-tag[data-shown] {
   cursor: default;
-  box-shadow:
-    inset 0 0 0 1.5px var(--ink),
-    var(--shadow);
+  background: var(--ink);
+  color: var(--on-ink);
 }
 .cmp-panel[hidden] {
   display: none;
@@ -3641,7 +3638,8 @@ body:has(.scrubber:not([hidden])) .toast {
   border-bottom: 0;
 }
 .cmp-table thead th {
-  font: 600 12px var(--mono);
+  font-size: 13px;
+  font-weight: 600;
   padding-bottom: 7px;
 }
 .cmp-col {
@@ -3705,7 +3703,7 @@ body:has(.scrubber:not([hidden])) .toast {
 }
 .cmp-note strong {
   color: var(--ink);
-  font: 600 12.5px var(--mono);
+  font-weight: 600;
 }
 .cmp-note-switch {
   display: inline-flex;
@@ -3718,7 +3716,8 @@ body:has(.scrubber:not([hidden])) .toast {
   border-radius: 999px;
   background: var(--wash);
   color: var(--ink);
-  font: 600 12px var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
 }
 @media (hover: hover) and (pointer: fine) {
   .cmp-note-switch:hover {
@@ -3742,18 +3741,11 @@ body:has(.scrubber:not([hidden])) .toast {
   .cmp-exit {
     height: 34px;
   }
-  .cmp-tree {
-    padding: 2px 2px 2px 0;
-  }
-  .cmp-pick {
-    padding: 4px 2px 4px 8px;
-  }
   .cmp-state {
     display: none;
   }
   .island-tag {
-    font-size: 11.5px;
-    max-width: 150px;
+    max-width: 160px;
   }
 }
 /* Stepping through search matches: a pill under the header, query, place, back, next, stop. */

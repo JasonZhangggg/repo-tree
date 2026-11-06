@@ -141,7 +141,7 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
     const el = h(
       'button',
       { type: 'button', class: 'island-tag', 'data-side': side, tabindex: '-1' },
-      badge(side),
+      h('b', {}, LETTER[side]),
       name,
     );
     el.hidden = true;

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { devices, expect, test, type Page } from '@playwright/test';
 import { failRepo, quietSettings, ready, serveCutRepo, serveRepo } from './github';
 import { treePixels } from './pixels';
 import { chooseAction, openRepoField, settle } from './view';
@@ -563,14 +563,15 @@ test('a shared highlight comes back, and a pinned folder replaces it', async ({ 
   await legendEntry(page, 'JavaScript').click();
   await expect(legendEntry(page, 'JavaScript')).toHaveAttribute('aria-pressed', 'true');
   await expect(detail(page)).toBeHidden();
-  await expect(page).toHaveURL(/&hl=JavaScript$/);
+  // The folder pinned before stays in the pin tray, and the link carries the tray.
+  await expect(page).toHaveURL(/&hl=JavaScript&pin=[^&]+$/);
   await page.keyboard.press('Escape');
   await expect(legendEntry(page, 'JavaScript')).toHaveAttribute('aria-pressed', 'false');
-  await expect(page).toHaveURL(/colorBy=language$/);
+  await expect(page).toHaveURL(/colorBy=language&pin=[^&]+$/);
 
   await page.evaluate(() => (location.hash = '#/vitejs/vite?colorBy=language&hl=Cobol'));
   await expect(page.locator('#legend button[aria-pressed="true"]')).toHaveCount(0);
-  await expect(page).toHaveURL(/colorBy=language$/);
+  await expect(page).toHaveURL(/colorBy=language&pin=[^&]+$/);
 });
 
 test('the orbit hint fades after the first drag and stays gone', async ({ page, isMobile }) => {
@@ -1031,4 +1032,57 @@ test('search closes from its own button: Cancel on a touch screen, the Esc hint 
   await expect(dialog.locator('.search-foot')).toBeVisible({ visible: !isMobile });
   await close.click();
   await expect(dialog).toBeHidden();
+});
+
+test('the pin tray keeps every pinned folder, glides back to one, and rides in the link', async ({
+  page,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const tray = page.getByRole('region', { name: 'Pinned folders' });
+  const sheet = page.locator('#sheet-toggle');
+  const phone = await sheet.isVisible();
+  const openSheet = async () => {
+    if (phone && (await sheet.getAttribute('aria-expanded')) !== 'true') await sheet.click();
+  };
+
+  await openSheet();
+  await page.locator('#folders button[data-folder]').nth(0).click();
+  await expect(tray, 'one pin, on show, offers nowhere else').toBeHidden();
+  await page.locator(phone ? '#sheet-clear' : '#detail .close').click();
+  await openSheet();
+  await page.locator('#folders button[data-folder]').nth(2).click();
+  await openSheet();
+  await expect(tray).toBeVisible();
+  const chips = tray.locator('.pin-chip');
+  await expect(chips).toHaveCount(2);
+  await expect(chips.nth(0)).toHaveText(/^playground\//);
+  await expect(chips.nth(1)).toHaveAttribute('aria-current', 'true');
+  await expect(page).toHaveURL(/&pin=playground&pin=docs$/);
+
+  await chips.nth(0).click();
+  await openSheet();
+  await expect(detail(page).getByRole('navigation', { name: 'Folder path' })).toHaveText(
+    'vite/playground',
+  );
+  await expect(chips.nth(0)).toHaveAttribute('aria-current', 'true');
+
+  // A fresh visit to the link brings the same tray.
+  const url = page.url();
+  const other = await page
+    .context()
+    .browser()!
+    .newContext(phone ? { ...devices['Pixel 7'] } : {});
+  const fresh = await other.newPage();
+  await fresh.goto(url);
+  await ready(fresh, 'vitejs/vite');
+  if (phone) await fresh.locator('#sheet-toggle').click();
+  await expect(
+    fresh.getByRole('region', { name: 'Pinned folders' }).locator('.pin-chip'),
+  ).toHaveText([/^playground\//, /^docs\//]);
+  await other.close();
+
+  await tray.getByRole('button', { name: 'Remove docs/ from pinned' }).click();
+  await expect(tray, 'only the pin on show is left').toBeHidden();
+  await expect(page).not.toHaveURL(/pin=/);
 });

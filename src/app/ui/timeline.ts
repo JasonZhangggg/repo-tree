@@ -53,6 +53,7 @@ export function mountTimeline(
   const dateEl = byId('timeline-date');
   const filesEl = byId('timeline-files');
   const ticks = byId('timeline-ticks');
+  const bubble = byId('timeline-bubble');
   const built = new WeakMap<Repo, Timeline>();
   let phase: Phase = { kind: 'closed' };
   let raf = 0;
@@ -83,6 +84,7 @@ export function mountTimeline(
     const date = dateAt(timeline, phase.s);
     const { files, atLeast } = filesAt(timeline, phase.s);
     dateEl.textContent = MONTH.format(date);
+    bubble.textContent = MONTH.format(date);
     const noun = files === 1 ? 'file' : 'files';
     // The short form keeps the label inside its fixed slot; the long one is read aloud.
     filesEl.textContent = `${count(files)}${atLeast ? '+' : ''} ${noun}`;
@@ -244,7 +246,42 @@ export function mountTimeline(
     if (phase.playing) pause();
     else start();
   });
-  range.addEventListener('pointerdown', () => pause(true));
+  /**
+   * Dragging is the page's own, not the browser's: a press anywhere on the track jumps the thumb
+   * under the finger and it follows from there (a touch screen's range input wants the thumb
+   * itself grabbed first), a bubble over the thumb names the month the finger hides, and a
+   * timeline that was playing plays on from where it is let go.
+   */
+  let drag: { id: number; resume: boolean } | null = null;
+  const positionOf = (clientX: number) => {
+    const box = range.getBoundingClientRect();
+    const thumb = parseFloat(getComputedStyle(scrubber).getPropertyValue('--thumb')) || 18;
+    return (clientX - box.left - thumb / 2) / Math.max(1, box.width - thumb);
+  };
+  range.addEventListener('pointerdown', (event) => {
+    if (phase.kind !== 'open' || event.button > 0) return;
+    event.preventDefault();
+    range.focus({ preventScroll: true });
+    range.setPointerCapture(event.pointerId);
+    drag = { id: event.pointerId, resume: phase.playing };
+    pause(true);
+    scrubber.toggleAttribute('data-dragging', true);
+    seek(positionOf(event.clientX));
+  });
+  range.addEventListener('pointermove', (event) => {
+    if (drag?.id === event.pointerId) seek(positionOf(event.clientX));
+  });
+  const release = (event: PointerEvent) => {
+    if (drag?.id !== event.pointerId) return;
+    const { resume } = drag;
+    drag = null;
+    scrubber.removeAttribute('data-dragging');
+    if (resume && phase.kind === 'open' && phase.s < 1) start();
+    else settle();
+  };
+  range.addEventListener('pointerup', release);
+  range.addEventListener('pointercancel', release);
+  // Keys still move the native range.
   range.addEventListener('input', () => {
     pause(true);
     seek(Number(range.value) / STEPS);

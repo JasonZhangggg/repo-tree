@@ -1,35 +1,35 @@
 import { describe, expect, test } from 'vitest';
-import { BACK_LIFT, groveSpots } from './grove';
+import { groveSpots, ROW_GAP } from './grove';
 
 const absolute = (heights: number[]) => {
-  // Back to the shape's own frame: the lowest row at lift 0, centered across.
+  // Back to the shape's own frame: centered across, the back row furthest from the camera.
   const spots = groveSpots(heights);
-  const low = Math.min(...spots.map((s) => s.lift));
+  const front = Math.max(...spots.map((s) => s.toward));
   const mid =
     (Math.min(...spots.map((s) => s.across)) + Math.max(...spots.map((s) => s.across))) / 2;
-  return spots.map((s) => ({ across: +(s.across - mid).toFixed(3), back: s.lift - low > 0 }));
+  return spots.map((s) => ({ across: +(s.across - mid).toFixed(3), back: s.toward < front }));
 };
 
 describe('groveSpots', () => {
   test('the tree on show stands at the origin', () => {
     for (const n of [1, 2, 3, 4, 5]) {
       const first = groveSpots(Array.from({ length: n }, (_, i) => n - i))[0]!;
-      expect(first).toEqual({ across: 0, toward: 0, lift: 0 });
+      expect(first).toEqual({ across: 0, toward: 0 });
     }
   });
 
   test('two stand side by side in the card order', () => {
     expect(groveSpots([1, 2])).toEqual([
-      { across: 0, toward: 0, lift: 0 },
-      { across: 1, toward: 0, lift: 0 },
+      { across: 0, toward: 0 },
+      { across: 1, toward: 0 },
     ]);
   });
 
   test('three make a triangle with the tallest at the back', () => {
     expect(absolute([1, 3, 2])).toEqual([
-      { across: -0.55, back: false },
+      { across: -0.6, back: false },
       { across: 0, back: true },
-      { across: 0.55, back: false },
+      { across: 0.6, back: false },
     ]);
   });
 
@@ -49,9 +49,24 @@ describe('groveSpots', () => {
     expect(spots[0]!.back).toBe(false);
   });
 
-  test('the back row floats higher and further from the camera', () => {
+  test('the back row stands on the same level, a row gap further from the camera', () => {
     const spots = groveSpots([1, 3, 2]);
-    expect(spots[1]!.lift).toBeCloseTo(BACK_LIFT);
-    expect(spots[1]!.toward).toBeLessThan(0);
+    expect(spots[1]!.toward).toBeCloseTo(-ROW_GAP);
+    expect(spots.map((s) => 'lift' in s)).toEqual([false, false, false]);
+  });
+
+  test('no two islands come within an island pitch of each other', () => {
+    for (const n of [2, 3, 4, 5]) {
+      const spots = groveSpots(Array.from({ length: n }, (_, i) => i + 1));
+      for (let a = 0; a < n; a++) {
+        for (let b = a + 1; b < n; b++) {
+          const d = Math.hypot(
+            spots[a]!.across - spots[b]!.across,
+            spots[a]!.toward - spots[b]!.toward,
+          );
+          expect(d).toBeGreaterThanOrEqual(1 - 1e-9);
+        }
+      }
+    }
   });
 });

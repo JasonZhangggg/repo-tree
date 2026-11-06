@@ -90,6 +90,13 @@ test('the card adds a repo to compare through the search bar, and × takes it aw
   await expect(
     table(page, 'Languages side by side').getByRole('img', { name: /JSON \d+%/ }),
   ).toHaveCount(2);
+  // One key for both trees: picking a color highlights it on all of them, and again clears it.
+  const key = panel(page).getByRole('list', { name: 'Leaf colors on every tree' });
+  const json = key.getByRole('button', { name: /^JSON \d+%$/ });
+  await json.click();
+  await expect(json).toHaveAttribute('aria-pressed', 'true');
+  await json.click();
+  await expect(json).toHaveAttribute('aria-pressed', 'false');
   if (await page.locator('#sheet-toggle').isVisible()) await page.locator('#sheet-toggle').click();
 
   await page

@@ -113,7 +113,7 @@ test('a rate-limited Actions API leaves the tree, says CI is unavailable, and a 
   await page.goto('./#/acme/limited-ci');
   await ready(page, 'acme/limited-ci');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('acme/limited-ci');
-  await expect(page.locator('#status')).toBeEmpty();
+  await expect(page.locator('#notices')).toBeEmpty();
   // No sky, but the chip says why rather than nothing.
   await expect(chip(page)).toHaveAttribute('data-sky', 'unknown');
   await expect(page.getByRole('button', { name: 'CI unavailable, try again' })).toBeVisible();

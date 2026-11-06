@@ -41,6 +41,8 @@ export function mountHeader(app: App): void {
   const link = byId<HTMLButtonElement>('repo-link');
   const meta = byId('repo-meta');
   const status = byId('status');
+  const alerts = byId('alerts');
+  const notices = byId('notices');
   const weatherChip = byId<HTMLAnchorElement>('weather');
   const switcher = byId<HTMLButtonElement>('repo-switch');
 
@@ -77,15 +79,16 @@ export function mountHeader(app: App): void {
 
   /**
    * The field grows a repo in place of the one on show, unless the repo card's "Compare with
-   * another repo" asked it to add one beside instead: then its button says Compare until it
-   * picks one or loses focus.
+   * another repo" asked it to add one beside instead: then a Compare tag shows in the field until
+   * it picks one or loses focus. There is no Grow button: a pick from the list grows at once,
+   * and Enter takes what is typed.
    */
-  const go = byId<HTMLButtonElement>('repo-go');
+  const mode = byId('repo-mode');
   const adding = () => form.hasAttribute('data-adding');
   const setAdding = (on: boolean) => {
     if (on === adding()) return;
     form.toggleAttribute('data-adding', on);
-    go.textContent = on ? 'Compare' : 'Grow';
+    mode.hidden = !on;
     const repo = store.get().repo;
     input.placeholder =
       on && repo
@@ -236,7 +239,7 @@ export function mountHeader(app: App): void {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const text = input.value.trim();
-    // An empty Grow is a request to pick one, so offer the list instead of scolding.
+    // An empty Enter is a request to pick one, so offer the list instead of scolding.
     if (!text) {
       input.focus();
       return openSuggest();
@@ -348,6 +351,7 @@ export function mountHeader(app: App): void {
   const renderStatus = (state: AppState) => {
     const { load, repo, notice } = state;
     if (load.phase === 'loading') {
+      notices.replaceChildren();
       if (loadingId !== load.id) {
         loadingId = load.id;
         status.replaceChildren(
@@ -387,13 +391,14 @@ export function mountHeader(app: App): void {
       return;
     }
     loadingId = null;
+    status.replaceChildren();
     if (load.phase === 'error') {
       const copy = describeError(load.error, load.ref, {
         hasToken: !!githubToken(state.settings.token),
         signedIn: !state.settings.token && signedInToken() !== null,
         canSignIn: !!HISTORY_URL,
       });
-      status.replaceChildren(
+      notices.replaceChildren(
         h(
           'div',
           { class: 'status error', role: 'alert' },
@@ -437,7 +442,7 @@ export function mountHeader(app: App): void {
       return;
     }
     if (notice === 'truncated' && repo) {
-      status.replaceChildren(
+      notices.replaceChildren(
         h(
           'div',
           { class: 'status notice', role: 'status' },
@@ -470,7 +475,7 @@ export function mountHeader(app: App): void {
       );
       return;
     }
-    status.replaceChildren();
+    notices.replaceChildren();
   };
 
   const renderTitle = (state: AppState) => {
@@ -518,6 +523,7 @@ export function mountHeader(app: App): void {
     }
   };
   store.subscribe(render);
+  placeAlerts(alerts);
   document.body.toggleAttribute('data-shell', true);
   const retry = (event: Event) => {
     if (weatherChip.dataset.sky !== 'unknown') return;
@@ -649,6 +655,51 @@ export function paintWeather(chip: HTMLAnchorElement, state: AppState, repo: Loa
     h('b', { class: 'short', 'aria-hidden': 'true' }, shortVerdict(verdict)),
     detail && h('span', {}, detail),
   );
+}
+
+/**
+ * Keeps the errors and notices in their own place, clear of the tree and the cards. On a desktop
+ * that is the bottom left, just above the bottom row's buttons (or the timeline, while it shows).
+ * On a phone it is a full-width row right under whichever card is up top: the repo card, or the
+ * repo field open in its place.
+ */
+function placeAlerts(alerts: HTMLElement): void {
+  const phone = matchMedia('(max-width: 760px)');
+  const shown = (el: Element | null) => {
+    if (!el) return null;
+    const box = el.getBoundingClientRect();
+    return box.width && box.height && getComputedStyle(el).visibility !== 'hidden' ? box : null;
+  };
+  const GAP = 12;
+  const place = () => {
+    if (!alerts.querySelector(':scope > :not(:empty)')) return;
+    if (phone.matches) {
+      const above = ['#repo-form', '#title']
+        .map((sel) => shown(document.querySelector(sel)))
+        .filter((b): b is DOMRect => !!b);
+      alerts.style.top = `${Math.round(Math.max(0, ...above.map((b) => b.bottom)) + GAP - 2)}px`;
+      alerts.style.bottom = 'auto';
+      return;
+    }
+    const below = ['#timeline', '#grow', '#spin', '#scrubber']
+      .map((sel) => shown(document.querySelector(sel)))
+      .filter((b): b is DOMRect => !!b && b.top > innerHeight / 2);
+    const top = Math.min(innerHeight, ...below.map((b) => b.top));
+    alerts.style.top = 'auto';
+    alerts.style.bottom = `${Math.round(innerHeight - top + GAP)}px`;
+  };
+  const resize = new ResizeObserver(place);
+  for (const sel of ['#repo-form', '#title', '#scrubber', '#alerts']) {
+    const el = document.querySelector(sel);
+    if (el) resize.observe(el);
+  }
+  new MutationObserver(place).observe(alerts, { childList: true, subtree: true });
+  new MutationObserver(place).observe(document.body, { attributes: true });
+  const scrubber = document.querySelector('#scrubber');
+  if (scrubber) new MutationObserver(place).observe(scrubber, { attributes: true });
+  addEventListener('resize', place);
+  phone.addEventListener('change', place);
+  place();
 }
 
 const lower = (text: string) => text.toLowerCase();

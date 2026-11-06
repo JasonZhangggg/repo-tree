@@ -290,24 +290,24 @@ const JOURNEYS = {
       );
       await enter(page, 'acme/partial');
       await ready(page, 'acme/partial');
-      await expect(page.locator('#status')).toContainText('Partial tree');
+      await expect(page.locator('#alerts')).toContainText('Partial tree');
     });
     await step('unreachable', async () => {
       await enter(page, 'acme/offline');
-      await expect(page.locator('#status [role="alert"]')).toContainText('Can’t reach GitHub');
+      await expect(page.locator('#alerts [role="alert"]')).toContainText('Can’t reach GitHub');
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('acme/partial');
     });
     await step('rate-limited', async () => {
       const reset = String(Math.floor(Date.now() / 1000) + 1800);
       await failRepo(page, 403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset });
       await enter(page, 'acme/limited');
-      await expect(page.locator('#status [role="alert"]')).toContainText('rate limit is used up');
-      await expect(page.locator('#status [role="alert"]')).toContainText('resets at');
+      await expect(page.locator('#alerts [role="alert"]')).toContainText('rate limit is used up');
+      await expect(page.locator('#alerts [role="alert"]')).toContainText('resets at');
     });
     await step('not-found', async () => {
       await failRepo(page, 404);
       await enter(page, 'acme/missing');
-      await expect(page.locator('#status [role="alert"]')).toContainText('Can’t find acme/missing');
+      await expect(page.locator('#alerts [role="alert"]')).toContainText('Can’t find acme/missing');
       await page.getByRole('button', { name: 'Add a token' }).click();
       await expect(page.getByLabel('GitHub token')).toBeFocused();
     });
@@ -550,7 +550,7 @@ const JOURNEYS = {
       await page.goto(base);
       await ready(page, 'vitejs/vite');
       await startAdding();
-      await expect(page.locator('#repo-go')).toHaveText('Compare');
+      await expect(page.locator('#repo-mode')).toHaveText('Compare');
       await expect(page.locator('#suggest')).toBeVisible();
       await settle(page);
     });
@@ -558,7 +558,7 @@ const JOURNEYS = {
       await page.locator('#suggest button', { hasText: 'mathiasbynens/dotfiles' }).click();
       await besideReady('mathiasbynens/dotfiles');
       await expect(page).toHaveURL(/vs=mathiasbynens\/dotfiles/);
-      await expect(page.locator('#repo-go')).toHaveText('Grow');
+      await expect(page.locator('#repo-mode')).toBeHidden();
       await expect(page.locator('#compare-line')).toHaveText(/vite has \d+× the files of dotfiles/);
       await settle(page);
     });
@@ -683,7 +683,7 @@ const JOURNEYS = {
       await ready(page, 'acme/limited');
       await expect(chip).toHaveAttribute('data-sky', 'unknown');
       await expect(chip).toHaveAttribute('aria-label', 'CI unavailable, try again');
-      await expect(page.locator('#status')).toBeEmpty();
+      await expect(page.locator('#notices')).toBeEmpty();
     });
     await step('winter-preview', async () => {
       await page.goto(`${base}?visit=winter#/vitejs/vite?palette=winter&wx=storm`);

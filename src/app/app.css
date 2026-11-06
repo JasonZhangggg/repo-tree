@@ -199,7 +199,7 @@ kbd {
   gap: 8px;
   width: var(--col);
   height: 46px;
-  padding: 0 5px 0 13px;
+  padding: 0 8px 0 13px;
   background: var(--card-solid);
   border-radius: 14px;
   box-shadow: var(--shadow);
@@ -233,41 +233,67 @@ kbd {
     0 0 0 2px rgba(163, 52, 27, 0.55),
     var(--shadow);
 }
-.go {
-  border: 0;
-  height: 36px;
-  padding: 0 15px;
-  border-radius: 10px;
-  background: var(--ink);
-  color: var(--on-ink);
+/* No Grow button: a pick grows at once and Enter takes what is typed. While adding to a
+   comparison a tag says so; with text in the field on a desktop, a quiet Enter hint. */
+.repo .mode {
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #b8401f) 12%, transparent);
+  color: var(--ink);
+  font-size: 12px;
   font-weight: 600;
-  transition:
-    transform 0.15s var(--ease),
-    background 0.15s;
+}
+.repo .mode[hidden] {
+  display: none;
+}
+.repo .enter {
+  display: none;
+  flex: none;
+  font-size: 11px;
 }
 @media (hover: hover) and (pointer: fine) {
-  .go:hover {
-    background: var(--ink-hover);
+  .repo:has(input:not(:placeholder-shown)):focus-within .enter {
+    display: inline-block;
   }
 }
-.field-error {
-  /* Floats over whatever sits below the field, so it reads as a callout, not loose text. */
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  z-index: 4;
-  margin: 0;
-  padding: 7px 12px;
-  border-radius: 10px;
+
+/* Errors and notices: their own corner at the bottom left, above the bottom row's buttons and
+   clear of the tree and the cards; on a phone, a row under the card up top (header.ts places it). The field's own error is one line;
+   a load error is a card with its actions. */
+.alerts {
+  position: fixed;
+  z-index: 7;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+  left: max(var(--edge), env(safe-area-inset-left, 0px));
+  width: min(420px, var(--col), calc(100% - 32px));
+  align-content: end;
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+.alerts > * {
+  pointer-events: auto;
+}
+.alerts:not(:has(> :not(:empty))) {
+  display: none;
+}
+/* Plain cards like the repo card: the badge and the title's colour say what kind it is. */
+.alerts .status {
   background: var(--raised);
-  box-shadow:
-    0 0 0 1px rgba(163, 52, 27, 0.25),
-    var(--shadow-lift);
-  font-size: 12.5px;
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.field-error {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--raised);
+  box-shadow: var(--shadow);
+  font-size: 13px;
   color: var(--danger);
   font-weight: 550;
-  animation: pop 0.18s var(--ease);
-  transform-origin: top left;
+  animation: rise 0.22s var(--ease);
 }
 .field-error:empty {
   display: none;
@@ -278,7 +304,8 @@ kbd {
   left: 0;
   right: 0;
   padding: 8px;
-  background: var(--card-solid);
+  /* Opaque, so the repo card's text never shows through the list. */
+  background: var(--raised);
   border-radius: 14px;
   box-shadow: var(--shadow-lift);
   display: grid;
@@ -429,6 +456,26 @@ kbd {
 }
 #signin[data-signed-in='true'] .label {
   display: none;
+}
+/* Signed out, a red dot says GitHub has no sign-in, so trees and weather share 60 requests an
+   hour; the menu it opens says so and offers to sign in. */
+#signin {
+  position: relative;
+}
+#signin[data-signed-in='false']::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px var(--raised);
+}
+#signin.bubble[data-signed-in='false']::after {
+  top: 9px;
+  right: 9px;
 }
 #signin[data-signed-in='true']::after {
   content: '';
@@ -2627,6 +2674,10 @@ body:has(.scrubber:not([hidden])) .toast {
 @media (max-width: 760px) {
   :root {
     --edge: 12px;
+  }
+  .alerts {
+    right: max(12px, env(safe-area-inset-right, 0px));
+    width: auto;
   }
   .bar {
     top: calc(env(safe-area-inset-top, 0px) + 12px);

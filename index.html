@@ -40,8 +40,8 @@
           aria-controls="suggest"
           aria-expanded="false"
         />
-        <button type="submit" class="go" id="repo-go">Grow</button>
-        <p class="field-error" id="repo-error" role="alert"></p>
+        <span class="mode" id="repo-mode" hidden>Compare</span>
+        <kbd class="enter" aria-hidden="true">Enter ↵</kbd>
         <div class="suggest" id="suggest" hidden></div>
       </form>
       <button
@@ -353,6 +353,11 @@
       aria-labelledby="pr-title"
       hidden
     ></div>
+    <!-- Errors and notices: their own corner at the bottom left, never inside the repo card. -->
+    <div class="alerts" id="alerts">
+      <p class="field-error" id="repo-error" role="alert"></p>
+      <div id="notices"></div>
+    </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="./src/main.ts"></script>
   </body>

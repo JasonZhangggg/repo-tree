@@ -109,7 +109,7 @@ test('while adding to a comparison, a GitHub pick joins it and compared repos ar
     await page.getByRole('button', { name: 'More actions' }).click();
     await page.getByRole('button', { name: 'Compare trees' }).click();
   }
-  await expect(page.locator('#repo-go')).toHaveText('Compare');
+  await expect(page.locator('#repo-mode')).toHaveText('Compare');
   await field(page).fill('ga');
   const hit = list(page).locator('button', { hasText: 'acme/gadgets' });
   await expect(hit).toBeVisible();

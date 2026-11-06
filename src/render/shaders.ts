@@ -437,6 +437,9 @@ const float FLIGHT = 2.8;
 float flying = uBirdMotion * step(u, FLIGHT);
 float k = clamp(u / FLIGHT, 0.0, 1.0);
 float idle = uBirdMotion * (1.0 - flying);
+// How far into flight the bird is: it eases in after take-off and out before landing, so wings
+// and pose never snap.
+float aloft = flying * smoothstep(0.0, 0.12, k) * smoothstep(1.0, 0.88, k);
 if (aMove > 0.5 && aMove < 1.5) {
   // Pecks, then glances about.
   vec2 neck = vec2(0.16, 0.3);
@@ -448,7 +451,8 @@ if (aMove > 1.5 && aMove < 3.5) {
   // Wings flap in flight and now and then ruffle at rest, rolling about the shoulder.
   float side = aMove < 2.5 ? 1.0 : -1.0;
   float ruffle = idle * burst(t * 0.45 + 2.0, 40.0) * (0.5 + 0.5 * sin(t * 30.0));
-  float beat = flying * (0.5 + 0.9 * sin(t * 24.0));
+  // Unhurried wingbeats about a slightly raised wing, easing in and out with the flight.
+  float beat = aloft * (0.25 + 0.55 * sin(t * 15.0));
   vec2 shoulder = vec2(0.3, 0.1 * side);
   l.yz = shoulder + turn(l.yz - shoulder, side * (beat + ruffle * 0.8));
 }
@@ -456,19 +460,22 @@ if (aMove > 3.5) {
   vec2 rump = vec2(-0.24, 0.24);
   l.xy = rump + turn(l.xy - rump, 0.35 * idle * burst(t * 0.9 + 4.0, 16.0));
 }
-// In flight the body streamlines, easing in after take-off and out before landing: the belly
-// tucks up under it, it stretches out long, and the head drops forward in line with the back.
-float sleek = flying * smoothstep(0.0, 0.12, k) * smoothstep(1.0, 0.88, k);
-if (l.y < 0.2) l.y = mix(l.y, 0.2 - (0.2 - l.y) * 0.25, sleek);
-l.x *= 1.0 + 0.14 * sleek;
-if (aMove > 0.5 && aMove < 1.5) l.xy += vec2(0.05, -0.07) * sleek;
+// In flight the body eases into a relaxed glide after take-off and out of it before landing:
+// the belly draws up a little, the body lengthens slightly and the head dips forward a touch,
+// a short unhurried hop rather than full-speed flight.
+float sleek = aloft;
+if (l.y < 0.2) l.y = mix(l.y, 0.2 - (0.2 - l.y) * 0.6, sleek);
+l.x *= 1.0 + 0.05 * sleek;
+if (aMove > 0.5 && aMove < 1.5) l.xy += vec2(0.02, -0.03) * sleek;
 // A small hop now and then, and in flight a loop out from the crown and back.
 float hop = idle * burst(t * 0.37 + 3.0, 60.0) * 0.25;
 vec3 f0 = vec3(aLook.x, 0.0, aLook.y);
 vec3 o0 = vec3(aOut.x, 0.0, aOut.y);
 float a = k * 6.2831853;
 float reach = 1.6 * uBirdSize;
-vec3 path = flying * (reach * (o0 * (1.0 - cos(a)) + f0 * sin(a)) + vec3(0.0, sin(3.1415927 * k) * 1.4 * uBirdSize, 0.0));
+// Each downstroke lifts the bird a touch, so it bobs along its path as small birds do.
+float bob = aloft * sin(t * 15.0 + 1.6) * 0.06 * uBirdSize;
+vec3 path = flying * (reach * (o0 * (1.0 - cos(a)) + f0 * sin(a)) + vec3(0.0, sin(3.1415927 * k) * 1.4 * uBirdSize + bob, 0.0));
 vec3 f = normalize(mix(f0, o0 * sin(a) + f0 * cos(a), flying));
 vec3 r = vec3(-f.z, 0.0, f.x);
 vec3 transformed = aBase + path + (f * l.x + vec3(0.0, l.y + hop, 0.0) + r * l.z) * uBirdSize;

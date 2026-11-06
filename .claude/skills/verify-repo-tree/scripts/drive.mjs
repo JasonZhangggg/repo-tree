@@ -568,6 +568,22 @@ const JOURNEYS = {
       await field.press('Enter');
       await besideReady('mathiasbynens/dotfiles', 'acme/widgets');
       await expect(page).toHaveURL(/vs=mathiasbynens\/dotfiles&vs=acme\/widgets/);
+      await expect(page.locator('.island-tag:visible')).toHaveText(['vite', 'dotfiles', 'widgets']);
+      await settle(page);
+    });
+    await step('focus', async () => {
+      // A tree's tag shows it alone, and the card offers the grove back.
+      await page.locator('.island-tag', { hasText: 'dotfiles' }).click();
+      await ready(page, 'mathiasbynens/dotfiles');
+      await expect(page).not.toHaveURL(/vs=/);
+      await expect(page.locator('#compare-back')).toHaveText(/Back to all 3 trees/);
+      await settle(page);
+    });
+    await step('back', async () => {
+      await page.locator('#compare-back').click();
+      await ready(page, 'vitejs/vite');
+      await besideReady('mathiasbynens/dotfiles', 'acme/widgets');
+      await expect(page.locator('#compare-back')).toBeHidden();
       await settle(page);
     });
     await step('changes', async () => {
@@ -579,6 +595,9 @@ const JOURNEYS = {
       if ((await page.locator('#compare-panel').isHidden()) && (await toggle.isVisible()))
         await toggle.click();
       await expect(page.locator('#compare-panel .cmp-list')).toHaveCount(2);
+      await expect(
+        page.getByRole('table', { name: 'How often files change side by side' }).getByRole('img'),
+      ).toHaveCount(2);
       await settle(page);
       if (await toggle.isVisible()) await toggle.click();
     });

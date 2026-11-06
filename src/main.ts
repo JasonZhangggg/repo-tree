@@ -248,8 +248,8 @@ store.subscribe((state, prev) => {
     container.setAttribute('aria-label', describe(state));
     if (!state.repo.sample && repoKey(state) !== repoKey(prev)) rememberRecent(debug.repo);
   }
-  // The compared trees stand beside this one, out of the way while the timeline replays it alone.
-  const others = (s: AppState) => (s.timeline === null ? companionsOf(s) : []);
+  // The compared trees stand beside this one, and replay with it on the timeline.
+  const others = (s: AppState) => companionsOf(s);
   const [now, then] = [others(state), others(prev)];
   const moved = now.length !== then.length || now.some((c, i) => c !== then[i]);
   if (moved || state.repo !== prev.repo) {

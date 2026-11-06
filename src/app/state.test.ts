@@ -29,6 +29,7 @@ const INITIAL: AppState = {
   history: null,
   compare: null,
   companion: null,
+  compareFirst: false,
 };
 const repo = (name: string, truncated = false) =>
   ({
@@ -202,6 +203,11 @@ describe('weather', () => {
   test('a preview replaces the repo weather, and the setting turns both off', () => {
     const preview = reduce(reduce(shown, failing), { type: 'preview', sky: 'storm' });
     expect(weatherOf(preview)).toEqual({ sky: 'storm', health: null });
+    // While two trees are compared one sky would describe only one of them, so neither has it.
+    const comparing = { type: 'compare', ref: ref('vitejs/vite') } as const;
+    expect(weatherOf(reduce(preview, comparing))).toBeNull();
+    const failed = reduce(shown, { type: 'ci', key: 'acme/web@main', runs: null });
+    expect(ciFailed(reduce(failed, comparing))).toBe(false);
     const off = reduce(preview, { type: 'settings', patch: { weather: false } });
     expect(weatherOf(off)).toBeNull();
   });
@@ -222,5 +228,17 @@ describe('compare', () => {
     expect(shown.companion).toBe(grown);
     expect(reduce(open, { type: 'companion', companion: repo('acme/web') })).toBe(open);
     expect(reduce(shown, { type: 'compare', ref: ref('acme/web') }).companion).toBeNull();
+  });
+
+  test('keeps which tree is A while the panels trade over, until comparing stops', () => {
+    const open = run({ type: 'compare', ref: ref('vitejs/vite') });
+    expect(open.compareFirst).toBe(false);
+    const traded = reduce(open, { type: 'compare', ref: ref('acme/web'), first: true });
+    expect(traded.compareFirst).toBe(true);
+    expect(reduce(traded, { type: 'compare', ref: ref('acme/api') }).compareFirst).toBe(true);
+    const flipped = reduce(traded, { type: 'compare', ref: ref('acme/web'), first: false });
+    expect(flipped).toMatchObject({ compare: ref('acme/web'), compareFirst: false });
+    const closed = reduce(traded, { type: 'compare', ref: null });
+    expect(closed).toMatchObject({ compare: null, compareFirst: false });
   });
 });

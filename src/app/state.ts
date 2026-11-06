@@ -64,6 +64,11 @@ export type AppState = {
   compare: RepoRef | null;
   /** That repo once grown (`compare` names it); null while it loads or when not comparing. */
   companion: Loaded | null;
+  /**
+   * Whether the compared repo is tree A, on the left in the default view, and the one on show B.
+   * The two keep their places and letters when Switch hands the panels from one to the other.
+   */
+  compareFirst: boolean;
 };
 
 export type Action =
@@ -90,7 +95,7 @@ export type Action =
   | { type: 'preview'; sky: Sky | null }
   | { type: 'timeline'; at: number | null }
   | { type: 'history'; history: HistoryFacts }
-  | { type: 'compare'; ref: RepoRef | null }
+  | { type: 'compare'; ref: RepoRef | null; first?: boolean }
   | { type: 'companion'; companion: Loaded };
 
 const IDLE: LoadState = { phase: 'idle' };
@@ -150,10 +155,18 @@ export function reduce(state: AppState, action: Action): AppState {
       return action.at === state.timeline ? state : { ...state, timeline: action.at };
     case 'history':
       return action.history.repo === state.repo ? { ...state, history: action.history } : state;
-    case 'compare':
-      return sameRef(action.ref, state.compare)
-        ? state
-        : { ...state, compare: action.ref, companion: null };
+    case 'compare': {
+      const { ref } = action;
+      if (!ref)
+        return state.compare
+          ? { ...state, compare: null, companion: null, compareFirst: false }
+          : state;
+      const first = action.first ?? (state.compare ? state.compareFirst : false);
+      if (sameRef(ref, state.compare)) {
+        return first === state.compareFirst ? state : { ...state, compareFirst: first };
+      }
+      return { ...state, compare: ref, companion: null, compareFirst: first };
+    }
     case 'companion': {
       const { owner, repo } = action.companion.info.ref;
       const named = state.compare && sameRef({ owner, repo } as RepoRef, state.compare);
@@ -165,10 +178,11 @@ export function reduce(state: AppState, action: Action): AppState {
 /**
  * The weather over the repo on screen: a preview, or its CI's health. Null with weather off,
  * before its runs arrive, or when they could not be read; `health` is null for a preview.
+ * Null too while two trees are compared: one sky over both would describe only one of them.
  */
 export function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null {
   const { repo, settings, preview } = state;
-  if (!repo || !settings.weather) return null;
+  if (!repo || !settings.weather || state.compare) return null;
   if (preview) return { sky: preview, health: null };
   const runs = state.ci[ciKey(repo.info.ref, repo.info.branch)];
   if (!runs) return null;
@@ -182,7 +196,7 @@ export function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null 
  */
 export function ciFailed(state: AppState): boolean {
   const { repo, settings, preview } = state;
-  if (!repo || !settings.weather || preview) return false;
+  if (!repo || !settings.weather || preview || state.compare) return false;
   return state.ci[ciKey(repo.info.ref, repo.info.branch)] === null;
 }
 

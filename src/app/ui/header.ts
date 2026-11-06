@@ -457,6 +457,7 @@ export function mountHeader(app: App): void {
       state.repo !== prev.repo ||
       state.ci !== prev.ci ||
       state.preview !== prev.preview ||
+      state.compare !== prev.compare ||
       state.settings.weather !== prev.settings.weather ||
       state.settings.palette !== prev.settings.palette
     ) {

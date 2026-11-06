@@ -100,12 +100,19 @@ export type LabelPosition = {
   front: boolean;
   depth: number;
 };
-/** `crown` is the crown's outline on screen, as an ellipse, which labels sit outside of. */
+/**
+ * `crown` is the crown's outline on screen, as an ellipse, which labels sit outside of.
+ * `islands` is where the foot of each island shows, the tree on show's and, while one stands
+ * beside it, the companion's: the middle of the island's underside, in CSS pixels relative to
+ * the container, for name tags to hang under.
+ */
 export type FrameInfo = {
   growth: number;
   labels: LabelPosition[];
   crown: Ellipse;
+  islands: { main: IslandFoot; companion: IslandFoot | null };
 };
+export type IslandFoot = { x: number; y: number; visible: boolean };
 export type Ellipse = { x: number; y: number; rx: number; ry: number };
 /** CSS pixels along each edge of the container that panels cover. */
 export type Insets = { top: number; right: number; bottom: number; left: number };
@@ -148,12 +155,12 @@ export interface TreeView {
    */
   setLanguageRank(rank: ReadonlyMap<string, number> | null): void;
   /**
-   * Grows a second tree on its own island beside this one, in the same world: to the right in
-   * the default view, the camera framing and orbiting both. Its leaves follow `setColorBy` for
+   * Grows a second tree on its own island beside this one, in the same world: to the `side`
+   * (right unless told) in the default view, the camera framing and orbiting both. Its leaves follow `setColorBy` for
    * languages (ranked by `setLanguageRank` while set) and folders, and languages otherwise; it is
    * not picked, labeled or highlighted. Null removes it.
    */
-  setCompanion(model: TreeModel | null): void;
+  setCompanion(model: TreeModel | null, side?: 'left' | 'right'): void;
   /**
    * What the repo's history says about the tree on show (timeline/facts.ts), or null; a new
    * tree clears it. Activity colors need it; without it they fall back to language.
@@ -411,6 +418,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     leaves: Mesh<BufferGeometry, MeshStandardMaterial>;
     terrain: ReturnType<typeof createGround>;
     groundBounds: TreeModel['bounds'];
+    side: 1 | -1;
   } | null = null;
   let groundOn = options.ground;
   let night = options.night;
@@ -991,7 +999,17 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         visible: growth > LABELS_FROM && z < 1 && free && born(folder),
       };
     });
-    for (const listener of listeners) listener({ growth, labels, crown: crownOnScreen(bounds) });
+    // The underside of each island, or the foot of the trunk with the ground off.
+    const foot = (bounds: TreeModel['bounds'], at: { x: number; z: number }): IslandFoot => {
+      const { x, y, z } = screen(anchor.set(at.x, groundOn ? bounds.min[1] : 0, at.z));
+      return { x, y, visible: z < 1 && x >= left && x <= left + w && y >= top && y <= top + h };
+    };
+    const islands = {
+      main: foot(shown.groundBounds, { x: 0, z: 0 }),
+      companion: companion && foot(companion.groundBounds, companion.group.position),
+    };
+    const crown = crownOnScreen(bounds);
+    for (const listener of listeners) listener({ growth, labels, crown, islands });
   };
 
   /** The sky, the light and the weather's own objects for the palette, weather and quality. */
@@ -1139,7 +1157,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       // Side by side across the default view, an island's width apart from trunk to trunk.
       const reach = (b: TreeModel['bounds']) => Math.max(-b.min[0], b.max[0], -b.min[2], b.max[2]);
       const apart = reach(shown.bounds) + reach(other) + COMPANION_GAP;
-      companion.group.position.set(SIDEWAYS[0] * apart, 0, SIDEWAYS[1] * apart);
+      const along = apart * companion.side;
+      companion.group.position.set(SIDEWAYS[0] * along, 0, SIDEWAYS[1] * along);
       companion.terrain.land.visible = companion.terrain.cover.visible = groundOn;
       const { x, z } = companion.group.position;
       shown.bounds = union(shown.bounds, {
@@ -1375,7 +1394,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       applyColorBy();
     },
 
-    setCompanion(model) {
+    setCompanion(model, side = 'right') {
       releaseCompanion();
       if (model) {
         const bark = new Mesh(geometry(model.bark), barkMaterial);
@@ -1411,7 +1430,15 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         const group = new Group();
         group.add(bark, leaves, ground.land, ground.cover);
         scene.add(group);
-        companion = { model, group, bark, leaves, terrain: ground, groundBounds };
+        companion = {
+          model,
+          group,
+          bark,
+          leaves,
+          terrain: ground,
+          groundBounds,
+          side: side === 'left' ? -1 : 1,
+        };
       }
       if (!shown) return;
       applyColorBy();

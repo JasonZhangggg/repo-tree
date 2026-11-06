@@ -42,10 +42,13 @@ export function birdsFrom(pulls: OpenPulls, folderIds: ReadonlyMap<string, numbe
   return birds;
 }
 
-/** The repo on show's open PRs once read, or null: birds off, not read yet, or unreadable. */
+/**
+ * The repo on show's open PRs once read, or null: birds off, not read yet, or unreadable, or
+ * while two trees are compared, when birds on only one of them would read as a difference.
+ */
 export function pullsOf(state: AppState): OpenPulls | null {
   const { repo, settings } = state;
-  if (!repo || !settings.birds) return null;
+  if (!repo || !settings.birds || state.compare) return null;
   return state.pulls[pullsKey(repo.info.ref, repo.info.branch)] ?? null;
 }
 

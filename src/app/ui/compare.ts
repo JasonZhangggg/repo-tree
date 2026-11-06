@@ -686,12 +686,11 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
   };
   store.subscribe((state, prev) => sync(state, prev));
 
-  // The compared trees are on show once grown in, while the timeline (which hides them) is shut;
-  // the name tags follow the islands.
+  // The compared trees are on show once grown in; the name tags follow the islands.
   view.onFrame(({ growth, islands }) => {
     const state = store.get();
     const others = companionsOf(state);
-    const on = others.length > 0 && state.timeline === null && growth > 0.2;
+    const on = others.length > 0 && growth > 0.2;
     tagLayer.hidden = !on;
     if (!on) return;
     const seeds = [

@@ -43,6 +43,7 @@ import {
 import { LIGHT, litColor } from './color';
 import { AGES, ageBand, CHANGES, changeBand, DEAD, type Facts } from '../timeline/facts';
 import { ownerCategories } from '../timeline/owners';
+import type { Births } from '../timeline/timeline';
 import { groveSpots } from './grove';
 import { birdGeometry, BIRD_SIZE, perchOnCrown, type Perched } from './birds';
 import { createGround } from './ground';
@@ -147,6 +148,12 @@ export interface TreeView {
   setTimeline(births: { nodes: Float32Array; sprigs: Float32Array } | null): void;
   /** Moves the timeline's cursor: what was born by then shows, and nothing after. */
   setTime(cursor: number): void;
+  /**
+   * Gives each companion tree (by its model) the cursor progress its nodes and sprigs appear at,
+   * on the tree on show's timeline axis, so the grove replays together; one missing, or null,
+   * stands whole.
+   */
+  setCompanionBirths(births: ReadonlyMap<TreeModel, Births> | null): void;
   setPalette(id: PaletteId): void;
   /** Leaf colors by language, top-level folder or, once `setFacts` gave the history, activity or owner. */
   setColorBy(by: ColorBy): void;
@@ -1268,6 +1275,24 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
    * leaves are born never, so no pass (color, shadow, pick) draws them.
    */
   let timelineBirths: { nodes: Float32Array; sprigs: Float32Array } | null = null;
+  /** The companions' births while the timeline replays them with this tree (setCompanionBirths). */
+  let companionBirths: ReadonlyMap<TreeModel, Births> | null = null;
+  const applyCompanionBirths = () => {
+    for (const c of companions) {
+      const births = companionBirths?.get(c.model);
+      const { bark, leaves, sprigs } = c.model;
+      const barkBorn = new Float32Array(bark.nodeId.length);
+      const leafBorn = new Float32Array(leaves.nodeId.length);
+      if (births) {
+        for (let v = 0; v < barkBorn.length; v++) barkBorn[v] = births.nodes[bark.nodeId[v]!]!;
+        for (let k = 0; k + 1 < sprigs.vertex.length; k++) {
+          leafBorn.fill(births.sprigs[k]!, sprigs.vertex[k]!, sprigs.vertex[k + 1]!);
+        }
+      }
+      c.bark.geometry.setAttribute('aBorn', new BufferAttribute(barkBorn, 1));
+      c.leaves.geometry.setAttribute('aBorn', new BufferAttribute(leafBorn, 1));
+    }
+  };
   let barren = false;
   /** When dead-wood leaves began to fall, or -1: they fall as they drop, unless motion is reduced. */
   let fallStart = -1;
@@ -1436,6 +1461,13 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       applyBirths(next);
     },
 
+    setCompanionBirths(next) {
+      companionBirths = next;
+      applyCompanionBirths();
+      renderer.shadowMap.needsUpdate = true;
+      requestRender();
+    },
+
     setTime(cursor) {
       if (treeUniforms.uTime.value === cursor) return;
       treeUniforms.uTime.value = cursor;
@@ -1505,6 +1537,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         scene.add(group);
         companions.push({ model, group, bark, leaves, terrain: ground, groundBounds });
       });
+      applyCompanionBirths();
       if (!shown) return;
       applyColorBy();
       placeScene();

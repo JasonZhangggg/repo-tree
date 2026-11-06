@@ -8,14 +8,16 @@ import {
   filesAt,
   positionAt,
   progressOf,
+  sharedTimelines,
   SPAN,
   type Timeline,
 } from '../../timeline/timeline';
+import type { Loaded } from '../../load/load-in-worker';
 import type { App } from '../app';
 import { debug } from '../debug';
 import { byId, h } from '../dom';
 import { count } from '../format';
-import type { AppState, Repo } from '../state';
+import { companionsOf, type AppState, type Repo } from '../state';
 
 /** A whole life plays in this long; the easing gives busy years the room. */
 const PLAY_MS = 20_000;
@@ -26,7 +28,15 @@ const LABEL_GAP = 40;
 type Phase =
   | { kind: 'closed' }
   | { kind: 'loading'; repo: Repo; abort: AbortController }
-  | { kind: 'open'; repo: Repo; timeline: Timeline; s: number; playing: boolean };
+  | {
+      kind: 'open';
+      repo: Repo;
+      timeline: Timeline;
+      /** The trees compared beside it, on the same calendar, as when it opened. */
+      others: { repo: Loaded; timeline: Timeline | null }[];
+      s: number;
+      playing: boolean;
+    };
 
 const MONTH = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -54,7 +64,7 @@ export function mountTimeline(
   const filesEl = byId('timeline-files');
   const ticks = byId('timeline-ticks');
   const bubble = byId('timeline-bubble');
-  const built = new WeakMap<Repo, Timeline>();
+  const built = new WeakMap<Loaded, Timeline>();
   let phase: Phase = { kind: 'closed' };
   let raf = 0;
   let last = 0;
@@ -65,7 +75,11 @@ export function mountTimeline(
     button.setAttribute('aria-pressed', String(phase.kind !== 'closed'));
     button.toggleAttribute('aria-busy', phase.kind === 'loading');
     button.setAttribute('aria-disabled', String(!available));
-    button.title = available ? 'Replay the repo from its first commit' : 'History unavailable';
+    button.title = !available
+      ? 'History unavailable'
+      : store.get().compare.length
+        ? 'Replay the repos side by side from the first commit'
+        : 'Replay the repo from its first commit';
     scrubber.hidden = phase.kind !== 'open';
   };
 
@@ -82,13 +96,22 @@ export function mountTimeline(
     const cursor = cursorOf(phase.s);
     view.setTime(cursor);
     const date = dateAt(timeline, phase.s);
-    const { files, atLeast } = filesAt(timeline, phase.s);
+    // Side by side, the count is all the trees' files together.
+    const all = [timeline, ...phase.others.flatMap((o) => (o.timeline ? [o.timeline] : []))];
+    let files = 0;
+    let atLeast = false;
+    for (const t of all) {
+      const at = filesAt(t, phase.s);
+      files += at.files;
+      atLeast ||= at.atLeast;
+    }
     dateEl.textContent = MONTH.format(date);
     bubble.textContent = MONTH.format(date);
     const noun = files === 1 ? 'file' : 'files';
     // The short form keeps the label inside its fixed slot; the long one is read aloud.
     filesEl.textContent = `${count(files)}${atLeast ? '+' : ''} ${noun}`;
-    const spoken = `${atLeast ? 'at least ' : ''}${count(files)} ${noun}`;
+    const trees = phase.others.length ? ` across ${phase.others.length + 1} trees` : '';
+    const spoken = `${atLeast ? 'at least ' : ''}${count(files)} ${noun}${trees}`;
     filesEl.title = spoken;
     range.value = String(Math.round(phase.s * STEPS));
     range.setAttribute('aria-valuetext', `${DAY.format(date)}, ${spoken}`);
@@ -211,8 +234,19 @@ export function mountTimeline(
       timeline = buildTimeline(history, repo.tree, repo.index, store.get().settings.hidden);
       built.set(repo, timeline);
     }
-    view.setTimeline(timeline);
-    phase = { kind: 'open', repo, timeline, s: 1, playing: false };
+    // The trees compared beside it replay with it; one without a stored history stands whole.
+    const companions = companionsOf(store.get());
+    const own = await Promise.all(companions.map((c) => companionTimeline(c, abort.signal)));
+    if (phase.kind !== 'loading' || phase.abort !== abort) return;
+    const [main, ...rest] = sharedTimelines([timeline, ...own.flatMap((t) => (t ? [t] : []))]);
+    let k = 0;
+    const others = companions.map((c, i) => ({ repo: c, timeline: own[i] ? rest[k++]! : null }));
+    view.setTimeline(main!);
+    view.setCompanionBirths(
+      new Map(others.flatMap((o) => (o.timeline ? [[o.repo.tree, o.timeline] as const] : []))),
+    );
+    phase = { kind: 'open', repo, timeline: main!, others, s: 1, playing: false };
+    timeline = main!;
     syncButton();
     layTicks();
     seek(at !== undefined ? positionAt(timeline, at) : autoplay ? 0 : 1);
@@ -220,13 +254,34 @@ export function mountTimeline(
     else settle();
   };
 
+  /** A compared tree's own timeline from its stored history, or null when there is none. */
+  async function companionTimeline(repo: Loaded, signal: AbortSignal): Promise<Timeline | null> {
+    const kept = built.get(repo);
+    if (kept) return kept;
+    const loaded = await historySource(repo)
+      ?.load(signal)
+      .catch(() => null);
+    if (loaded?.status !== 'ready') return null;
+    const timeline = buildTimeline(
+      loaded.history,
+      repo.tree,
+      repo.index,
+      store.get().settings.hidden,
+    );
+    built.set(repo, timeline);
+    return timeline;
+  }
+
   /** Back to the whole tree; `quiet` when the store already says closed. */
   const close = (quiet = false) => {
     pause(true);
     if (phase.kind === 'loading') phase.abort.abort();
     const wasOpen = phase.kind === 'open';
     phase = { kind: 'closed' };
-    if (wasOpen) view.setTimeline(null);
+    if (wasOpen) {
+      view.setTimeline(null);
+      view.setCompanionBirths(null);
+    }
     showCounts(null);
     debug.timeline = null;
     syncButton();
@@ -294,6 +349,18 @@ export function mountTimeline(
       if (state.timeline !== null) void open({ at: state.timeline, autoplay: false });
       syncButton();
       return;
+    }
+    // A tree joining or leaving the grove replays it again from the same date.
+    if (phase.kind === 'open') {
+      const now = companionsOf(state);
+      const was = phase.others.map((o) => o.repo);
+      if (now.length !== was.length || now.some((c, i) => c !== was[i])) {
+        const at = dateAt(phase.timeline, phase.s);
+        close(true);
+        void open({ at, autoplay: false });
+        syncButton();
+        return;
+      }
     }
     if (state.timeline !== prev.timeline) {
       if (state.timeline === null) {

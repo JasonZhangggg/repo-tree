@@ -17,6 +17,7 @@ import {
   LINEAR,
   positionAt,
   progressOf,
+  sharedTimelines,
   SPAN,
   type Timeline,
 } from './timeline';
@@ -199,5 +200,60 @@ describe('a history whose deletions were cut off', () => {
     expect(timeline.partialBefore).toBeGreaterThan(0);
     expect(filesAt(timeline, 0.2).atLeast).toBe(true);
     expect(filesAt(timeline, 1).atLeast).toBe(false);
+  });
+});
+
+describe('sharedTimelines', () => {
+  const line = (start: number, end: number, born: number[]): Timeline => {
+    const ease = { at: Float64Array.of(start, end), p: Float64Array.of(0, 1) };
+    const census = {
+      born: Float64Array.from(born),
+      goneBorn: new Float64Array(),
+      goneGone: new Float64Array(),
+    };
+    return {
+      start,
+      end,
+      ease,
+      nodes: Float32Array.of(0, ...born),
+      sprigs: Float32Array.from(born),
+      folders: Float32Array.of(0),
+      census,
+      tops: new Map(),
+      partialBefore: 0,
+    };
+  };
+
+  test('one timeline stays as it is', () => {
+    const one = line(0, 100, [0.5]);
+    expect(sharedTimelines([one])[0]).toBe(one);
+  });
+
+  test('every tree goes on one calendar, a younger one bare until its first commit', () => {
+    const old = line(0, 1000, [0.1, 0.9]);
+    const young = line(500, 1000, [0.2, 1]);
+    const [a, b] = sharedTimelines([old, young]);
+    expect(a!.start).toBe(0);
+    expect(b!.start).toBe(0);
+    expect(a!.end).toBe(1000);
+    expect(a!.ease).toBe(b!.ease);
+    // The young tree's trunk waits for its first commit, halfway along the calendar or later.
+    expect(b!.nodes[0]).toBeGreaterThan(0.3);
+    expect(a!.nodes[0]).toBe(0);
+    // Births keep their dates: a birth at a date shows at the shared progress of that date.
+    expect(dateOf(b!.ease, b!.sprigs[0]!)).toBeCloseTo(600, 0);
+    expect(dateOf(a!.ease, a!.sprigs[1]!)).toBeCloseTo(900, 0);
+    expect(b!.sprigs[1]).toBeCloseTo(1);
+  });
+
+  test('file counts read the same at a date on the shared axis', () => {
+    const old = line(0, 1000, [0.1, 0.5, 0.9]);
+    const young = line(500, 1000, [0.2, 0.6]);
+    const [, b] = sharedTimelines([old, young]);
+    const at = (t: Timeline, ms: number) => filesAt(t, positionAt(t, ms)).files;
+    expect(at(b!, 400)).toBe(0);
+    expect(at(b!, 650)).toBe(1);
+    expect(at(b!, 1000)).toBe(2);
+    expect(at(young, 650)).toBe(1);
   });
 });

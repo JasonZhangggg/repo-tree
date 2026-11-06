@@ -20,7 +20,7 @@ While comparing, the side panel's repo sections give way to `Side by side`: a si
 - `compare-mode` the section under it follows Color by, a line per tree: `language` a bar split by the shared leaf colors, with a key under it; `folder` and `owner` a bar of the tree's own and its two biggest named; `activity` and `changes` a bar of the tree's split, and for `changes` each tree's three `Busiest files`. Each bar is an image whose label lists its parts. A tree with no history says `Reading its history…`, `No stored history` or `History unavailable`.
 - `compare-ci` each line has its own CI glyph; no sky, birds or folder labels while comparing; they come back on stop.
 - `compare-link` the hash carries one `vs=owner/repo` per compared repo, in order; a link with `vs` compares.
-- `compare-timeline` the compared islands and the tags step aside while the timeline is open.
+- `compare-timeline` the timeline replays every tree in the grove on one calendar (`sharedTimelines`): a younger repo's island stays bare until its first commit, the count is all the trees' files (its tooltip ends `across N trees`), and a tree joining or leaving replays from the same date. A compared repo with no stored history stands whole.
 
 ## How to get to it (user POV)
 

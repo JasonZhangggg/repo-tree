@@ -187,3 +187,23 @@ test("a tree's tag or line shows it alone, and the card brings the grove back", 
   await expect(back).toBeHidden();
   expect(page.url()).not.toContain('vs=');
 });
+
+test('the timeline replays every tree in the grove on one calendar', async ({ page }) => {
+  await page.goto('./#/vitejs/vite?vs=mathiasbynens/dotfiles&t=2016');
+  await besideReady(page, 'mathiasbynens/dotfiles');
+  const files = page.locator('#timeline-files');
+  await expect(page.locator('#scrubber')).toBeVisible();
+  // Both trees stay on show, and the count is theirs together.
+  await expect(page.locator('.island-tag:visible')).toHaveText(['vite', 'dotfiles']);
+  await expect(files).toHaveAttribute('title', /across 2 trees$/);
+  const before = Number((await files.textContent())!.replace(/\D/g, ''));
+  await page.getByRole('slider', { name: 'Timeline position' }).press('End');
+  await expect(files).toHaveAttribute('title', /^2,934 files across 2 trees$/);
+  expect(before).toBeLessThan(2934);
+  // Dropping a tree replays the one left on its own.
+  await page
+    .getByRole('button', { name: 'Remove mathiasbynens/dotfiles from the comparison' })
+    .click();
+  await expect(files).not.toHaveAttribute('title', /across/);
+  await expect(page.locator('#scrubber')).toBeVisible();
+});

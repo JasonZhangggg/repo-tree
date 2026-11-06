@@ -219,6 +219,14 @@ export type SkyTarget = { which: 'sun' | number; x: number; y: number; z: number
  * where the key light shines from. Drift, fall and the sun's motion run in vertex shaders from
  * one time uniform and a few cloud positions a frame; a frame costs four draws.
  */
+/**
+ * A hovered cloud lights up toward a warm white, keeping its shading. The tree's gentler hover
+ * tint barely shows on a grey rain or storm cloud, so clouds take more of it.
+ */
+const CLOUD_LIT = (on: string) => /* glsl */ `
+if (${on}) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0, 0.96, 0.86), 0.45);
+`;
+
 export function createWeather(camera: PerspectiveCamera) {
   let sky: Sky | null = null;
   let palette: Palette | null = null;
@@ -309,7 +317,7 @@ export function createWeather(camera: PerspectiveCamera) {
       )
       .replace(
         '#include <dithering_fragment>',
-        `#include <dithering_fragment>\nif (vFaded > 0.5) gl_FragColor.rgb = mix(gl_FragColor.rgb, uFade, 0.78);\n${HOVER_TINT('(uFocusCloud >= 0.0 || uFocusCloud < -2.5) && vFaded < 0.5')}`,
+        `#include <dithering_fragment>\nif (vFaded > 0.5) gl_FragColor.rgb = mix(gl_FragColor.rgb, uFade, 0.78);\n${CLOUD_LIT('(uFocusCloud >= 0.0 || uFocusCloud < -2.5) && vFaded < 0.5')}`,
       );
   };
   const clouds = new Mesh(new BufferGeometry(), cloudMaterial);

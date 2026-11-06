@@ -183,6 +183,52 @@ test('search finds a folder, frames it and pins it', async ({ page }) => {
   await expect(detail(page)).toBeHidden();
 });
 
+test('search keeps its matches lit and steps through them, gliding to each', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await page.locator('#search-open').click();
+  const box = page.getByRole('combobox', { name: 'Search folders and files' });
+  await box.fill('server');
+  const count = await page.getByRole('option').count();
+  expect(count, 'several matches').toBeGreaterThan(2);
+  const first = (await page.getByRole('option').first().locator('.path').getAttribute('title'))!;
+  await box.press('Enter');
+
+  const steps = page.getByRole('group', { name: 'Search matches' });
+  await expect(steps).toBeVisible();
+  await expect(steps).toContainText('“server”');
+  await expect(steps).toContainText(`1 of ${count}`);
+  await expect(page).toHaveURL(new RegExp(`sel=${first.replace(/\/$/, '')}`));
+
+  const url = page.url();
+  await steps.getByRole('button', { name: 'Next match' }).click();
+  await expect(steps).toContainText(`2 of ${count}`);
+  await expect(page).not.toHaveURL(url);
+  await steps.getByRole('button', { name: 'Previous match' }).click();
+  await expect(steps).toContainText(`1 of ${count}`);
+  await steps.getByRole('button', { name: 'Previous match' }).click();
+  await expect(steps).toContainText(`${count} of ${count}`);
+  if (!isMobile) {
+    await page.keyboard.press('n');
+    await expect(steps).toContainText(`1 of ${count}`);
+    await page.keyboard.press('Shift+N');
+    await expect(steps).toContainText(`${count} of ${count}`);
+  }
+
+  // The query reopens search; closing it without a pick keeps the stepping.
+  await steps.getByRole('button', { name: /server/ }).click();
+  await expect(box).toBeVisible();
+  await page.getByRole('button', { name: 'Close search' }).click();
+  await expect(steps).toBeVisible();
+
+  await steps.getByRole('button', { name: 'Stop searching' }).click();
+  await expect(steps).toBeHidden();
+  await expect(page).not.toHaveURL(/sel=/);
+});
+
 test("labels the big top-level folders, then a pinned folder's own subfolders", async ({
   page,
 }) => {

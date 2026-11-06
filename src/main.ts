@@ -137,18 +137,23 @@ const app: App = {
   },
 };
 
+/** Whether search matches are being stepped through; set once search is mounted. */
+let searchStepping = () => false;
+
 /** A legend entry under the pointer shows first, then the pin or highlight, then a hovered folder. */
 function applyHighlight() {
   const { repo, selection, highlight } = store.get();
   const category = hoveredCategory ?? highlight;
   const folder = category === null ? (selection?.folder ?? hovered) : null;
+  // Stepping through search matches keeps them all lit: the pin glides there but fades nothing.
+  const faded = searchStepping() ? hovered : folder;
   const range = repo?.tree.folders.range;
   view.setHighlight(
     category !== null
       ? { category }
-      : folder === null || folder === 0 || !range
+      : faded === null || faded === 0 || !range
         ? null
-        : { range: [range[2 * folder]!, range[2 * folder + 1]!] },
+        : { range: [range[2 * faded]!, range[2 * faded + 1]!] },
   );
   canvas.mark(folder);
 }
@@ -499,6 +504,7 @@ addEventListener('keydown', (event) => {
   const typing = target.matches('input, textarea, select, [contenteditable]');
   if (event.key === 'Escape') {
     if (search.close() || settings.close() || compute.close() || typing) return;
+    if (search.stop()) return;
     const { selection, highlight, load } = store.get();
     if (selection) app.select(null);
     else if (highlight !== null) app.highlight(null);
@@ -521,6 +527,8 @@ addEventListener('keydown', (event) => {
     themeButton.click();
   } else if (event.key === 't' || event.key === 'T') {
     byId('timeline').click();
+  } else if (event.key === 'n' || event.key === 'N') {
+    search.step(event.shiftKey ? -1 : 1);
   }
 });
 
@@ -533,6 +541,7 @@ const canvas = mountCanvas(app);
 mountHeader(app);
 mountSide(app);
 const search = mountSearch(app);
+searchStepping = search.stepping;
 const compute = mountHistoryCompute(app);
 const timeline = mountTimeline(
   app,

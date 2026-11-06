@@ -34,6 +34,8 @@ import {
   distanceOf,
   FOV,
   frameFolder,
+  frameGrove,
+  type Grove,
   frameTree,
   SKY_LIFT,
   skyTop,
@@ -201,6 +203,8 @@ export interface TreeView {
   setInsets(insets: Insets): void;
   /** The stage the whole view frames: one island's room, or the grove of them while comparing. */
   room(): TreeModel['bounds'];
+  /** How far the camera stands back to frame the whole view in a region of this aspect. */
+  wholeDistance(aspect: number): number;
   /** The folder or rock under a point in CSS pixels relative to the container, from a GPU id pass. */
   pickAt(x: number, y: number): Picked | null;
   /** Whether a point in CSS pixels relative to the container lands on the sun or a cloud. */
@@ -300,7 +304,7 @@ const LEVEL = Math.atan2(VIEW_DIRECTION[1], Math.hypot(VIEW_DIRECTION[0], VIEW_D
  * A grove with a back row is seen from higher up, so the back row stands clear above the front
  * one on screen instead of hiding behind it.
  */
-const GROVE_LEVEL = 0.32;
+const GROVE_LEVEL = 0.45;
 /** Added to the companion's node ids, past any real tree's, still exact in a float. */
 const COMPANION_IDS = 4_000_000;
 /** The open ground between a tree's island and its companion's. */
@@ -626,10 +630,13 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   /**
-   * The stage the whole view frames. With companions it repeats: the same room again where each
-   * companion stands, so the grove is framed together, and sways, about its middle.
+   * The stage the whole view frames. One tree is framed by the room the tallest tree would take,
+   * so a bigger repo shows as a bigger tree. A grove already sizes its trees against each other
+   * (`sizeScales`), so it is framed by what stands there, fully grown: snug, and the same all
+   * through a timeline. It sways about its middle.
    */
   const roomOf = () => {
+    if (companions.length && shown) return shown.bounds;
     const one = stage(groundOn);
     let room = one;
     for (const { group } of companions) {
@@ -642,6 +649,14 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     return room;
   };
 
+  /** What a grove covers, seen from the front (placeScene). */
+  let grove: Grove | null = null;
+  /** How the whole view frames a room: one tree as the tallest would stand, a grove snugly. */
+  const frameWhole = (room: TreeModel['bounds'], aspect = camera.aspect) =>
+    companions.length && grove
+      ? frameGrove(grove, aspect, SKY_LIFT, companions.length >= 2 ? GROVE_LEVEL : LEVEL)
+      : frameTree(room, aspect, SKY_LIFT);
+
   /**
    * Points the camera springs at what `aim` frames; `snap` jumps there. The whole view frames
    * the stage, the tallest tree on the island, not the tree on show, so every repo is seen at
@@ -650,7 +665,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const reaim = (snap: boolean) => {
     if (!shown) return;
     const room = roomOf();
-    const whole = frameTree(room, camera.aspect, SKY_LIFT);
+    const whole = frameWhole(room);
     weather.setStage(shown.model.bounds, { eye: whole.position[1], top: skyTop(whole) }, groundOn);
     // Zooming toward a point moves what the camera turns about; it stays inside the stage's
     // bounding sphere, so no zoom leaves the tree behind.
@@ -1250,8 +1265,20 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const pitch =
       2 * Math.max(reachOf(shown.bounds), ...islands.map((i) => reachOf(i.other))) + COMPANION_GAP;
     const spots = groveSpots([tree.max[1], ...islands.map((i) => i.own.max[1])]);
+    // What the grove covers as seen from the front: across the view and toward the camera.
+    const main = reachOf(shown.bounds);
+    const span = { across: [-main, main], toward: [-main, main] };
     companions.forEach((c, k) => {
       const { across, toward } = spots[k + 1]!;
+      const reach = reachOf(islands[k]!.other);
+      span.across = [
+        Math.min(span.across[0]!, across * pitch - reach),
+        Math.max(span.across[1]!, across * pitch + reach),
+      ];
+      span.toward = [
+        Math.min(span.toward[0]!, toward * pitch - reach),
+        Math.max(span.toward[1]!, toward * pitch + reach),
+      ];
       c.group.position.set(
         (SIDEWAYS[0] * across + TOWARD[0] * toward) * pitch,
         0,
@@ -1265,6 +1292,21 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         max: [other.max[0] + x, other.max[1] + y, other.max[2] + z],
       });
     });
+    {
+      const a = (span.across[0]! + span.across[1]!) / 2;
+      const t = (span.toward[0]! + span.toward[1]!) / 2;
+      const { min: low, max: high } = shown.bounds;
+      grove = {
+        center: [
+          SIDEWAYS[0] * a + TOWARD[0] * t,
+          (low[1] + high[1]) / 2,
+          SIDEWAYS[1] * a + TOWARD[1] * t,
+        ],
+        across: span.across[1]! - span.across[0]!,
+        deep: span.toward[1]! - span.toward[0]!,
+        tall: high[1] - low[1],
+      };
+    }
     for (const mesh of [ground, contact, baked]) mesh.visible = !groundOn;
     const { min, max } = shown.bounds;
     const center: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
@@ -1597,7 +1639,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     atHome() {
       if (!shown || aim?.kind === 'tree') return true;
       if (aim) return false;
-      const whole = frameTree(roomOf(), camera.aspect, SKY_LIFT);
+      const whole = frameWhole(roomOf());
       const far = distanceOf(whole.position, whole.target);
       const t = controls.target;
       const off = Math.hypot(t.x - whole.target[0], t.y - whole.target[1], t.z - whole.target[2]);
@@ -1622,6 +1664,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
     room() {
       return roomOf();
+    },
+
+    wholeDistance(aspect) {
+      const { position, target } = frameWhole(roomOf(), aspect);
+      return distanceOf(position, target);
     },
 
     setInsets({ top, right, bottom, left }) {

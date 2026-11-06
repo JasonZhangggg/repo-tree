@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { groveSpots, ROW_GAP } from './grove';
+import { groveSpots, TRIANGLE_ROWS } from './grove';
 
 const absolute = (heights: number[]) => {
   // Back to the shape's own frame: centered across, the back row furthest from the camera.
@@ -27,9 +27,9 @@ describe('groveSpots', () => {
 
   test('three make a triangle with the tallest at the back', () => {
     expect(absolute([1, 3, 2])).toEqual([
-      { across: -0.6, back: false },
+      { across: -0.5, back: false },
       { across: 0, back: true },
-      { across: 0.6, back: false },
+      { across: 0.5, back: false },
     ]);
   });
 
@@ -49,10 +49,31 @@ describe('groveSpots', () => {
     expect(spots[0]!.back).toBe(false);
   });
 
-  test('the back row stands on the same level, a row gap further from the camera', () => {
+  test('the back row stands on the same level, a row further from the camera', () => {
     const spots = groveSpots([1, 3, 2]);
-    expect(spots[1]!.toward).toBeCloseTo(-ROW_GAP);
+    expect(spots[1]!.toward).toBeCloseTo(-TRIANGLE_ROWS);
     expect(spots.map((s) => 'lift' in s)).toEqual([false, false, false]);
+  });
+
+  test('neighbors stand exactly an island pitch apart, so the shapes are even from above', () => {
+    const gaps = (n: number) => {
+      const spots = groveSpots(Array.from({ length: n }, (_, i) => i + 1));
+      const d: number[] = [];
+      for (let a = 0; a < n; a++) {
+        for (let b = a + 1; b < n; b++) {
+          d.push(
+            Math.hypot(spots[a]!.across - spots[b]!.across, spots[a]!.toward - spots[b]!.toward),
+          );
+        }
+      }
+      return d.sort((x, y) => x - y).map((x) => +x.toFixed(6));
+    };
+    // A triangle's three sides are equal; a square's four sides are, and its diagonals longer.
+    expect(gaps(3)).toEqual([1, 1, 1]);
+    expect(gaps(4).slice(0, 4)).toEqual([1, 1, 1, 1]);
+    expect(gaps(4).slice(4)).toEqual([1.414214, 1.414214]);
+    // Five: seven equal neighbors, the rest further.
+    expect(gaps(5).slice(0, 7)).toEqual([1, 1, 1, 1, 1, 1, 1]);
   });
 
   test('no two islands come within an island pitch of each other', () => {

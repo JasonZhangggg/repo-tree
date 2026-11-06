@@ -2,7 +2,6 @@ import '@fontsource-variable/hanken-grotesk';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/600.css';
 import './app/app.css';
-import { distanceOf, frameTree } from './render/framing';
 import { createTreeView } from './render/tree-view';
 import { parseRepoRef, type RepoRef } from './repo/ref';
 import { nameOf, type App } from './app/app';
@@ -512,12 +511,8 @@ function reframe() {
         return rect && reserved(p, rect, origin);
       })
       .filter((r): r is Rect => r !== null);
-    // The row of islands while comparing, so a wide row takes a wide region.
-    const room = view.room();
-    const fit = (w: number, h: number) => {
-      const { position, target } = frameTree(room, w / h);
-      return h / distanceOf(position, target);
-    };
+    // The grove while comparing, so a wide grove takes a wide region.
+    const fit = (w: number, h: number) => h / view.wholeDistance(w / h);
     const free = freeRect(origin.width, origin.height, covered, PANEL_GAP, fit);
     view.setInsets({
       top: free.top,

@@ -282,6 +282,8 @@ kbd {
   border-radius: 14px;
   box-shadow: var(--shadow-lift);
   display: grid;
+  /* One column no wider than the list, so a long description can't widen the rows. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   animation: pop 0.18s var(--ease);
   transform-origin: top left;
@@ -1417,6 +1419,7 @@ body:not([data-shell]) :is(.bar, .title) {
   font: inherit;
   color: var(--muted);
   text-decoration: underline;
+  background: none;
   text-decoration-color: color-mix(in srgb, var(--ink) 25%, transparent);
   text-underline-offset: 3px;
   border-radius: 3px;
@@ -3866,4 +3869,46 @@ body[data-compare] #overview {
 }
 .cmp-panel:not([data-trees='2']) .cmp-table :is(th, td) {
   padding-inline: 3px;
+}
+
+/* Rows from GitHub's search: the name over its description, the typed part in bold. */
+.suggest button span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  /* Lets a long description cut off with an ellipsis instead of pushing out the stars. */
+  min-width: 0;
+}
+.suggest button span i {
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.suggest button span b {
+  font-weight: 700;
+}
+.suggest button span em {
+  font-style: normal;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.suggest .note {
+  margin: 6px 8px 4px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.suggest .note button.link {
+  display: inline;
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: underline;
+  background: none;
 }

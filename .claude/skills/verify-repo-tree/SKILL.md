@@ -60,7 +60,7 @@ Every journey sets these up before the first navigation.
 
 Selectors come from the page's accessible names and stable ids.
 
-- Repo input is `getByLabel('GitHub repository')`. Once a repo shows, it folds into the repo card; `getByRole('button', { name: 'Change repository' })` opens it. Press Enter to submit. Its error is `#repo-error`. Load errors and notices render in `#status`.
+- Repo input is `getByLabel('GitHub repository')`. Once a repo shows, it folds into the repo card; `getByRole('button', { name: 'Change repository' })` opens it. There is no Grow button: a pick from the list grows at once and Enter submits what is typed. While adding to a comparison `#repo-mode` reads Compare. Errors and notices have their own place, `#alerts`, under the header and clear of the cards: the field's error is `#repo-error` and load errors and notices render in `#notices`. Load progress stays in the card's `#status`.
 - Bundled samples (and recent repos) are rows of the field's suggestion list, `#suggest button`.
 - The pinned card is `getByRole('article', { name: /Pinned folder/ })`, with crumbs in `getByRole('navigation', { name: 'Folder path' })`.
 - Tools are `#search-open`, `getByRole('button', { name: 'Copy link to this view' })`, `getByRole('button', { name: 'Export PNG' })` and `getByRole('button', { name: 'Settings' })`. The toast is `#toast`.

@@ -162,6 +162,19 @@ test('signed out, the GitHub button opens the menu, whose Sign in signs in; GitH
   await expect(button).toHaveAccessibleName('Sign in');
   await expect(button).toHaveAttribute('aria-haspopup', 'dialog');
   await expect(button).toBeVisible();
+  // Signed out, a red dot sits at its top right.
+  const dot = () =>
+    button.evaluate((el) => getComputedStyle(el, '::after').getPropertyValue('background-color'));
+  expect(await dot()).toBe(
+    await page.evaluate(() => {
+      const probe = document.createElement('i');
+      probe.style.color = 'var(--danger)';
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    }),
+  );
 
   // A click opens the menu rather than GitHub: the network's own budget, Sign in and Login Q&A.
   let popups = 0;

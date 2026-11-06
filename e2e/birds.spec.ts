@@ -125,6 +125,6 @@ test('a rate-limited PR list leaves the tree with no birds and no error', async 
   );
   await page.goto('./#/acme/limited');
   await ready(page, 'acme/limited');
-  await expect(page.locator('#status')).toBeEmpty();
+  await expect(page.locator('#notices')).toBeEmpty();
   expect(await birdsOnScreen(page)).toEqual([]);
 });

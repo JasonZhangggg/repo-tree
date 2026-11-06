@@ -109,6 +109,20 @@ test('a missing repo says so and keeps the tree on screen', async ({ page }) => 
   await expect(page.getByRole('alert')).toContainText('Can’t find acme/missing');
   await expect(page.getByRole('alert')).toContainText('Add a GitHub token');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('vitejs/vite');
+  // The error has its own place under the header, not inside the repo card, and covers no card.
+  const alert = page.locator('#notices [role="alert"]');
+  await expect(page.locator('#title [role="alert"]')).toHaveCount(0);
+  const box = (await alert.boundingBox())!;
+  for (const card of ['#title', '#repo-form']) {
+    const other = await page.locator(card).boundingBox();
+    if (!other || !(await page.locator(card).isVisible())) continue;
+    const apart =
+      box.x >= other.x + other.width ||
+      other.x >= box.x + box.width ||
+      box.y >= other.y + other.height ||
+      other.y >= box.y + box.height;
+    expect(apart, `the alert covers ${card}`).toBe(true);
+  }
 
   await page.getByRole('button', { name: 'Add a token' }).click();
   await expect(page.getByLabel('GitHub token')).toBeFocused();
@@ -636,11 +650,13 @@ test('a tapped suggestion loads its repo even when tapping does not focus button
   await expect(page.locator('#suggest')).toBeHidden();
 });
 
-test('Grow with an empty field offers the list instead of an error', async ({ page }) => {
+test('Enter in an empty field offers the list instead of an error', async ({ page }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   await openRepoField(page);
-  await page.getByRole('button', { name: 'Grow', exact: true }).click();
+  // No Grow button: a pick from the list grows at once, and Enter takes what is typed.
+  await expect(page.getByRole('button', { name: 'Grow', exact: true })).toHaveCount(0);
+  await page.getByLabel('GitHub repository').press('Enter');
   await expect(page.locator('#suggest')).toBeVisible();
   await expect(page.getByLabel('GitHub repository')).toBeFocused();
   await expect(page.locator('#repo-error')).toBeEmpty();

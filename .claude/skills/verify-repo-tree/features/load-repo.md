@@ -21,7 +21,7 @@ A user grows a tree from a bundled sample or from any GitHub repository named as
 - Open the app with no hash.
 - Open the repo field (the repo card's GitHub mark or name) and choose `dotfiles`, `vite` or `linux` in its suggestion list.
 - Focus the `owner/repo or GitHub URL` input to see suggestions.
-- Type a repo or paste a URL into the input and press Enter or choose `Grow`.
+- Type a repo or paste a URL into the input and press Enter (there is no Grow button; a pick from the list grows at once). A bad name shows `Use owner/repo…` in `#alerts`, under the header and clear of the cards; load errors and the partial-tree notice render there too, in `#notices`, on a desktop between the repo card and the side panel and on a phone in a full-width row under the card.
 - Open a link with a `#/owner/repo` hash.
 - Choose `Reload from GitHub` beside the branch name.
 
@@ -36,8 +36,8 @@ Preconditions:
 - **Sample.** Open the repo field and choose the `mathiasbynens/dotfiles` suggestion. Step `sample-button`. `body[data-ready="mathiasbynens/dotfiles"]` is set.
 - **Invalid text.** Enter `not a repo`. Step `invalid-input`. `#repo-error` reads `Use owner/repo, like vitejs/vite, or paste a GitHub URL.`
 - **GitHub URL.** Enter `https://github.com/acme/widgets`. Step `github-url`. The tree grows, `#repo-meta` shows `36 files` and the URL hash is `#/acme/widgets?branch=main...`.
-- **Truncated.** Enter `acme/partial`, whose stand-in tree has `truncated: true`. Step `truncated`. `#status` shows `Partial tree`.
-- **Unreachable.** Enter `acme/offline` with every API call aborted. Step `unreachable`. The alert in `#status` reads `Can’t reach GitHub` and the heading still reads `acme/partial`.
+- **Truncated.** Enter `acme/partial`, whose stand-in tree has `truncated: true`. Step `truncated`. `#notices` shows `Partial tree`.
+- **Unreachable.** Enter `acme/offline` with every API call aborted. Step `unreachable`. The alert in `#notices` reads `Can’t reach GitHub` and the heading still reads `acme/partial`.
 - **Rate limit.** Enter `acme/limited` with a 403 and `x-ratelimit-remaining: 0`. Step `rate-limited`. The alert says the rate limit is used up and names the reset time.
 - **Not found.** Enter `acme/missing` with a 404. Step `not-found`. The alert reads `Can’t find acme/missing`. Choosing `Add a token` opens Settings with focus in `GitHub token`.
 - **Proof.** `report.json` passes, and `04-github-url.png`, `05-truncated.png` and `08-not-found.png` show the loaded repo, the notice and the error card.

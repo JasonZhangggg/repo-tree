@@ -14,7 +14,8 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(() => expect(errors).toEqual([]));
 
 const field = (page: Page) => page.getByLabel('GitHub repository');
-const go = (page: Page) => page.locator('#repo-go');
+/** The tag in the repo field that says it adds to the comparison rather than growing. */
+const mode = (page: Page) => page.locator('#repo-mode');
 const rows = (page: Page) => page.getByRole('group', { name: 'Compared repos' });
 const rowNames = (page: Page) => rows(page).getByRole('heading', { level: 2 });
 const add = (page: Page) => page.locator('#compare-add');
@@ -45,22 +46,22 @@ test('the card adds a repo to compare through the search bar, and × takes it aw
 }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
-  await expect(go(page)).toHaveText('Grow');
+  await expect(mode(page)).toBeHidden();
 
-  // Adding turns Grow into Compare, and clicking out turns it back.
+  // Adding shows a Compare tag in the field, and clicking out takes it away.
   await startAdding(page);
   await expect(field(page)).toBeFocused();
-  await expect(go(page)).toHaveText('Compare');
+  await expect(mode(page)).toHaveText('Compare');
   await expect(field(page)).toHaveAttribute('placeholder', 'Compare vitejs/vite with…');
   await page.keyboard.press('Escape');
-  await expect(go(page)).toHaveText('Grow');
+  await expect(mode(page)).toBeHidden();
 
   // The list offers only repos not already compared.
   await startAdding(page);
   await expect(page.locator('#suggest')).not.toContainText('vitejs/vite');
   await page.locator('#suggest button', { hasText: 'mathiasbynens/dotfiles' }).click();
   await besideReady(page, 'mathiasbynens/dotfiles');
-  await expect(go(page)).toHaveText('Grow');
+  await expect(mode(page)).toBeHidden();
   expect(page.url()).toContain('vs=mathiasbynens/dotfiles');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('vitejs/vite');
   await expect(rowNames(page)).toHaveText(['mathiasbynens/dotfiles']);

@@ -34,6 +34,8 @@ export function mountHeader(app: App): void {
   const link = byId<HTMLButtonElement>('repo-link');
   const meta = byId('repo-meta');
   const status = byId('status');
+  const alerts = byId('alerts');
+  const notices = byId('notices');
   const weatherChip = byId<HTMLAnchorElement>('weather');
   const switcher = byId<HTMLButtonElement>('repo-switch');
 
@@ -69,15 +71,16 @@ export function mountHeader(app: App): void {
 
   /**
    * The field grows a repo in place of the one on show, unless the repo card's "Compare with
-   * another repo" asked it to add one beside instead: then its button says Compare until it
-   * picks one or loses focus.
+   * another repo" asked it to add one beside instead: then a Compare tag shows in the field until
+   * it picks one or loses focus. There is no Grow button: a pick from the list grows at once,
+   * and Enter takes what is typed.
    */
-  const go = byId<HTMLButtonElement>('repo-go');
+  const mode = byId('repo-mode');
   const adding = () => form.hasAttribute('data-adding');
   const setAdding = (on: boolean) => {
     if (on === adding()) return;
     form.toggleAttribute('data-adding', on);
-    go.textContent = on ? 'Compare' : 'Grow';
+    mode.hidden = !on;
     const repo = store.get().repo;
     input.placeholder =
       on && repo
@@ -170,7 +173,7 @@ export function mountHeader(app: App): void {
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const text = input.value.trim();
-    // An empty Grow is a request to pick one, so offer the list instead of scolding.
+    // An empty Enter is a request to pick one, so offer the list instead of scolding.
     if (!text) {
       input.focus();
       return openSuggest();
@@ -278,6 +281,7 @@ export function mountHeader(app: App): void {
   const renderStatus = (state: AppState) => {
     const { load, repo, notice } = state;
     if (load.phase === 'loading') {
+      notices.replaceChildren();
       if (loadingId !== load.id) {
         loadingId = load.id;
         status.replaceChildren(
@@ -317,13 +321,14 @@ export function mountHeader(app: App): void {
       return;
     }
     loadingId = null;
+    status.replaceChildren();
     if (load.phase === 'error') {
       const copy = describeError(load.error, load.ref, {
         hasToken: !!githubToken(state.settings.token),
         signedIn: !state.settings.token && signedInToken() !== null,
         canSignIn: !!HISTORY_URL,
       });
-      status.replaceChildren(
+      notices.replaceChildren(
         h(
           'div',
           { class: 'status error', role: 'alert' },
@@ -367,7 +372,7 @@ export function mountHeader(app: App): void {
       return;
     }
     if (notice === 'truncated' && repo) {
-      status.replaceChildren(
+      notices.replaceChildren(
         h(
           'div',
           { class: 'status notice', role: 'status' },
@@ -400,7 +405,7 @@ export function mountHeader(app: App): void {
       );
       return;
     }
-    status.replaceChildren();
+    notices.replaceChildren();
   };
 
   const renderTitle = (state: AppState) => {
@@ -448,6 +453,7 @@ export function mountHeader(app: App): void {
     }
   };
   store.subscribe(render);
+  placeAlerts(alerts);
   document.body.toggleAttribute('data-shell', true);
   const retry = (event: Event) => {
     if (weatherChip.dataset.sky !== 'unknown') return;
@@ -579,4 +585,55 @@ export function paintWeather(chip: HTMLAnchorElement, state: AppState, repo: Loa
     h('b', { class: 'short', 'aria-hidden': 'true' }, shortVerdict(verdict)),
     detail && h('span', {}, detail),
   );
+}
+
+/**
+ * Keeps the errors and notices in their own place, clear of the cards. On a desktop that is the
+ * open stretch between the repo card and the side panel, just under the header row; when that
+ * stretch is too narrow, the middle of the screen. On a phone it is a full-width row right under
+ * whichever card is up top: the repo card, or the repo field open in its place.
+ */
+function placeAlerts(alerts: HTMLElement): void {
+  const phone = matchMedia('(max-width: 760px)');
+  const bar = byId('repo-form');
+  const title = byId('title');
+  const side = document.getElementById('side');
+  const shown = (el: Element | null) => {
+    if (!el) return null;
+    const box = el.getBoundingClientRect();
+    return box.width && box.height && getComputedStyle(el).visibility !== 'hidden' ? box : null;
+  };
+  const GAP = 10;
+  const place = () => {
+    if (!alerts.querySelector(':scope > :not(:empty)')) return;
+    const boxes = [shown(bar), shown(title)].filter((b): b is DOMRect => !!b);
+    if (phone.matches) {
+      const below = Math.max(0, ...boxes.map((b) => b.bottom));
+      alerts.style.top = `${Math.round(below + GAP)}px`;
+      alerts.style.left = alerts.style.width = '';
+      return;
+    }
+    const barBox = shown(bar);
+    alerts.style.top = `${Math.round((barBox?.bottom ?? 16) + 12)}px`;
+    const from = Math.max(0, ...boxes.map((b) => b.right)) + 24;
+    const to = (shown(side)?.left ?? innerWidth) - 24;
+    const width = Math.min(460, to - from);
+    if (width >= 340) {
+      alerts.style.left = `${Math.round(from + (to - from - width) / 2)}px`;
+      alerts.style.width = `${Math.round(width)}px`;
+    } else {
+      alerts.style.width = `${Math.min(460, innerWidth - 32)}px`;
+      alerts.style.left = `${Math.round((innerWidth - Math.min(460, innerWidth - 32)) / 2)}px`;
+    }
+  };
+  const resize = new ResizeObserver(place);
+  for (const el of [bar, title, side, alerts]) if (el) resize.observe(el);
+  new MutationObserver(place).observe(alerts, { childList: true, subtree: true });
+  new MutationObserver(place).observe(document.body, {
+    attributes: true,
+    attributeFilter: ['data-repo-open', 'data-compare'],
+  });
+  addEventListener('resize', place);
+  phone.addEventListener('change', place);
+  place();
 }

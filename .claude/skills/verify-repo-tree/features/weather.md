@@ -28,7 +28,7 @@ Preconditions:
 
 - **Sample.** Open `/`. Step `sample-sunny`. The chip reads `CI passing, 20 of 20 recent runs` and a pale sun shows in a warm sky.
 - **Cloudy, rain, storm.** Enter `acme/cloudy`, `acme/rain` and `acme/storm` from the stand-in. Steps `cloudy`, `rain` and `storm`. The chip's `data-sky` matches and the screenshots show white clouds beside the sun, grey clouds with rain falling from them onto the island, and dark clouds with heavier slanted rain, all above the crown.
-- **Rate limited.** Enter `acme/limited`, whose runs answer 403. Step `rate-limited`. The tree loads, `#status` stays empty and the chip reads `CI unavailable`.
+- **Rate limited.** Enter `acme/limited`, whose runs answer 403. Step `rate-limited`. The tree loads, `#notices` stays empty and the chip reads `CI unavailable`.
 - **Winter storm.** Open `#/vitejs/vite?palette=winter&wx=storm`. Step `winter-preview`. The chip reads `Weather preview, storm` and snow falls instead of rain.
 - **Off.** Turn off `Weather` in Settings. Step `off`. The chip is hidden and the sky is the palette's plain one.
 - **Proof.** `report.json` passes, and `01-sample-sunny.png` through `06-winter-preview.png` show each sky.

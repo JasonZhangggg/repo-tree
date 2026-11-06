@@ -10,7 +10,8 @@ import { describeError, type ErrorAction } from '../errors';
 import { compact, count, plural } from '../format';
 import { readRecent } from '../recent';
 import { SAMPLES } from '../samples';
-import { ciFailed, weatherOf, type AppState } from '../state';
+import { ciFailed, ciOf, type AppState } from '../state';
+import type { Loaded } from '../../load/load-in-worker';
 import { describeWeather, shortVerdict } from '../weather';
 
 const STEPS: { step: LoadStep; label: string }[] = [
@@ -338,117 +339,11 @@ export function mountHeader(app: App): void {
       return;
     }
     byId<HTMLAnchorElement>('open-github').href = githubUrl(repo.info.ref);
-    const { folders } = repo.index;
-    const langs = repo.index.langs.filter((l) => l !== 'Other').length;
-    // Not `.dot`: that class is the label anchors' dot, absolutely placed.
-    const sep = (cls = 'sep') => h('span', { class: cls, 'aria-hidden': 'true' }, '·');
-    fill(
-      meta,
-      h(
-        'a',
-        {
-          // On a phone the default branch goes unsaid; a branch asked for by link still shows.
-          class: repo.info.ref.ref === undefined ? 'branch default' : 'branch',
-          href: githubUrl(repo.info.ref, repo.info.branch),
-          target: '_blank',
-          rel: 'noopener',
-          title: `Open ${repo.info.branch} on GitHub`,
-        },
-        icon(...ICONS.branch),
-        h('span', {}, repo.info.branch),
-      ),
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'icon-btn',
-          'aria-label': 'Reload from GitHub',
-          title: 'Reload from GitHub, skipping the cache',
-          // The ref as it was asked for: pinning the branch here would make the reload a
-          // branch link, which reads history but is never offered to compute one.
-          onclick: () => app.load(repo.info.ref, { fresh: true }),
-        },
-        icon(...ICONS.reload),
-      ),
-      repo.sample
-        ? h(
-            'span',
-            { class: 'opt', title: 'Bundled with the app. Reload for the live tree.' },
-            'snapshot',
-          )
-        : null,
-      repo.sample ? sep('sep opt') : null,
-      h('span', { class: 'files' }, plural(folders.files[0]!, 'file')),
-      sep('sep opt'),
-      h('span', { class: 'opt' }, plural(folders.files.length - 1, 'folder')),
-      sep('sep opt langs'),
-      h('span', { class: 'opt langs' }, plural(langs, 'language')),
-      // A phone keeps this in its More menu.
-      h(
-        'a',
-        {
-          class: 'icon-btn gh',
-          href: githubUrl(repo.info.ref),
-          target: '_blank',
-          rel: 'noopener',
-          'aria-label': 'Open on GitHub',
-          title: 'Open on GitHub',
-        },
-        icon(...ICONS.external),
-      ),
-    );
+    fill(meta, ...repoMeta(repo, () => app.load(repo.info.ref, { fresh: true })));
   };
 
   /** The weather chip under the title: what the sky stands for, linking to the Actions runs. */
-  const renderWeather = (state: AppState) => {
-    const weather = weatherOf(state);
-    weatherChip.removeAttribute('role');
-    weatherChip.removeAttribute('tabindex');
-    if (ciFailed(state)) {
-      // Said rather than left out, so a missing sky reads as GitHub not answering; a tap asks again.
-      weatherChip.hidden = false;
-      weatherChip.dataset.sky = 'unknown';
-      weatherChip.removeAttribute('href');
-      weatherChip.setAttribute('role', 'button');
-      weatherChip.tabIndex = 0;
-      weatherChip.title =
-        'GitHub didn’t send this repository’s CI runs (its rate limit, or the network). Tap to try again.';
-      weatherChip.setAttribute('aria-label', 'CI unavailable, try again');
-      fill(
-        weatherChip,
-        icon(...ICONS.cloudy),
-        h('strong', {}, 'CI unavailable'),
-        h('b', { class: 'short', 'aria-hidden': 'true' }, 'CI unavailable'),
-      );
-      return;
-    }
-    if (!weather || !state.repo) {
-      weatherChip.hidden = true;
-      return;
-    }
-    const { sky, health } = weather;
-    const { ref, branch } = state.repo.info;
-    const { verdict, detail } = describeWeather(sky, health, Date.now());
-    const snow = PALETTES[state.settings.palette].precip === 'snow';
-    const glyph = snow && (sky === 'rain' || sky === 'storm') ? 'snow' : sky;
-    weatherChip.hidden = false;
-    weatherChip.dataset.sky = sky;
-    if (health) weatherChip.href = actionsUrl(ref, branch);
-    else weatherChip.removeAttribute('href');
-    weatherChip.title = !health
-      ? 'A weather preview from the link, not this repository’s CI'
-      : health.runs
-        ? `Weather from the last ${plural(health.runs, 'finished GitHub Actions run')} on ${branch}`
-        : `No finished GitHub Actions runs on ${branch}`;
-    weatherChip.setAttribute('aria-label', detail ? `${verdict}, ${detail}` : verdict);
-    fill(
-      weatherChip,
-      icon(...ICONS[glyph]),
-      h('strong', {}, verdict),
-      h('b', { class: 'short', 'aria-hidden': 'true' }, shortVerdict(verdict)),
-      detail && h('span', {}, detail),
-    );
-  };
+  const renderWeather = (state: AppState) => paintWeather(weatherChip, state, state.repo);
 
   const render = (state: AppState, prev?: AppState) => {
     if (!prev || state.load !== prev.load || state.repo !== prev.repo) renderTitle(state);
@@ -484,4 +379,124 @@ export function mountHeader(app: App): void {
     if (event.key === 'Enter' || event.key === ' ') retry(event);
   });
   render(store.get());
+}
+
+/**
+ * The repo card's second line: the branch (a link to it), reload, whether it is a bundled
+ * snapshot, its files, folders and languages, and a link to GitHub. Each card has one, alike.
+ */
+export function repoMeta(repo: Loaded & { sample?: string }, reload: () => void): (Node | null)[] {
+  const { folders } = repo.index;
+  const langs = repo.index.langs.filter((l) => l !== 'Other').length;
+  // Not `.dot`: that class is the label anchors' dot, absolutely placed.
+  const sep = (cls = 'sep') => h('span', { class: cls, 'aria-hidden': 'true' }, '·');
+  return [
+    h(
+      'a',
+      {
+        // On a phone the default branch goes unsaid; a branch asked for by link still shows.
+        class: repo.info.ref.ref === undefined ? 'branch default' : 'branch',
+        href: githubUrl(repo.info.ref, repo.info.branch),
+        target: '_blank',
+        rel: 'noopener',
+        title: `Open ${repo.info.branch} on GitHub`,
+      },
+      icon(...ICONS.branch),
+      h('span', {}, repo.info.branch),
+    ),
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'icon-btn',
+        'aria-label': 'Reload from GitHub',
+        title: 'Reload from GitHub, skipping the cache',
+        // The ref as it was asked for: pinning the branch here would make the reload a
+        // branch link, which reads history but is never offered to compute one.
+        onclick: reload,
+      },
+      icon(...ICONS.reload),
+    ),
+    repo.sample
+      ? h(
+          'span',
+          { class: 'opt', title: 'Bundled with the app. Reload for the live tree.' },
+          'snapshot',
+        )
+      : null,
+    repo.sample ? sep('sep opt') : null,
+    h('span', { class: 'files' }, plural(folders.files[0]!, 'file')),
+    sep('sep opt'),
+    h('span', { class: 'opt' }, plural(folders.files.length - 1, 'folder')),
+    sep('sep opt langs'),
+    h('span', { class: 'opt langs' }, plural(langs, 'language')),
+    // A phone keeps this in its More menu.
+    h(
+      'a',
+      {
+        class: 'icon-btn gh',
+        href: githubUrl(repo.info.ref),
+        target: '_blank',
+        rel: 'noopener',
+        'aria-label': 'Open on GitHub',
+        title: 'Open on GitHub',
+      },
+      icon(...ICONS.external),
+    ),
+  ];
+}
+
+/**
+ * A repo card's weather chip: what its CI's sky stands for, linking to the Actions runs, or that
+ * GitHub didn't send them (a tap asks again, through the chip's own click handler). Hidden with
+ * weather off or before the runs arrive.
+ */
+export function paintWeather(chip: HTMLAnchorElement, state: AppState, repo: Loaded | null): void {
+  const weather = ciOf(state, repo);
+  chip.removeAttribute('role');
+  chip.removeAttribute('tabindex');
+  if (ciFailed(state, repo)) {
+    // Said rather than left out, so a missing sky reads as GitHub not answering; a tap asks again.
+    chip.hidden = false;
+    chip.dataset.sky = 'unknown';
+    chip.removeAttribute('href');
+    chip.setAttribute('role', 'button');
+    chip.tabIndex = 0;
+    chip.title =
+      'GitHub didn’t send this repository’s CI runs (its rate limit, or the network). Tap to try again.';
+    chip.setAttribute('aria-label', 'CI unavailable, try again');
+    fill(
+      chip,
+      icon(...ICONS.cloudy),
+      h('strong', {}, 'CI unavailable'),
+      h('b', { class: 'short', 'aria-hidden': 'true' }, 'CI unavailable'),
+    );
+    return;
+  }
+  if (!weather || !repo) {
+    chip.hidden = true;
+    return;
+  }
+  const { sky, health } = weather;
+  const { ref, branch } = repo.info;
+  const { verdict, detail } = describeWeather(sky, health, Date.now());
+  const snow = PALETTES[state.settings.palette].precip === 'snow';
+  const glyph = snow && (sky === 'rain' || sky === 'storm') ? 'snow' : sky;
+  chip.hidden = false;
+  chip.dataset.sky = sky;
+  if (health) chip.href = actionsUrl(ref, branch);
+  else chip.removeAttribute('href');
+  chip.title = !health
+    ? 'A weather preview from the link, not this repository’s CI'
+    : health.runs
+      ? `Weather from the last ${plural(health.runs, 'finished GitHub Actions run')} on ${branch}`
+      : `No finished GitHub Actions runs on ${branch}`;
+  chip.setAttribute('aria-label', detail ? `${verdict}, ${detail}` : verdict);
+  fill(
+    chip,
+    icon(...ICONS[glyph]),
+    h('strong', {}, verdict),
+    h('b', { class: 'short', 'aria-hidden': 'true' }, shortVerdict(verdict)),
+    detail && h('span', {}, detail),
+  );
 }

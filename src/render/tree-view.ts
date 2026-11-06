@@ -172,6 +172,8 @@ export interface TreeView {
    * tree clears it. Activity colors need it; without it they fall back to language.
    */
   setFacts(facts: Facts | null): void;
+  /** The compared tree's history (setCompanion), so it takes the history colors too. */
+  setCompanionFacts(facts: Facts | null): void;
   /** What each leaf color stands for under the current palette and color-by. */
   legend(): LegendEntry[];
   /**
@@ -416,6 +418,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   scene.add(sky, hemi, key, key.target, fill, ground, contact, baked);
   const terrain = createGround();
   scene.add(terrain.land, terrain.cover);
+  /** The compared tree's history facts (setCompanionFacts), for its colors. */
+  let companionFacts: Facts | null = null;
   /** How much setCompanion shrank the tree on show, 1 when alone; its island keeps its size. */
   let mainScale = 1;
   /** A second tree beside the first (setCompanion), on its own island, moved by its group. */
@@ -1106,45 +1110,51 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       .toArray() as [number, number, number];
   };
 
-  const applyColorBy = () => {
-    if (!shown) return;
-    const { model } = shown;
+  /**
+   * Each leaf vertex's color slot and each bark vertex's dead flag for a tree, by the color-by
+   * and that tree's own history facts. `ramp` is the slots' ramp the shared uniforms hold.
+   */
+  const slotsOf = (model: TreeModel, own: Facts | null, ramp: 'ages' | 'changes' | 'leaves') => {
     const { lang, nodeId } = model.leaves;
     const slot = new Float32Array(lang.length);
     const dead = new Float32Array(model.bark.nodeId.length);
-    if (byChanges()) {
+    if (ramp === 'changes' && own) {
       const { vertex } = model.sprigs;
       for (let s = 0; s + 1 < vertex.length; s++) {
-        slot.fill(CHANGES.length - 1 - facts!.sprigChangeLevel[s]!, vertex[s]!, vertex[s + 1]!);
+        slot.fill(CHANGES.length - 1 - own.sprigChangeLevel[s]!, vertex[s]!, vertex[s + 1]!);
       }
-    } else if (byActivity()) {
+    } else if (ramp === 'ages' && own) {
       const { vertex } = model.sprigs;
       for (let s = 0; s + 1 < vertex.length; s++) {
-        slot.fill(facts!.sprigBand[s]!, vertex[s]!, vertex[s + 1]!);
+        slot.fill(own.sprigBand[s]!, vertex[s]!, vertex[s + 1]!);
       }
       const barkNode = model.bark.nodeId;
       for (let v = 0; v < dead.length; v++) {
-        dead[v] = ageBand(facts!.asOf, facts!.nodeChanged[barkNode[v]!]!) === DEAD ? 1 : 0;
+        dead[v] = ageBand(own.asOf, own.nodeChanged[barkNode[v]!]!) === DEAD ? 1 : 0;
       }
     } else {
-      const { slotOf, nodeCategory } = categories();
+      // Without its own history a tree keeps language colors, on whatever ramp is showing.
+      const history = colorBy === 'activity' || colorBy === 'changes';
+      const by = ramp === 'leaves' && !history ? colorBy : 'language';
+      const { slotOf, nodeCategory } = leafCategories(model, by, palette, own, rank);
       for (let v = 0; v < slot.length; v++) {
         slot[v] = slotOf[nodeCategory ? nodeCategory[nodeId[v]!]! : lang[v]!]!;
       }
     }
+    return { slot, dead };
+  };
+
+  const applyColorBy = () => {
+    if (!shown) return;
+    const ramp = byActivity() ? 'ages' : byChanges() ? 'changes' : 'leaves';
+    const { slot, dead } = slotsOf(shown.model, facts, ramp);
     shown.leaves.geometry.setAttribute('aSlot', new BufferAttribute(slot, 1));
     shown.bark.geometry.setAttribute('aDead', new BufferAttribute(dead, 1));
     if (companion) {
-      // Folder colors are its own top-level folders; anything that needs a history (which
-      // only the first tree has) falls back to languages.
-      const by = colorBy === 'folder' ? 'folder' : 'language';
-      const { lang, nodeId: ids } = companion.model.leaves;
-      const { slotOf, nodeCategory } = leafCategories(companion.model, by, palette, null, rank);
-      const other = new Float32Array(lang.length);
-      for (let v = 0; v < other.length; v++) {
-        other[v] = slotOf[nodeCategory ? nodeCategory[ids[v]!]! : lang[v]!]!;
-      }
-      companion.leaves.geometry.setAttribute('aSlot', new BufferAttribute(other, 1));
+      // The same colors from its own history; until that is in, languages.
+      const own = slotsOf(companion.model, companionFacts, ramp);
+      companion.leaves.geometry.setAttribute('aSlot', new BufferAttribute(own.slot, 1));
+      companion.bark.geometry.setAttribute('aDead', new BufferAttribute(own.dead, 1));
     }
     applySlots();
     applyBirths(timelineBirths);
@@ -1462,6 +1472,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
     setFacts(next) {
       facts = next;
+      applyColorBy();
+    },
+
+    setCompanionFacts(next) {
+      companionFacts = next;
       applyColorBy();
     },
 

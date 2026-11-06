@@ -525,6 +525,13 @@ export function mountSide(app: App): void {
       sheetStat.textContent = `${plural(entry.files, 'file')} highlighted`;
       return;
     }
+    if (repo && !selection && state.compare) {
+      // While comparing, the sheet holds the two trees side by side (compare.ts).
+      detail.hidden = true;
+      sheetTitle.textContent = 'Compare';
+      sheetStat.textContent = `${repo.info.ref.repo} and ${state.compare.repo}`;
+      return;
+    }
     if (!repo || !selection) {
       detail.hidden = true;
       sheetTitle.textContent = 'Folders and leaf colors';
@@ -726,7 +733,10 @@ export function mountSide(app: App): void {
       state.timeline !== prev?.timeline;
     if (colorsChanged || state.selection !== prev?.selection) renderHot(state);
     if (colorsChanged || state.selection !== prev?.selection) renderFolders(state);
-    const focusChanged = state.selection !== prev?.selection || state.highlight !== prev?.highlight;
+    const focusChanged =
+      state.selection !== prev?.selection ||
+      state.highlight !== prev?.highlight ||
+      state.compare !== prev?.compare;
     if (colorsChanged) {
       colorBy.render(state.settings.colorBy);
       renderLegend(state);

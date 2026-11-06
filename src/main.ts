@@ -16,7 +16,14 @@ import { createLoader } from './app/loader';
 import { rememberRecent } from './app/recent';
 import { FIRST_VISIT } from './app/samples';
 import { autoQuality, parseSettings, STEP_DOWN, type Settings } from './app/settings';
-import { createStore, factsOf, qualityOf, weatherOf, type AppState } from './app/state';
+import {
+  companionFactsOf,
+  createStore,
+  factsOf,
+  qualityOf,
+  weatherOf,
+  type AppState,
+} from './app/state';
 import { watchHistory } from './app/history-facts';
 import { mountCanvas } from './app/ui/canvas';
 import { mountHeader } from './app/ui/header';
@@ -63,7 +70,7 @@ const store = createStore({
   history: null,
   compare: null,
   companion: null,
-  compareFirst: false,
+  companionHistory: null,
 });
 
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -197,7 +204,6 @@ function linkOf(state: AppState): string | null {
     wx: state.preview ?? undefined,
     t: state.timeline ?? undefined,
     vs: state.compare ?? undefined,
-    vsFirst: state.compareFirst || undefined,
     pins: pinsOf(state),
   });
 }
@@ -208,7 +214,7 @@ function applyLink(link: ViewLink) {
   if (link.colorBy) patch.colorBy = link.colorBy;
   if (Object.keys(patch).length) store.dispatch({ type: 'settings', patch });
   store.dispatch({ type: 'preview', sky: link.wx ?? null });
-  store.dispatch({ type: 'compare', ref: link.vs ?? null, first: !!link.vsFirst });
+  store.dispatch({ type: 'compare', ref: link.vs ?? null });
   pinTray.receive(link.ref, link.pins ?? []);
   const { repo } = store.get();
   const same =
@@ -243,11 +249,7 @@ store.subscribe((state, prev) => {
   }
   // The compared tree stands beside this one, out of the way while the timeline replays it alone.
   const companion = (s: AppState) => (s.timeline === null ? s.companion : null);
-  if (
-    companion(state) !== companion(prev) ||
-    state.repo !== prev.repo ||
-    state.compareFirst !== prev.compareFirst
-  ) {
+  if (companion(state) !== companion(prev) || state.repo !== prev.repo) {
     view.setLanguageRank(rankOf(state));
     const other = companion(state);
     // The pair's heights show their sizes against each other.
@@ -255,10 +257,10 @@ store.subscribe((state, prev) => {
       other && state.repo
         ? pairScale(treeStats(state.repo).files, treeStats(other).files)
         : { a: 1, b: 1 };
-    view.setCompanion(other?.tree ?? null, state.compareFirst ? 'left' : 'right', {
-      main: scale.a,
-      companion: scale.b,
-    });
+    view.setCompanion(other?.tree ?? null, 'right', { main: scale.a, companion: scale.b });
+  }
+  if (companionFactsOf(state) !== companionFactsOf(prev) || companion(state) !== companion(prev)) {
+    view.setCompanionFacts(companionFactsOf(state));
   }
   const birds = birdsOf(state);
   if (birds !== birdsOf(prev) || state.repo !== prev.repo) {

@@ -549,25 +549,33 @@ const JOURNEYS = {
       await expect(page.locator('#compare-line')).toHaveText(/vite has \d+× the files of dotfiles/);
       await settle(page);
     });
+    await step('changes', async () => {
+      // The side by side follows Color by: each tree's change levels and busiest files.
+      await page.goto(`${base}#/vitejs/vite?vs=mathiasbynens/dotfiles&colorBy=changes`);
+      await ready(page, 'vitejs/vite');
+      await besideReady('mathiasbynens/dotfiles');
+      if (await page.locator('#compare-panel').isHidden())
+        await page.locator('#sheet-toggle').click();
+      await expect(page.locator('#compare-panel .cmp-list')).toHaveCount(2);
+      await settle(page);
+      if (await page.locator('#sheet-toggle').isVisible())
+        await page.locator('#sheet-toggle').click();
+    });
     await step('change', async () => {
-      await page.getByRole('button', { name: /^Change B/ }).click();
-      await page.getByLabel('Repository to put in place of B').fill('acme/widgets');
-      await page.getByLabel('Repository to put in place of B').press('Enter');
+      // B has its own field, under A's; on a phone its mark opens it in the card's place.
+      const field = page.getByRole('textbox', { name: 'Repository B' });
+      if (await field.isHidden()) {
+        await page.getByRole('button', { name: 'Change repository B' }).click();
+      }
+      await field.fill('acme/widgets');
+      await field.press('Enter');
       await besideReady('acme/widgets');
       await expect(page).toHaveURL(/vs=acme\/widgets/);
       await settle(page);
     });
-    await step('switch', async () => {
-      await page.getByRole('radio', { name: /^B: / }).check();
-      await ready(page, 'acme/widgets');
-      await besideReady('vitejs/vite');
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText('acme/widgets');
-      await expect(page.getByRole('radio', { name: 'A: vitejs/vite' })).not.toBeChecked();
-      await settle(page);
-    });
     await step('stop', async () => {
       await page.getByRole('button', { name: 'Stop comparing' }).click();
-      await expect(page.getByRole('group', { name: 'Compared tree' })).toBeHidden();
+      await expect(page.getByRole('group', { name: 'Repository B' })).toBeHidden();
       await expect(page).not.toHaveURL(/vs=/);
       await settle(page);
     });

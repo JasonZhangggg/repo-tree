@@ -57,7 +57,7 @@ export function mountMoreMenu(phone: MediaQueryList): void {
     // Compare joins the menu on a phone, and stands beside Timeline on a desktop.
     const compare = byId<HTMLButtonElement>('compare-open');
     if (phone.matches) menu.append(compare);
-    else byId('timeline').after(compare);
+    else byId('repo-form').after(compare);
     // The way to the repo on GitHub, which the phone's repo row leaves to the menu, goes last.
     menu.append(byId('open-github'));
   };

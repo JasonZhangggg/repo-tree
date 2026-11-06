@@ -21,8 +21,6 @@ export type ViewLink = {
   t?: number;
   /** The compare view is open with this repo (`owner/repo`, its default branch) beside the first. */
   vs?: RepoRef;
-  /** The `vs` repo is tree A, on the left, and the one on show B: written `vsfirst=1`. */
-  vsFirst?: boolean;
   /** The pin tray's folder paths, oldest first. */
   pins?: string[];
 };
@@ -49,14 +47,13 @@ export function parseLink(hash: string): ViewLink | null {
   if (t !== undefined) link.t = t;
   const vs = parseRepoRef(query.get('vs') ?? '');
   if (!('kind' in vs)) link.vs = vs;
-  if (link.vs && query.get('vsfirst') === '1') link.vsFirst = true;
   const pins = query.getAll('pin').filter(Boolean);
   if (pins.length) link.pins = pins;
   return link;
 }
 
 export function formatLink(link: ViewLink): string {
-  const { ref, palette, colorBy, sel, hl, wx, t, vs, vsFirst, pins } = link;
+  const { ref, palette, colorBy, sel, hl, wx, t, vs, pins } = link;
   const params: [string, string | undefined][] = [
     ['branch', ref.ref],
     ['palette', palette],
@@ -66,7 +63,6 @@ export function formatLink(link: ViewLink): string {
     ['wx', wx],
     ['t', t === undefined ? undefined : new Date(t).toISOString().slice(0, 10)],
     ['vs', vs && `${vs.owner}/${vs.repo}`],
-    ['vsfirst', vs && vsFirst ? '1' : undefined],
     ...(pins ?? []).map((pin): [string, string] => ['pin', pin]),
   ];
   const query = params

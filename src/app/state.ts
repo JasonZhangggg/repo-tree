@@ -20,10 +20,10 @@ export type LoadState =
  * The history behind the colors that need one, for the repo it was asked for: loading, laid over
  * that repo's tree as Facts, `missing` (nobody computed it yet) or `unavailable`.
  */
-export type HistoryFacts =
-  | { repo: Repo; status: 'loading' }
-  | { repo: Repo; status: 'ready'; facts: Facts }
-  | { repo: Repo; status: 'missing' | 'unavailable' };
+export type HistoryFacts<R extends Loaded = Repo> =
+  | { repo: R; status: 'loading' }
+  | { repo: R; status: 'ready'; facts: Facts }
+  | { repo: R; status: 'missing' | 'unavailable' };
 /** A pinned folder, and optionally one of its own files (an index into RepoIndex.files). */
 export type Selection = { folder: number; file?: number };
 
@@ -64,11 +64,8 @@ export type AppState = {
   compare: RepoRef | null;
   /** That repo once grown (`compare` names it); null while it loads or when not comparing. */
   companion: Loaded | null;
-  /**
-   * Whether the compared repo is tree A, on the left in the default view, and the one on show B.
-   * The two keep their places and letters when Switch hands the panels from one to the other.
-   */
-  compareFirst: boolean;
+  /** The compared repo's history, loaded like `history` once the colors need it. */
+  companionHistory: HistoryFacts<Loaded> | null;
 };
 
 export type Action =
@@ -95,8 +92,9 @@ export type Action =
   | { type: 'preview'; sky: Sky | null }
   | { type: 'timeline'; at: number | null }
   | { type: 'history'; history: HistoryFacts }
-  | { type: 'compare'; ref: RepoRef | null; first?: boolean }
-  | { type: 'companion'; companion: Loaded };
+  | { type: 'compare'; ref: RepoRef | null }
+  | { type: 'companion'; companion: Loaded }
+  | { type: 'companion-history'; history: HistoryFacts<Loaded> };
 
 const IDLE: LoadState = { phase: 'idle' };
 
@@ -155,35 +153,35 @@ export function reduce(state: AppState, action: Action): AppState {
       return action.at === state.timeline ? state : { ...state, timeline: action.at };
     case 'history':
       return action.history.repo === state.repo ? { ...state, history: action.history } : state;
-    case 'compare': {
-      const { ref } = action;
-      if (!ref)
-        return state.compare
-          ? { ...state, compare: null, companion: null, compareFirst: false }
-          : state;
-      const first = action.first ?? (state.compare ? state.compareFirst : false);
-      if (sameRef(ref, state.compare)) {
-        return first === state.compareFirst ? state : { ...state, compareFirst: first };
-      }
-      return { ...state, compare: ref, companion: null, compareFirst: first };
-    }
+    case 'compare':
+      return sameRef(action.ref, state.compare)
+        ? state
+        : { ...state, compare: action.ref, companion: null, companionHistory: null };
     case 'companion': {
       const { owner, repo } = action.companion.info.ref;
       const named = state.compare && sameRef({ owner, repo } as RepoRef, state.compare);
-      return named ? { ...state, companion: action.companion } : state;
+      if (!named || action.companion === state.companion) return state;
+      return { ...state, companion: action.companion, companionHistory: null };
     }
+    case 'companion-history':
+      return action.history.repo === state.companion
+        ? { ...state, companionHistory: action.history }
+        : state;
   }
 }
 
 /**
- * The weather over the repo on screen: a preview, or its CI's health. Null with weather off,
- * before its runs arrive, or when they could not be read; `health` is null for a preview.
- * Null too while two trees are compared: one sky over both would describe only one of them.
+ * A grown repo's CI weather for its card: from its recent runs, or for the repo on show a
+ * preview from the link. Null with weather off, before its runs arrive, or when they could not
+ * be read; `health` is null for a preview.
  */
-export function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null {
-  const { repo, settings, preview } = state;
-  if (!repo || !settings.weather || state.compare) return null;
-  if (preview) return { sky: preview, health: null };
+export function ciOf(
+  state: AppState,
+  repo: Loaded | null,
+): { sky: Sky; health: CiHealth | null } | null {
+  const { settings, preview } = state;
+  if (!repo || !settings.weather) return null;
+  if (preview && repo === state.repo) return { sky: preview, health: null };
   const runs = state.ci[ciKey(repo.info.ref, repo.info.branch)];
   if (!runs) return null;
   const health = ciHealth(runs);
@@ -191,12 +189,20 @@ export function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null 
 }
 
 /**
- * Whether the repo on show has CI weather turned on but its runs could not be read (GitHub
- * refused or did not answer), as against not read yet.
+ * The weather over the repo on screen, from `ciOf`. Null while two trees are compared: one sky
+ * over both would describe only one of them, so each card says its own instead.
  */
-export function ciFailed(state: AppState): boolean {
-  const { repo, settings, preview } = state;
-  if (!repo || !settings.weather || preview || state.compare) return false;
+export function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null {
+  return state.compare ? null : ciOf(state, state.repo);
+}
+
+/**
+ * Whether a grown repo has CI weather turned on but its runs could not be read (GitHub refused
+ * or did not answer), as against not read yet.
+ */
+export function ciFailed(state: AppState, repo: Loaded | null = state.repo): boolean {
+  const { settings, preview } = state;
+  if (!repo || !settings.weather || (preview && repo === state.repo)) return false;
   return state.ci[ciKey(repo.info.ref, repo.info.branch)] === null;
 }
 
@@ -220,6 +226,12 @@ export const needsHistory = (state: AppState): boolean =>
 export const factsOf = (state: AppState): Facts | null =>
   state.history?.repo === state.repo && state.history?.status === 'ready'
     ? state.history.facts
+    : null;
+
+/** The history's facts for the compared repo, once loaded. */
+export const companionFactsOf = (state: AppState): Facts | null =>
+  state.companionHistory?.repo === state.companion && state.companionHistory?.status === 'ready'
+    ? state.companionHistory.facts
     : null;
 
 export const qualityOf = (state: AppState): Quality =>

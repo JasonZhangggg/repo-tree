@@ -351,7 +351,7 @@ test('dark mode turns the sky to night and the panels dark, keeping the leaf col
   if (!isMobile) expect(await skyLuma(page), 'the night sky is dark').toBeLessThan(day - 0.4);
   // Panels ease to their dark fill.
   await expect
-    .poll(() => page.locator('.title').evaluate((el) => getComputedStyle(el).backgroundColor))
+    .poll(() => page.locator('#title').evaluate((el) => getComputedStyle(el).backgroundColor))
     .not.toMatch(/^rgba?\(25[0-5], 25[0-5], 25[0-5]/);
   expect(await legend(), 'leaf colors stay the palette’s').toEqual(colors);
 

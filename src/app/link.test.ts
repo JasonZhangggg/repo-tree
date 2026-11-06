@@ -18,10 +18,6 @@ describe('share links', () => {
     expect(formatLink(link)).toBe('#/vitejs/vite?vs=mathiasbynens/dotfiles');
     expect(parseLink(formatLink(link))).toEqual(link);
     expect(parseLink('#/vitejs/vite?vs=nope')).toEqual({ ref: ref('vitejs/vite') });
-    const first = { ...link, vsFirst: true };
-    expect(formatLink(first)).toBe('#/vitejs/vite?vs=mathiasbynens/dotfiles&vsfirst=1');
-    expect(parseLink(formatLink(first))).toEqual(first);
-    expect(parseLink('#/vitejs/vite?vsfirst=1')).toEqual({ ref: ref('vitejs/vite') });
   });
 
   test('reads a weather preview and drops an unknown one', () => {

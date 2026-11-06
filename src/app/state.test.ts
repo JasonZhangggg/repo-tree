@@ -8,6 +8,7 @@ import {
   qualityOf,
   reduce,
   ciFailed,
+  ciOf,
   weatherOf,
   type AppState,
   type Repo,
@@ -29,7 +30,7 @@ const INITIAL: AppState = {
   history: null,
   compare: null,
   companion: null,
-  compareFirst: false,
+  companionHistory: null,
 };
 const repo = (name: string, truncated = false) =>
   ({
@@ -203,11 +204,13 @@ describe('weather', () => {
   test('a preview replaces the repo weather, and the setting turns both off', () => {
     const preview = reduce(reduce(shown, failing), { type: 'preview', sky: 'storm' });
     expect(weatherOf(preview)).toEqual({ sky: 'storm', health: null });
-    // While two trees are compared one sky would describe only one of them, so neither has it.
+    // While two trees are compared one sky would describe only one of them, so each card says its own.
     const comparing = { type: 'compare', ref: ref('vitejs/vite') } as const;
     expect(weatherOf(reduce(preview, comparing))).toBeNull();
     const failed = reduce(shown, { type: 'ci', key: 'acme/web@main', runs: null });
-    expect(ciFailed(reduce(failed, comparing))).toBe(false);
+    expect(ciFailed(reduce(failed, comparing))).toBe(true);
+    const runs = reduce(reduce(shown, failing), comparing);
+    expect(ciOf(runs, runs.repo)?.sky).toBe(weatherOf(reduce(shown, failing))?.sky);
     const off = reduce(preview, { type: 'settings', patch: { weather: false } });
     expect(weatherOf(off)).toBeNull();
   });
@@ -230,15 +233,17 @@ describe('compare', () => {
     expect(reduce(shown, { type: 'compare', ref: ref('acme/web') }).companion).toBeNull();
   });
 
-  test('keeps which tree is A while the panels trade over, until comparing stops', () => {
+  test('drops the compared history with the tree it was read for', () => {
     const open = run({ type: 'compare', ref: ref('vitejs/vite') });
-    expect(open.compareFirst).toBe(false);
-    const traded = reduce(open, { type: 'compare', ref: ref('acme/web'), first: true });
-    expect(traded.compareFirst).toBe(true);
-    expect(reduce(traded, { type: 'compare', ref: ref('acme/api') }).compareFirst).toBe(true);
-    const flipped = reduce(traded, { type: 'compare', ref: ref('acme/web'), first: false });
-    expect(flipped).toMatchObject({ compare: ref('acme/web'), compareFirst: false });
-    const closed = reduce(traded, { type: 'compare', ref: null });
-    expect(closed).toMatchObject({ compare: null, compareFirst: false });
+    const grown = repo('vitejs/vite');
+    const shown = reduce(open, { type: 'companion', companion: grown });
+    const read = reduce(shown, {
+      type: 'companion-history',
+      history: { repo: grown, status: 'missing' },
+    });
+    expect(read.companionHistory?.status).toBe('missing');
+    const stale = { repo: repo('vitejs/vite'), status: 'missing' } as const;
+    expect(reduce(shown, { type: 'companion-history', history: stale })).toBe(shown);
+    expect(reduce(read, { type: 'compare', ref: ref('acme/web') }).companionHistory).toBeNull();
   });
 });

@@ -652,7 +652,8 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
    card at the top left, so the tree has the room below it. */
 .title {
   position: absolute;
-  top: calc(env(safe-area-inset-top, 0px) + 16px);
+  /* Under the repo search bar, which keeps its own row on a desktop. */
+  top: calc(env(safe-area-inset-top, 0px) + 74px);
   left: max(var(--edge), env(safe-area-inset-left, 0px));
   width: max-content;
   min-width: min(340px, var(--col));
@@ -677,13 +678,6 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
 }
 .title:not([data-repo]) {
   display: none;
-}
-/* Until a repo is on show the field stands alone; then it folds into the card. */
-body:has(#title[data-repo]):not([data-repo-open]) .repo {
-  display: none;
-}
-body[data-repo-open] .title {
-  visibility: hidden;
 }
 .repo-switch {
   grid-area: switch;
@@ -711,7 +705,8 @@ body[data-repo-open] .title {
     color: var(--ink);
   }
 }
-h1 {
+h1,
+.title .name {
   grid-area: name;
   margin: 0;
   font-size: 19px;
@@ -720,7 +715,7 @@ h1 {
   line-height: 1.25;
   min-width: 0;
 }
-h1 button {
+:is(h1, .title .name) button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -735,12 +730,12 @@ h1 button {
   text-align: left;
   transition: background 0.15s;
 }
-h1 button span {
+:is(h1, .title .name) button span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-h1 button svg {
+:is(h1, .title .name) button svg {
   width: 16px;
   height: 16px;
   flex: none;
@@ -748,14 +743,14 @@ h1 button svg {
   stroke-width: 2;
 }
 @media (hover: hover) and (pointer: fine) {
-  h1 button:hover {
+  :is(h1, .title .name) button:hover {
     background: var(--hover);
   }
-  h1 button:hover svg {
+  :is(h1, .title .name) button:hover svg {
     color: var(--ink);
   }
 }
-.title[data-loading] h1 {
+.title[data-loading] :is(h1, .name) {
   color: var(--muted);
 }
 /* Nothing to list under the name until the first tree is in. */
@@ -2685,7 +2680,8 @@ body:has(.scrubber:not([hidden])) .toast {
     padding: 6px 8px;
     border-radius: 14px;
   }
-  h1 {
+  h1,
+  .title .name {
     font-size: 16px;
     min-width: 0;
   }
@@ -3297,156 +3293,91 @@ body:has(.scrubber:not([hidden])) .toast {
   }
 }
 
-/* Compare trees: the repo card becomes a compare card, one identical row per tree (A, B), and a
-   tag with the same letter hangs under each island; the table sits in the side panel
-   (compare.ts). */
-.title[data-compare] {
-  width: min(430px, var(--col));
-  padding: 10px 10px 10px 12px;
-}
-.title[data-compare] > :is(.repo-switch, .meta, .weather) {
+/* Compare trees: A's card is the page's own, and B's under it is the same card again, with its
+   own search field (always shown on a desktop, in the card's place on a phone) and × to stop.
+   A letter marks each card, its search field and the tag under its island; the side panel
+   sets both side by side (compare.ts). */
+.cmp-letter {
   display: none;
-}
-/* Still the page's heading for screen readers; the rows name both trees on screen. */
-.title[data-compare] > h1 {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-.title .compare {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-.title .compare[hidden] {
-  display: none;
-}
-.cmp-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.cmp-title {
-  margin: 0;
-  color: var(--muted);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.cmp-exit {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 11px 0 9px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--wash);
-  color: var(--ink);
-  font-size: 12.5px;
-  font-weight: 600;
-  transition: transform 0.15s var(--ease);
-}
-.cmp-exit:active {
-  transform: scale(var(--press));
-}
-.cmp-exit svg {
-  width: 13px;
-  height: 13px;
-}
-.cmp-trees {
-  display: grid;
-  gap: 6px;
-}
-/* The letters, chips like the branch's; the tree in the panels has its letter in ink, as a
-   pinned folder's label is. */
-.cmp-tree[data-shown] .cmp-badge {
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
   background: var(--ink);
   color: var(--on-ink);
+  font: 700 13px/1 var(--sans);
 }
-.cmp-badge {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  border-radius: 6px;
-  background: var(--wash);
+.cmp-letter[data-side='b'] {
+  background: var(--raised);
   color: var(--ink);
-  font: 600 12px/1 var(--mono);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
 }
-.cmp-tree {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  margin: 0 -6px;
-  padding: 2px 2px 2px 0;
-  border-radius: 10px;
-  transition: background 0.15s;
+body[data-compare] .cmp-letter,
+.cmp-b .cmp-letter,
+.cmp-panel .cmp-letter {
+  display: inline-grid;
 }
-.cmp-tree[data-shown] {
-  background: var(--hover);
+/* While comparing, the letter stands where the GitHub mark was. */
+body[data-compare] :is(.repo-switch, .repo) > svg {
+  display: none;
 }
-.cmp-pick {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 5px 4px 5px 6px;
-  cursor: pointer;
+.repo > .cmp-letter {
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
 }
-/* The radio lies over the whole row, unseen, so the row is what is clicked or tapped. */
-.cmp-pick {
-  position: relative;
-}
-.cmp-pick input {
+.cmp-b {
   position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-.cmp-tree[data-shown] .cmp-pick input {
-  cursor: default;
-}
-.cmp-tree:has(.cmp-pick :focus-visible) {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.cmp-id {
-  flex: 1;
-  min-width: 0;
+  left: max(var(--edge), env(safe-area-inset-left, 0px));
+  z-index: 2;
   display: grid;
+  justify-items: start;
+  gap: 10px;
+  pointer-events: none;
 }
-.cmp-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+.cmp-b > * {
+  pointer-events: auto;
 }
-.cmp-sub {
+.cmp-b[hidden] {
+  display: none;
+}
+.cmp-b .title {
+  position: relative;
+  inset: auto;
+}
+.cmp-card {
+  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto;
+  grid-template-areas:
+    'switch name weather stop'
+    'switch meta meta stop'
+    'status status status status';
+}
+.cmp-card > .weather {
+  grid-area: weather;
+  justify-self: end;
+  min-width: 0;
+  margin: 0 0 0 6px;
+}
+.cmp-card > .meta {
+  grid-area: meta;
+  padding-left: 4px;
+}
+.cmp-stop {
+  grid-area: stop;
+  align-self: start;
+  margin-left: 2px;
+}
+.cmp-status {
+  grid-area: status;
+  margin: 0 0 0 4px;
   color: var(--muted);
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 13px;
 }
-.cmp-tree[aria-busy] .cmp-sub {
+.cmp-status:empty {
+  display: none;
+}
+.cmp-b[aria-busy] .cmp-status {
   animation: cmp-pulse 1.2s ease-in-out infinite alternate;
 }
 @keyframes cmp-pulse {
@@ -3455,109 +3386,25 @@ body:has(.scrubber:not([hidden])) .toast {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cmp-tree[aria-busy] .cmp-sub {
+  .cmp-b[aria-busy] .cmp-status {
     animation: none;
   }
 }
-.cmp-state {
+#compare-open {
   flex: none;
-  color: var(--muted);
-  font-size: 12px;
 }
-.cmp-tree:not([data-shown]) .cmp-state {
-  visibility: hidden;
-}
-.cmp-change {
-  flex: none;
-  height: 30px;
-  padding: 0 11px;
-  border: 0;
-  border-radius: 999px;
-  background: none;
-  color: var(--muted);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.cmp-change[aria-expanded='true'] {
-  background: var(--ink);
-  color: var(--on-ink);
-}
-@media (hover: hover) and (pointer: fine) {
-  .cmp-exit:hover,
-  .cmp-change:not([aria-expanded='true']):hover {
-    background: color-mix(in srgb, var(--ink) 12%, transparent);
-    color: var(--ink);
-  }
-  .cmp-tree:not([data-shown]):hover {
-    background: var(--hover);
-  }
-  .cmp-tree:not([data-shown]):hover .cmp-state {
-    visibility: visible;
-  }
-}
-.cmp-line {
-  margin: 0 2px;
-  color: var(--muted);
-  font-size: 12.5px;
-}
-.cmp-line:empty {
-  display: none;
-}
-.cmp-form {
-  position: relative;
-  display: grid;
-  gap: 6px;
-  padding: 2px 0 4px;
-}
-.cmp-form[hidden] {
-  display: none;
-}
-.cmp-field {
-  display: flex;
-  gap: 6px;
-}
-.cmp-field input {
-  flex: 1;
-  min-width: 0;
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--raised);
-  color: var(--ink);
-  font: 13px var(--mono);
-}
-.cmp-field .go {
-  height: 34px;
-  padding: 0 12px;
-}
-.cmp-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-.cmp-chips:empty {
-  display: none;
-}
-.cmp-chips button {
-  height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--wash);
-  color: var(--ink);
-  font: 12px var(--mono);
-}
-@media (hover: hover) and (pointer: fine) {
-  .cmp-chips button:hover {
-    background: color-mix(in srgb, var(--ink) 12%, transparent);
-  }
+.bar #compare-open {
+  height: 46px;
 }
 #compare-open[aria-pressed='true'] {
   background: var(--ink);
   color: var(--on-ink);
 }
-/* Name tags under the islands. */
+/* The page's own panels describe one tree; while comparing the side panel sets both side by side. */
+body[data-compare] #overview {
+  display: none;
+}
+/* Name tags under the islands, in the folder labels' pill. */
 #island-tags {
   position: absolute;
   inset: 0;
@@ -3573,12 +3420,11 @@ body:has(.scrubber:not([hidden])) .toast {
   left: 0;
   top: 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 7px;
   max-width: 240px;
   margin: 10px 0 0;
-  padding: 6px 11px;
-  border: 0;
+  padding: 4px 11px 4px 4px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--raised) 92%, transparent);
   color: var(--ink);
@@ -3588,34 +3434,37 @@ body:has(.scrubber:not([hidden])) .toast {
   font-size: 13px;
   font-weight: 600;
   translate: -50% 0;
-  pointer-events: auto;
-  cursor: pointer;
   white-space: nowrap;
-  transition:
-    background 0.15s,
-    color 0.15s;
 }
 .island-tag[hidden] {
   display: none;
 }
-.island-tag .tag-name {
+.island-tag b {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--on-ink);
+  font-size: 11px;
+}
+.island-tag[data-side='b'] b {
+  background: var(--raised);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.island-tag span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.island-tag b {
-  font-weight: 450;
-  color: var(--muted);
-}
-.island-tag[data-shown] b {
-  color: color-mix(in srgb, var(--on-ink) 72%, transparent);
-}
-.island-tag[data-shown] {
-  cursor: default;
-  background: var(--ink);
-  color: var(--on-ink);
-}
 .cmp-panel[hidden] {
   display: none;
+}
+.cmp-line {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 .cmp-table {
   width: 100%;
@@ -3642,18 +3491,20 @@ body:has(.scrubber:not([hidden])) .toast {
   font-weight: 600;
   padding-bottom: 7px;
 }
-.cmp-col {
+.cmp-col,
+.cmp-list-head {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
-.cmp-col > span:last-child {
+.cmp-col > span:last-child,
+.cmp-list-head > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.cmp-col .cmp-badge,
-.cmp-note .cmp-badge {
+.cmp-panel .cmp-letter {
   width: 18px;
   height: 18px;
   border-radius: 6px;
@@ -3667,7 +3518,17 @@ body:has(.scrubber:not([hidden])) .toast {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   color: var(--ink);
+}
+.cmp-lang > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmp-list li > .cmp-lang {
+  display: flex;
 }
 .cmp-lang i {
   flex: none;
@@ -3689,60 +3550,99 @@ body:has(.scrubber:not([hidden])) .toast {
 }
 .cmp-num {
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
-.cmp-note {
+/* Each tree's own list, side by side: its folders, or its busiest files. */
+.cmp-lists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.cmp-list {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+}
+.cmp-list-head {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.cmp-list ol {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+.cmp-list li {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
-  margin: 10px 0 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 12.5px;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
 }
-.cmp-note strong {
-  color: var(--ink);
-  font-weight: 600;
+.cmp-list li > :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.cmp-note-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  height: 28px;
-  padding: 0 10px 0 6px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--wash);
-  color: var(--ink);
-  font-size: 12.5px;
-  font-weight: 600;
+.cmp-list .fn {
+  font-family: var(--mono);
+  font-size: 12px;
 }
-@media (hover: hover) and (pointer: fine) {
-  .cmp-note-switch:hover {
-    background: color-mix(in srgb, var(--ink) 12%, transparent);
-  }
+.cmp-panel h3.h {
+  margin-top: 4px;
 }
 @media (max-width: 760px) {
-  .title[data-compare] {
-    width: auto;
-    padding: 8px;
+  .cmp-b {
+    right: max(12px, env(safe-area-inset-right, 0px));
+    justify-items: stretch;
+    gap: 0;
   }
-  .title .compare {
+  /* B's card is one row like A's, and its mark or name opens its field in the card's place. */
+  .cmp-b:not([data-open]) .repo,
+  .cmp-b[data-open] .cmp-card {
+    display: none;
+  }
+  .cmp-b .repo {
+    width: auto;
+    height: 48px;
+  }
+  .cmp-card .weather {
+    order: 2;
+  }
+  .cmp-stop {
+    order: 3;
+    align-self: center;
+  }
+  /* One row, like A's: the name shortens before anything wraps, and only a status takes a second row. */
+  .cmp-card {
+    flex-wrap: nowrap;
+  }
+  .cmp-card:has(.cmp-status:not(:empty)) {
+    flex-wrap: wrap;
+  }
+  .cmp-card > .name {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cmp-card > .name a {
+    display: inline;
+  }
+  .cmp-card > .meta {
+    flex: 1 1 0;
+    padding-left: 0;
+  }
+  .cmp-status {
     flex: 1 0 100%;
-    gap: 6px;
   }
   /* 16px keeps iOS from zooming into the field. */
-  .cmp-field input {
+  #compare-input {
     font-size: 16px;
-  }
-  .cmp-change,
-  .cmp-exit {
-    height: 34px;
-  }
-  .cmp-state {
-    display: none;
   }
   .island-tag {
     max-width: 160px;

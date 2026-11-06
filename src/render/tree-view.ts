@@ -117,6 +117,8 @@ export type ViewStats = {
   renders: number;
   /** How far the camera stands from the point it orbits. */
   distance: number;
+  /** The point the camera orbits, in world space. */
+  target: [number, number, number];
   calls: number;
   triangles: number;
   geometries: number;
@@ -477,6 +479,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.enablePan = false;
+  // A pinch or the wheel zooms toward what is under the fingers or the pointer, not the middle;
+  // reaim keeps the point the camera turns about within reach of the tree (controls.cursor).
+  controls.zoomToCursor = true;
   controls.maxPolarAngle = Math.PI * 0.53;
   controls.autoRotate = options.spin;
   controls.autoRotateSpeed = SPIN_SPEED;
@@ -596,6 +601,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const room = roomOf();
     const whole = frameTree(room, camera.aspect, SKY_LIFT);
     weather.setStage(shown.model.bounds, { eye: whole.position[1], top: skyTop(whole) }, groundOn);
+    // Zooming toward a point moves what the camera turns about; it stays inside the stage's
+    // bounding sphere, so no zoom leaves the tree behind.
+    const reach = union(room, shown.bounds);
+    const half = [0, 1, 2].map((i) => (reach.max[i]! - reach.min[i]!) / 2);
+    controls.cursor.set(...([0, 1, 2].map((i) => reach.min[i]! + half[i]!) as Vec3));
+    controls.maxTargetRadius = Math.hypot(...half);
     if (!aim) return;
     controls.minDistance = whole.minDistance;
     controls.maxDistance = whole.maxDistance;
@@ -1585,6 +1596,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       return {
         renders,
         distance: camera.position.distanceTo(controls.target),
+        target: controls.target.toArray(),
         calls: render.calls,
         triangles: render.triangles,
         geometries: memory.geometries,

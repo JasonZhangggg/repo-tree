@@ -9,6 +9,13 @@ import { HISTORY_URL } from '../../repo/history';
 import { describeError, type ErrorAction } from '../errors';
 import { compact, count, plural } from '../format';
 import { readRecent } from '../recent';
+import {
+  createRepoSuggester,
+  matchLocal,
+  repoQuery,
+  type RepoHit,
+  type RepoSearchResult,
+} from '../../repo/repo-search';
 import { SAMPLES } from '../samples';
 import { partnerChoices } from '../compare';
 import { ciFailed, ciOf, MAX_COMPARED, sameRef, type AppState } from '../state';
@@ -65,6 +72,7 @@ export function mountHeader(app: App): void {
   };
 
   const closeSuggest = () => {
+    suggester.cancel();
     suggest.hidden = true;
     input.setAttribute('aria-expanded', 'false');
   };
@@ -127,47 +135,105 @@ export function mountHeader(app: App): void {
     input.blur();
   };
 
+  /** GitHub's answer for what was last searched, or null before any. */
+  let remote: { text: string; result: RepoSearchResult | null } | null = null;
+  const suggester = createRepoSuggester({
+    token: () => githubToken(store.get().settings.token),
+    onResult: (text, result) => {
+      if (text !== input.value) return;
+      remote = { text, result };
+      if (!suggest.hidden || document.activeElement === input) openSuggest();
+    },
+  });
+
+  /** The list under the field: recent repos and samples that match what is typed, then GitHub's. */
   const openSuggest = () => {
+    const text = input.value;
     const recent = readRecent();
-    const row = (label: string, glyph: string[], note?: string) =>
+    const row = (label: string, glyph: string[], note?: string, description?: string) =>
       h(
         'button',
         { type: 'button', onclick: () => choose(label) },
         icon(...glyph),
-        h('span', {}, label),
+        h('span', {}, h('i', {}, ...marked(label, text)), description && h('em', {}, description)),
         note && h('small', {}, note),
       );
     const sampleRow = (ref: { owner: string; repo: string }) => {
       const sample = SAMPLES.find((s) => sameRef(plainOf(s), plainOf(ref)))!;
       return row(`${ref.owner}/${ref.repo}`, ICONS.sample, `${compact(sample.files)} files`);
     };
-    if (adding()) {
-      // Only repos not already compared.
-      const { repo, compare } = store.get();
-      const taken = [...(repo ? [plainOf(repo.info.ref)] : []), ...compare];
-      const choices = partnerChoices(taken, recent);
-      suggest.replaceChildren(
-        ...(choices.recent.length
-          ? [
-              h('p', { class: 'h' }, 'Recent'),
-              ...choices.recent.map((r) => row(`${r.owner}/${r.repo}`, ICONS.history)),
-            ]
-          : []),
-        ...(choices.samples.length
-          ? [h('p', { class: 'h' }, 'Bundled samples'), ...choices.samples.map(sampleRow)]
-          : []),
-      );
-    } else {
-      suggest.replaceChildren(
-        ...(recent.length
-          ? [h('p', { class: 'h' }, 'Recent'), ...recent.map((r) => row(r, ICONS.history))]
-          : []),
-        h('p', { class: 'h' }, 'Bundled samples'),
-        ...SAMPLES.map(sampleRow),
-      );
-    }
+    const section = (heading: string, rows: HTMLElement[]) =>
+      rows.length ? [h('p', { class: 'h' }, heading), ...rows] : [];
+    const name = (r: { owner: string; repo: string }) => `${r.owner}/${r.repo}`;
+    // In adding mode, only repos not already compared.
+    const { repo, compare } = store.get();
+    const taken = adding() ? [...(repo ? [plainOf(repo.info.ref)] : []), ...compare] : [];
+    const choices = adding() ? partnerChoices(taken, recent) : null;
+    const recentNames = matchLocal(text, choices ? choices.recent.map(name) : recent);
+    const allSamples = choices ? choices.samples : SAMPLES.map(plainOf);
+    const sampleNames = new Set(matchLocal(text, allSamples.map(name)).map(lower));
+    const samples = allSamples.filter((s) => sampleNames.has(lower(name(s))));
+    const shown = new Set([...recentNames, ...samples.map(name)].map(lower));
+    const takenNames = new Set(taken.map((r) => lower(name(r))));
+    suggest.replaceChildren(
+      ...section(
+        'Recent',
+        recentNames.map((r) => row(r, ICONS.history)),
+      ),
+      ...section('Bundled samples', samples.map(sampleRow)),
+      ...githubSection(
+        text,
+        (hit) => !shown.has(lower(hit.name)) && !takenNames.has(lower(hit.name)),
+      ),
+    );
     suggest.hidden = !suggest.childElementCount;
     input.setAttribute('aria-expanded', String(!suggest.hidden));
+
+    function githubSection(text: string, fresh: (hit: RepoHit) => boolean): HTMLElement[] {
+      const query = repoQuery(text);
+      if (!query) return [];
+      const slash = text.replace(GITHUB_URL, '').indexOf('/');
+      const heading =
+        slash > 0
+          ? `${text.trim().replace(GITHUB_URL, '').slice(0, slash)} on GitHub`
+          : 'On GitHub';
+      const result = remote?.result;
+      const current = remote?.text === text;
+      const note = (...children: (string | Node)[]) => [h('p', { class: 'note' }, ...children)];
+      if (result?.kind === 'ok') {
+        // While a newer search is on its way, keep the last answer's rows that still match.
+        const hits = (
+          current ? result.hits : result.hits.filter((hit) => matchLocal(text, [hit.name]).length)
+        )
+          .filter(fresh)
+          .map((hit) => row(hit.name, ICONS.repo, `★ ${compact(hit.stars)}`, hit.description));
+        if (hits.length || current) return section(heading, hits);
+      }
+      if (current && result?.kind === 'rate-limited') {
+        const seconds = Math.max(1, Math.ceil((result.resetAt - Date.now()) / 1000));
+        const signedOut = !githubToken(store.get().settings.token);
+        return note(
+          `GitHub search is resting for ${seconds} s.`,
+          ...(signedOut
+            ? [
+                ' ',
+                h(
+                  'button',
+                  { type: 'button', class: 'link', onclick: () => app.signIn() },
+                  'Sign in',
+                ),
+                ' to search 3× more often.',
+              ]
+            : []),
+          ` Enter still ${adding() ? 'adds' : 'grows'} any owner/repo.`,
+        );
+      }
+      if (current && result?.kind === 'error')
+        return note(
+          `GitHub search isn't answering. Enter still ${adding() ? 'adds' : 'grows'} any owner/repo.`,
+        );
+      return note('Searching GitHub…');
+    }
   };
 
   form.addEventListener('submit', (event) => {
@@ -187,7 +253,11 @@ export function mountHeader(app: App): void {
     setAdding(false);
     input.blur();
   });
-  input.addEventListener('input', () => setInvalid(''));
+  input.addEventListener('input', () => {
+    setInvalid('');
+    openSuggest();
+    suggester.update(input.value);
+  });
   // The hint is about what was typed, so it goes when the field does.
   input.addEventListener('blur', () => {
     if (!input.value.trim()) setInvalid('');
@@ -630,4 +700,19 @@ function placeAlerts(alerts: HTMLElement): void {
   addEventListener('resize', place);
   phone.addEventListener('change', place);
   place();
+}
+
+const lower = (text: string) => text.toLowerCase();
+const GITHUB_URL = /^\s*(?:https?:\/\/)?(?:www\.)?github\.com\//i;
+
+/** The label with the typed text in bold where it appears, for the list's rows. */
+function marked(label: string, typed: string): (string | Node)[] {
+  const text = typed.replace(GITHUB_URL, '').trim().toLowerCase();
+  const at = text ? label.toLowerCase().indexOf(text) : -1;
+  if (at < 0) return [label];
+  return [
+    label.slice(0, at),
+    h('b', {}, label.slice(at, at + text.length)),
+    label.slice(at + text.length),
+  ];
 }

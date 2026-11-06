@@ -314,10 +314,25 @@ byId('grow').addEventListener('click', () => view.grow());
 /** Reset view shows once the camera has zoomed, panned or glided off the whole tree. */
 const resetButton = byId<HTMLButtonElement>('reset-view');
 resetButton.addEventListener('click', () => view.frameFolder(0));
-view.onFrame(() => {
+/** How long the camera must stay off (or back on) the whole tree before the button follows. */
+const RESET_SETTLE_MS = 350;
+let resetTimer = 0;
+const syncReset = () => {
   const away = !view.atHome();
-  if (resetButton.hidden === away) resetButton.hidden = !away;
-});
+  // A camera hovering at the edge of "home" (a framing still easing, a nudge of a zoom) would
+  // flash the button on and off every frame: it changes only once the new state has held, and
+  // a timer, not the next frame, makes the change, since a still scene stops drawing frames.
+  if (resetButton.hidden !== away) {
+    clearTimeout(resetTimer);
+    resetTimer = 0;
+  } else if (!resetTimer) {
+    resetTimer = window.setTimeout(() => {
+      resetTimer = 0;
+      if (resetButton.hidden === !view.atHome()) resetButton.hidden = view.atHome();
+    }, RESET_SETTLE_MS);
+  }
+};
+view.onFrame(syncReset);
 mountHint();
 // iOS Safari ignores user-scalable=no; its own gesture events are the way to keep a pinch
 // from zooming the page, so it zooms the tree alone.
@@ -425,8 +440,11 @@ const panels = [
  * On a desktop the repo card and the side panel grow with the repo's name and lists. Framing
  * reserves the card's whole column (its widest, as the CSS caps it with --col) and the side
  * panel's whole column, so repos frame into the same region and their islands show at one size.
+ * The controls reserve their whole band across the bottom: Reset view shows and hides with the
+ * framing, and if its width moved the framing, showing it would hide it again, on repeat.
  */
 function reserved(panel: HTMLElement, rect: Rect, origin: DOMRect): Rect {
+  if (panel === controls) return { ...rect, left: 0, right: origin.width };
   if (phone.matches) return rect;
   if (panel === title) {
     const col = Math.min(520, origin.width * 0.42);

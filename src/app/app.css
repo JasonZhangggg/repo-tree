@@ -2075,6 +2075,19 @@ body:not([data-shell]) :is(.bar, .title) {
   color: var(--muted);
   font-size: 13.5px;
 }
+.search-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.search-close span {
+  display: none;
+}
 .search-foot {
   display: flex;
   gap: 14px;
@@ -2082,6 +2095,27 @@ body:not([data-shell]) :is(.bar, .title) {
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 12px;
+}
+/* A touch screen has no Esc or arrow keys: the hint becomes a Cancel to tap, and the key footer goes. */
+@media (hover: none), (pointer: coarse) {
+  .search-close {
+    height: 36px;
+    margin-right: -6px;
+    padding: 0 10px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--accent);
+  }
+  .search-close kbd {
+    display: none;
+  }
+  .search-close span {
+    display: inline;
+  }
+  .search-foot {
+    display: none;
+  }
 }
 .settings {
   top: calc(env(safe-area-inset-top, 0px) + 66px);

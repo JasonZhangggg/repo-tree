@@ -11,7 +11,7 @@ import { debug } from './debug';
 import { sampleFor, type Sample } from './samples';
 import { qualityOf, type Repo, type Store } from './state';
 
-const SEED = 42;
+export const SEED = 42;
 const KEEP = 4;
 
 /**

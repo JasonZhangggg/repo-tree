@@ -30,6 +30,7 @@ import { mountShortcuts } from './app/ui/shortcuts';
 import { childrenOf, mountSide } from './app/ui/side';
 import { mountHistoryCompute } from './app/ui/history-compute';
 import { mountTimeline } from './app/ui/timeline';
+import { mountCompare } from './app/ui/compare';
 
 const SETTINGS_KEY = 'repo-tree:settings';
 const MEASURE_MS = 2000;
@@ -59,6 +60,7 @@ const store = createStore({
   preview: null,
   timeline: null,
   history: null,
+  compare: null,
 });
 
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -183,6 +185,7 @@ function linkOf(state: AppState): string | null {
     hl: highlight ?? undefined,
     wx: state.preview ?? undefined,
     t: state.timeline ?? undefined,
+    vs: state.compare ?? undefined,
   });
 }
 
@@ -192,6 +195,7 @@ function applyLink(link: ViewLink) {
   if (link.colorBy) patch.colorBy = link.colorBy;
   if (Object.keys(patch).length) store.dispatch({ type: 'settings', patch });
   store.dispatch({ type: 'preview', sky: link.wx ?? null });
+  store.dispatch({ type: 'compare', ref: link.vs ?? null });
   const { repo } = store.get();
   const same =
     repo &&
@@ -494,6 +498,11 @@ addEventListener('keydown', (event) => {
   const typing = target.matches('input, textarea, select, [contenteditable]');
   // The shortcuts dialog is modal and closes on Escape by itself.
   if (shortcuts.isOpen()) return;
+  // The compare view covers the app: Escape closes it, and the app's shortcuts wait.
+  if (compare.isOpen()) {
+    if (event.key === 'Escape') compare.close();
+    return;
+  }
   if (event.key === 'Escape') {
     if (search.close() || settings.close() || compute.close() || typing) return;
     const { selection, highlight, load } = store.get();
@@ -541,6 +550,15 @@ const timeline = mountTimeline(
   compute,
 );
 const settings = mountSettings(app);
+const compare = mountCompare(app, {
+  reducedMotion: () => reducedMotion(store.get().settings),
+  pauseMain(paused) {
+    // Hidden behind the compare view, the main tree stops spinning and swaying.
+    const state = store.get();
+    view.setSpin(!paused && spinning(state));
+    view.setReducedMotion(paused || reducedMotion(state.settings));
+  },
+});
 const shortcuts = mountShortcuts();
 byId('help-keys').addEventListener('click', () => shortcuts.open());
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });

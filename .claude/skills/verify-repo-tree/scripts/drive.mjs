@@ -2,7 +2,7 @@
 // Usage: node .claude/skills/verify-repo-tree/scripts/drive.mjs <command> [--port 4175]
 //          [--out dir] [--viewport desktop|phone|phone-390] [--scale 2] [--history]
 // Commands: launch, doctor, cleanup, or a journey: load-repo, explore, search, settings,
-// share-and-export, phone-layout, tree-sizes, timeline, weather, birds, hover, activity, changes, busiest,
+// share-and-export, phone-layout, tree-sizes, timeline, compare, weather, birds, hover, activity, changes, busiest,
 // history-compute.
 // `launch --history` starts e2e/history-stack.mjs instead (app, history Worker and fake GitHub
 // on port, port+1 and port+2), which the history-compute journey needs. Journeys save numbered screenshots and report.json in --out
@@ -532,6 +532,43 @@ const JOURNEYS = {
     }
   },
 
+  compare: async ({ page, step }) => {
+    const pane = (side) => page.locator(`.cmp-pane[data-side="${side}"]`);
+    const paneReady = (side, repo) =>
+      expect(pane(side)).toHaveAttribute('data-ready', repo, { timeout: 60_000 });
+    await serveRepo(page, 'acme/widgets');
+    await step('open', async () => {
+      await page.goto(base);
+      await ready(page, 'vitejs/vite');
+      // On a phone Compare sits behind More actions.
+      if (await page.locator('#compare-open').isHidden()) {
+        await page.getByRole('button', { name: 'More actions' }).click();
+      }
+      await page.getByRole('button', { name: 'Compare trees' }).click();
+      await paneReady('a', 'vitejs/vite');
+      await paneReady('b', 'mathiasbynens/dotfiles');
+      await expect(page).toHaveURL(/vs=mathiasbynens\/dotfiles/);
+      await expect(page.locator('#compare-line')).toHaveText(/vite has \d+× the files of dotfiles/);
+    });
+    await step('change', async () => {
+      await page.getByRole('button', { name: 'Change', exact: true }).click();
+      await page.getByLabel('Repository to compare').fill('acme/widgets');
+      await page.getByLabel('Repository to compare').press('Enter');
+      await paneReady('b', 'acme/widgets');
+      await expect(page).toHaveURL(/vs=acme\/widgets/);
+    });
+    await step('swap', async () => {
+      await page.getByRole('button', { name: 'Swap sides' }).click();
+      await paneReady('a', 'acme/widgets');
+      await paneReady('b', 'vitejs/vite');
+    });
+    await step('close', async () => {
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog', { name: 'Compare trees' })).toBeHidden();
+      await ready(page, 'acme/widgets');
+      await expect(page).not.toHaveURL(/vs=/);
+    });
+  },
   timeline: async ({ page, step, out }) => {
     const date = page.locator('#timeline-date');
     const files = page.locator('#timeline-files');

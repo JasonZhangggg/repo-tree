@@ -245,6 +245,20 @@
       <button
         type="button"
         class="pill-btn"
+        id="compare-open"
+        aria-label="Compare trees"
+        aria-disabled="true"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4v16" />
+          <path d="M7 18v-4m0 0c-2 0-3-1.3-3-3 2 0 3 1.3 3 3Zm0-2c0-2 1-3 3-3 0 1.7-1 3-3 3Z" />
+          <path d="M17 18v-5m0 1c-2 0-3-1.3-3-3 2 0 3 1.3 3 3Zm0-1c0-2 1-3 3-3 0 1.7-1 3-3 3Z" />
+        </svg>
+        <span>Compare</span>
+      </button>
+      <button
+        type="button"
+        class="pill-btn"
         id="grow"
         aria-keyshortcuts="g"
         aria-label="Grow again"
@@ -329,6 +343,14 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="pr-title"
+      hidden
+    ></div>
+    <div
+      class="compare"
+      id="compare"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="compare-title"
       hidden
     ></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

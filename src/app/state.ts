@@ -60,6 +60,8 @@ export type AppState = {
   timeline: number | null;
   /** Loaded only once something on show needs it (activity, changes or owner colors); null until then. */
   history: HistoryFacts | null;
+  /** The repo grown beside the one on show in the compare view, or null while it is closed. */
+  compare: RepoRef | null;
 };
 
 export type Action =
@@ -85,7 +87,8 @@ export type Action =
   | { type: 'pulls'; key: string; pulls: OpenPulls | null }
   | { type: 'preview'; sky: Sky | null }
   | { type: 'timeline'; at: number | null }
-  | { type: 'history'; history: HistoryFacts };
+  | { type: 'history'; history: HistoryFacts }
+  | { type: 'compare'; ref: RepoRef | null };
 
 const IDLE: LoadState = { phase: 'idle' };
 
@@ -144,6 +147,8 @@ export function reduce(state: AppState, action: Action): AppState {
       return action.at === state.timeline ? state : { ...state, timeline: action.at };
     case 'history':
       return action.history.repo === state.repo ? { ...state, history: action.history } : state;
+    case 'compare':
+      return sameRef(action.ref, state.compare) ? state : { ...state, compare: action.ref };
   }
 }
 
@@ -169,6 +174,16 @@ export function ciFailed(state: AppState): boolean {
   const { repo, settings, preview } = state;
   if (!repo || !settings.weather || preview) return false;
   return state.ci[ciKey(repo.info.ref, repo.info.branch)] === null;
+}
+
+/** Whether two refs name the same repo and branch; GitHub names ignore case. */
+export function sameRef(a: RepoRef | null, b: RepoRef | null): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.owner.toLowerCase() === b.owner.toLowerCase() &&
+    a.repo.toLowerCase() === b.repo.toLowerCase() &&
+    a.ref === b.ref
+  );
 }
 
 /** Whether what is on show needs the repo's history. */

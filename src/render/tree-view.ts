@@ -48,6 +48,7 @@ import {
   DEAD_BLEACH,
   leafMapping,
   PALETTES,
+  slotColors,
   type ColorBy,
   type LegendEntry,
   type Palette,
@@ -68,6 +69,7 @@ import {
   SKY_VERTEX,
   treeUniforms,
 } from './shaders';
+import { claimUniforms, releaseUniforms } from './uniform-owner';
 import {
   createWeather,
   MOONLIGHT,
@@ -138,6 +140,11 @@ export interface TreeView {
   setPalette(id: PaletteId): void;
   /** Leaf colors by language, top-level folder or, once `setFacts` gave the history, activity or owner. */
   setColorBy(by: ColorBy): void;
+  /**
+   * Ranks languages for leaf colors by these file counts (any language missing counts 0) instead
+   * of the tree's own, so trees shown together give each language one color; null restores.
+   */
+  setLanguageRank(rank: ReadonlyMap<string, number> | null): void;
   /**
    * What the repo's history says about the tree on show (timeline/facts.ts), or null; a new
    * tree clears it. Activity colors need it; without it they fall back to language.
@@ -287,6 +294,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   let colorBy = options.colorBy;
   let facts: Facts | null = null;
   let reducedMotion = options.reducedMotion;
+  /** This view's claim on the shared shader uniforms (uniform-owner.ts). */
+  const self = {};
+  claimUniforms(self);
+  /** Leaf colors rank languages by these file counts instead of the tree's own, while set. */
+  let rank: ReadonlyMap<string, number> | null = null;
   birdUniforms.uBirdMotion.value = reducedMotion ? 0 : 1;
   treeUniforms.uWind.value = reducedMotion ? 0 : 1;
   birdUniforms.uBirdSize.value = BIRD_SIZE;
@@ -491,6 +503,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   const resize = () => {
+    claimUniforms(self);
     renderer.setSize(
       Math.max(1, container.clientWidth),
       Math.max(1, container.clientHeight),
@@ -593,6 +606,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
   const frame = (now: number) => {
     raf = 0;
+    claimUniforms(self);
     const dt = lastFrame ? Math.min(0.1, (now - lastFrame) / 1000) : 1 / 60;
     lastFrame = now;
     let busy = false;
@@ -917,7 +931,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       LIGHT.sky * weatherLight(weatherShown?.sky ?? null).sky * moonlight().sky * (1 + flash * 0.6);
   };
 
-  const categories = () => leafCategories(shown!.model, colorBy, palette, facts);
+  const categories = () => leafCategories(shown!.model, colorBy, palette, facts, rank);
   /** Activity colors show only once the history is in; until then leaves keep their language. */
   const byActivity = () => colorBy === 'activity' && facts !== null;
   /** Changes colors likewise wait for the history. */
@@ -1097,7 +1111,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   mountRenderer();
   applyPalette();
 
-  return {
+  const api: TreeView = {
     setTree(model) {
       releaseTree();
       treeUniforms.uFocus.value = -1;
@@ -1203,6 +1217,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
     setColorBy(by) {
       colorBy = by;
+      applyColorBy();
+    },
+
+    setLanguageRank(next) {
+      rank = next;
       applyColorBy();
     },
 
@@ -1425,8 +1444,18 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       renderer.dispose();
       renderer.domElement.remove();
       listeners.clear();
+      releaseUniforms(self);
     },
   };
+  // Every call may change or read the shared uniforms, so it claims them first.
+  for (const key of Object.keys(api) as (keyof TreeView)[]) {
+    const method = api[key] as (...args: unknown[]) => unknown;
+    (api as unknown as Record<string, unknown>)[key] = (...args: unknown[]) => {
+      claimUniforms(self);
+      return method(...args);
+    };
+  }
+  return api;
 }
 
 /**
@@ -1439,6 +1468,7 @@ export function leafCategories(
   colorBy: ColorBy,
   palette: Palette,
   facts: Facts | null = null,
+  rank: ReadonlyMap<string, number> | null = null,
 ): { slotOf: number[]; legend: LegendEntry[]; nodeCategory?: Int32Array } {
   if (colorBy === 'changes' && facts) {
     const files = CHANGES.map(() => 0);
@@ -1466,10 +1496,35 @@ export function leafCategories(
     };
   }
   if (colorBy !== 'folder' && !(colorBy === 'owner' && facts)) {
-    return leafMapping(
-      model.langs.map((l) => ({ label: l.lang, files: l.files })),
-      palette,
-    );
+    if (!rank) {
+      return leafMapping(
+        model.langs.map((l) => ({ label: l.lang, files: l.files })),
+        palette,
+      );
+    }
+    // Slots follow the shared ranking, so a language takes the same slot in every tree ranked
+    // by it. The legend lists every shared slot (its index is the slot), with this tree's own
+    // files, which are 0 for a language only the other trees have.
+    const ramp = palette.leaves.length;
+    const order = [...rank]
+      .sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))
+      .map(([label]) => label);
+    const at = new Map(order.map((label, i) => [label, i]));
+    const slotOf = model.langs.map((l) => Math.min(at.get(l.lang) ?? ramp, ramp));
+    const own = new Map<string, number>(model.langs.map((l) => [l.lang, l.files]));
+    const shown = slotColors(palette);
+    const legend = order
+      .slice(0, ramp)
+      .map((label, i) => ({ color: shown[i]!, label, files: own.get(label) ?? 0 }));
+    const rest = model.langs.filter((_, i) => slotOf[i] === ramp);
+    if (rest.length > 0 || order.length > ramp) {
+      legend.push({
+        color: shown[ramp]!,
+        label: `${Math.max(order.length - ramp, rest.length)} more`,
+        files: rest.reduce((sum, l) => sum + l.files, 0),
+      });
+    }
+    return { slotOf, legend };
   }
   const tops = model.labels.map((l) => ({
     label: model.folders.path[l.folder]!,

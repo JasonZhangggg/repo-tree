@@ -27,6 +27,7 @@ const INITIAL: AppState = {
   preview: null,
   timeline: null,
   history: null,
+  compare: null,
 };
 const repo = (name: string, truncated = false) =>
   ({
@@ -202,5 +203,14 @@ describe('weather', () => {
     expect(weatherOf(preview)).toEqual({ sky: 'storm', health: null });
     const off = reduce(preview, { type: 'settings', patch: { weather: false } });
     expect(weatherOf(off)).toBeNull();
+  });
+});
+
+describe('compare', () => {
+  test('opens beside a repo, keeps the same state for the same repo in any case, and closes', () => {
+    const open = run({ type: 'compare', ref: ref('vitejs/vite') });
+    expect(open.compare).toEqual(ref('vitejs/vite'));
+    expect(reduce(open, { type: 'compare', ref: ref('ViteJS/Vite') })).toBe(open);
+    expect(reduce(open, { type: 'compare', ref: null }).compare).toBeNull();
   });
 });

@@ -849,7 +849,7 @@ test('a double click glides to a branch, and from the sky back out', async ({ pa
   expect((await settle(page)).distance, 'back out').toBeCloseTo(whole, 1);
 });
 
-test('? lists the keyboard shortcuts, and D and T switch dark mode and the timeline', async ({
+test('there is no shortcuts panel, and D and T still switch dark mode and the timeline', async ({
   page,
   isMobile,
 }) => {
@@ -857,16 +857,8 @@ test('? lists the keyboard shortcuts, and D and T switch dark mode and the timel
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   await page.keyboard.press('?');
-  const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator('dt')).toHaveCount(8);
-  // Escape closes the dialog alone; the next one reaches the page.
-  await page.keyboard.press('Escape');
-  await expect(dialog).toBeHidden();
-  await page.getByRole('button', { name: 'Shortcuts' }).click();
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: 'Close' }).click();
-  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Shortcuts' })).toHaveCount(0);
 
   await page.keyboard.press('d');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');

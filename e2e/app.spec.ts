@@ -877,3 +877,20 @@ test('? lists the keyboard shortcuts, and D and T switch dark mode and the timel
   await page.keyboard.press('t');
   await expect(page.getByRole('group', { name: 'Timeline' })).toBeHidden();
 });
+
+test('search closes from its own button: Cancel on a touch screen, the Esc hint on a desktop', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await page.locator('#search-open').click();
+  const dialog = page.getByRole('dialog', { name: 'Search folders and files' });
+  await expect(dialog).toBeVisible();
+  const close = dialog.getByRole('button', { name: 'Close search' });
+  await expect(close.getByText('Cancel')).toBeVisible({ visible: isMobile });
+  await expect(close.getByText('esc')).toBeVisible({ visible: !isMobile });
+  await expect(dialog.locator('.search-foot')).toBeVisible({ visible: !isMobile });
+  await close.click();
+  await expect(dialog).toBeHidden();
+});

@@ -33,7 +33,18 @@ export function mountSearch(app: App): { open(): void; close(): boolean } {
       { class: 'search-field' },
       icon('M15.8 15.8 20 20', 'M11 17.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13Z'),
       input,
-      h('kbd', {}, 'esc'),
+      // A key hint for a keyboard, a word to tap on a touch screen: either way it closes.
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'search-close',
+          'aria-label': 'Close search',
+          onclick: () => close(),
+        },
+        h('kbd', {}, 'esc'),
+        h('span', {}, 'Cancel'),
+      ),
     ),
     list,
     empty,

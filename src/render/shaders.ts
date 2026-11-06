@@ -452,7 +452,16 @@ if (aMove > 1.5 && aMove < 3.5) {
   float side = aMove < 2.5 ? 1.0 : -1.0;
   float ruffle = idle * burst(t * 0.45 + 2.0, 40.0) * (0.5 + 0.5 * sin(t * 30.0));
   // Unhurried wingbeats about a slightly raised wing, easing in and out with the flight.
-  float beat = aloft * (0.25 + 0.55 * sin(t * 15.0));
+  float beat = aloft * (0.15 + 0.5 * sin(t * 15.0));
+  // In flight each wing unfolds from the bird's side into a broad open span: its tip swings
+  // out wide, its trailing corner sweeps back past mid-span so the wing has breadth, and its
+  // leading edge stays at the shoulder. Folded on the perch, it eases back as the bird lands.
+  vec3 open = l.x < -0.3
+    ? vec3(-0.1, 0.32, 0.7 * side)
+    : l.y < 0.2
+      ? vec3(-0.3, 0.3, 0.34 * side)
+      : vec3(0.12, 0.33, 0.1 * side);
+  l = mix(l, open, aloft);
   vec2 shoulder = vec2(0.3, 0.1 * side);
   l.yz = shoulder + turn(l.yz - shoulder, side * (beat + ruffle * 0.8));
 }

@@ -277,12 +277,46 @@ test('a rock names its root file on hover and pins it on click', async ({ page, 
   if (name !== 'linux/') {
     await expect(detail(page).locator('.file-card code')).toHaveText(name);
   }
+  // The pinned rock stays lit once the mouse leaves it, as a pinned folder's leaves do.
+  const kept = () => page.evaluate(() => (window as unknown as Debug).__repoTree.keptRock);
+  await page.mouse.move(5, page.viewportSize()!.height - 5);
+  await expect.poll(kept).toBe(rock!.picked.rock);
+  await page.keyboard.press('Escape');
+  await expect.poll(kept).toBeNull();
+});
+
+test('a tapped rock names its file in the sheet and stays lit', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'the phone sheet');
+  test.setTimeout(90_000);
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await settle(page);
+  const rock = await page.evaluate(() => {
+    const { view, tree } = (window as unknown as Debug).__repoTree;
+    const box = document.getElementById('view')!.getBoundingClientRect();
+    for (let y = box.height * 0.95; y > box.height * 0.45; y -= 6)
+      for (let x = box.width * 0.1; x < box.width * 0.9; x += 6) {
+        const picked = view.pickAt(x, y);
+        if (picked?.rock !== undefined && tree.rocks[picked.rock]!.files.length === 1) {
+          return { x: x + box.left, y: y + box.top, rock: picked.rock };
+        }
+      }
+    return null;
+  });
+  expect(rock, 'a rock of one file under some pixel').not.toBeNull();
+  await page.touchscreen.tap(rock!.x, rock!.y);
+  await expect(page.locator('#sheet-stat')).toContainText(/B · in vite\//);
+  await expect(page.locator('#sheet-title')).not.toHaveText('vite/');
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as Debug).__repoTree.keptRock))
+    .toBe(rock!.rock);
 });
 
 type Debug = {
   __repoTree: {
     labels: { path: string; x: number; y: number }[];
-    tree: { folders: { path: string[] } };
+    tree: { folders: { path: string[] }; rocks: { files: number[] }[] };
+    keptRock: number | null;
     view: {
       stats(): { distance: number; renders: number; triangles: number };
       pickAt(x: number, y: number): { folder: number; rock?: number } | null;

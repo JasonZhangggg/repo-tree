@@ -173,6 +173,11 @@ export interface TreeView {
    */
   setHover(hover: Hover | null): void;
   /**
+   * Keeps a rock lit while the rest fades, untinted, once a click pinned its file, as a pinned
+   * folder's leaves stay; or none. What the mouse is over still takes over while it is there.
+   */
+  keepRock(rock: number | null): void;
+  /**
    * Perches birds on folders of the tree on show, or none; a new tree keeps them, on its own
    * folders. They grow in at the end of the tree's growth and hide while the timeline is open.
    */
@@ -585,6 +590,39 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       return Math.hypot(x - cx, y - cy) <= r;
     });
     return hit ? hit.which : null;
+  };
+
+  let hovering: Hover | null = null;
+  let keptRock: number | null = null;
+  /** What stays while the rest fades: what the mouse is over, else a pinned rock, untinted. */
+  const applyFocus = () => {
+    const hover = hovering;
+    const nodes = shown?.model.nodes.folder.length ?? 0;
+    const rocks = shown?.model.rocks.length ?? 0;
+    const sky = hover && 'sky' in hover ? hover.sky : null;
+    const hovered =
+      sky !== null
+        ? SKY_FOCUS
+        : hover && 'bird' in hover && hover.bird !== undefined
+          ? nodes + rocks + hover.bird
+          : hover && 'rock' in hover && hover.rock !== undefined
+            ? nodes + hover.rock
+            : -1;
+    const kept = keptRock !== null && keptRock < rocks ? nodes + keptRock : -1;
+    const focus = hovered !== -1 ? hovered : kept;
+    const tint = hovered !== -1 ? 1 : 0;
+    if (
+      focus === treeUniforms.uFocus.value &&
+      tint === treeUniforms.uFocusTint.value &&
+      sky === skyHovered
+    ) {
+      return;
+    }
+    skyHovered = sky;
+    weather.setFocus(sky, hovered !== -1);
+    treeUniforms.uFocus.value = focus;
+    treeUniforms.uFocusTint.value = tint;
+    requestRender();
   };
 
   const requestRender = () => {
@@ -1101,6 +1139,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     setTree(model) {
       releaseTree();
       treeUniforms.uFocus.value = -1;
+      keptRock = null;
       labelFolders = null;
       const bark = new Mesh(geometry(model.bark), barkMaterial);
       const leafGeometry = geometry(model.leaves).setAttribute(
@@ -1259,22 +1298,13 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     skyTargetAt,
 
     setHover(hover) {
-      const nodes = shown?.model.nodes.folder.length ?? 0;
-      const rocks = shown?.model.rocks.length ?? 0;
-      const sky = hover && 'sky' in hover ? hover.sky : null;
-      const focus =
-        sky !== null
-          ? SKY_FOCUS
-          : hover && 'bird' in hover && hover.bird !== undefined
-            ? nodes + rocks + hover.bird
-            : hover && 'rock' in hover && hover.rock !== undefined
-              ? nodes + hover.rock
-              : -1;
-      if (focus === treeUniforms.uFocus.value && sky === skyHovered) return;
-      skyHovered = sky;
-      weather.setFocus(sky, focus !== -1);
-      treeUniforms.uFocus.value = focus;
-      requestRender();
+      hovering = hover;
+      applyFocus();
+    },
+
+    keepRock(rock) {
+      keptRock = rock;
+      applyFocus();
     },
 
     pickAt(x, y) {

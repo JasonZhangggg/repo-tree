@@ -4,9 +4,40 @@ import { bytes, count, plural } from '../format';
 import { createSearch, type SearchHit } from '../search';
 import type { Repo } from '../state';
 
-/** The "/" palette: fuzzy search over every folder and file of the shown repo. */
-export function mountSearch(app: App): { open(): void; close(): boolean } {
-  const { store } = app;
+/**
+ * Every file a hit stands for, by RepoIndex.files id: a file hit itself, a folder hit all the
+ * files under it. Folders are in preorder, so a parent's mark is set before its children read it.
+ */
+export function matchedFiles(repo: Repo, hits: readonly SearchHit[]): Uint8Array {
+  const { folders, files } = repo.index;
+  const folderLit = new Uint8Array(folders.files.length);
+  const lit = new Uint8Array(files.paths.length);
+  for (const hit of hits) {
+    if (hit.kind === 'folder') folderLit[hit.id] = 1;
+    else lit[hit.id] = 1;
+  }
+  for (let f = 1; f < folderLit.length; f++) {
+    if (folderLit[folders.parent[f]!]) folderLit[f] = 1;
+  }
+  for (let i = 0; i < lit.length; i++) if (folderLit[files.folder[i]!]) lit[i] = 1;
+  return lit;
+}
+
+/**
+ * The "/" palette: fuzzy search over every folder and file of the shown repo. Its matches light
+ * up on the tree while it is open; picking one keeps them lit and shows a bar that steps through
+ * them, gliding to each, until it is closed.
+ */
+export function mountSearch(app: App): {
+  open(): void;
+  close(): boolean;
+  /** Ends stepping through matches, if it runs: the matches go dark and the pin clears. */
+  stop(): boolean;
+  /** Steps to the next match (`by` 1) or the previous (-1), if stepping runs. */
+  step(by: 1 | -1): boolean;
+  stepping(): boolean;
+} {
+  const { store, view } = app;
   const dialog = byId('search');
   const scrim = byId('search-scrim');
   const input = h('input', {
@@ -55,6 +86,43 @@ export function mountSearch(app: App): { open(): void; close(): boolean } {
       h('span', {}, h('kbd', {}, 'enter'), ' to pin'),
     ),
   );
+
+  const stepQuery = h('button', {
+    type: 'button',
+    class: 'steps-query',
+    title: 'Search again',
+    onclick: () => open(),
+  });
+  const stepAt = h('span', { class: 'steps-at', 'aria-live': 'polite' });
+  const stepButton = (label: string, d: string, by: 1 | -1) =>
+    h(
+      'button',
+      { type: 'button', class: 'steps-btn', 'aria-label': label, onclick: () => step(by) },
+      icon(d),
+    );
+  const steps = h(
+    'div',
+    {
+      class: 'steps',
+      id: 'search-steps',
+      role: 'group',
+      'aria-label': 'Search matches',
+      hidden: true,
+    },
+    icon('M15.8 15.8 20 20', 'M11 17.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13Z'),
+    stepQuery,
+    stepAt,
+    stepButton('Previous match', 'm14.5 6-6 6 6 6', -1),
+    stepButton('Next match', 'm9.5 6 6 6-6 6', 1),
+    h(
+      'button',
+      { type: 'button', class: 'steps-btn', 'aria-label': 'Stop searching', onclick: () => stop() },
+      icon(...ICONS.close),
+    ),
+  );
+  document.body.append(steps);
+  /** The matches being stepped through, and which one is pinned. */
+  let stepper: { hits: SearchHit[]; at: number } | null = null;
 
   let search: ((query: string) => SearchHit[]) | null = null;
   let searchedRepo: Repo | null = null;
@@ -127,16 +195,62 @@ export function mountSearch(app: App): { open(): void; close(): boolean } {
       ? `No folder or file matches “${query.trim()}”.`
       : `Search ${count(files.paths.length)} files and ${count(folders.files.length - 1)} folders by name or path.`;
     setActive(0);
+    // The tree shows what the list does, behind the dialog.
+    view.setMatches(hits.length ? matchedFiles(repo, hits) : null);
+  };
+
+  const pin = (hit: SearchHit) => {
+    const repo = store.get().repo;
+    if (!repo) return;
+    if (hit.kind === 'folder') app.select({ folder: hit.id }, true);
+    else app.select({ folder: repo.index.files.folder[hit.id]!, file: hit.id }, true);
+  };
+
+  const showStep = () => {
+    if (!stepper) return;
+    const { hits: all, at } = stepper;
+    stepAt.textContent = `${at + 1} of ${all.length}`;
+    for (const b of steps.querySelectorAll<HTMLButtonElement>('.steps-btn')) {
+      if (b.getAttribute('aria-label') !== 'Stop searching') b.disabled = all.length < 2;
+    }
   };
 
   const choose = (i: number) => {
     const hit = hits[i];
     const repo = store.get().repo;
     if (!hit || !repo) return;
+    stepper = { hits, at: i };
+    stepQuery.textContent = `“${input.value.trim()}”`;
+    steps.hidden = false;
+    showStep();
     close();
-    if (hit.kind === 'folder') app.select({ folder: hit.id }, true);
-    else app.select({ folder: repo.index.files.folder[hit.id]!, file: hit.id }, true);
+    pin(hit);
   };
+
+  function step(by: 1 | -1): boolean {
+    if (!stepper) return false;
+    const n = stepper.hits.length;
+    stepper.at = (stepper.at + by + n) % n;
+    showStep();
+    pin(stepper.hits[stepper.at]!);
+    return true;
+  }
+
+  function stop(): boolean {
+    if (!stepper) return false;
+    stepper = null;
+    steps.hidden = true;
+    view.setMatches(null);
+    app.select(null);
+    return true;
+  }
+
+  // Another repo ends the stepping: its matches name the last one's files.
+  store.subscribe((state, prev) => {
+    if (state.repo === prev.repo) return;
+    stepper = null;
+    steps.hidden = true;
+  });
 
   input.addEventListener('input', run);
   input.addEventListener('keydown', (event) => {
@@ -165,6 +279,9 @@ export function mountSearch(app: App): { open(): void; close(): boolean } {
 
   function close(): boolean {
     if (dialog.hidden) return false;
+    // Closing without a pick puts back the matches being stepped through, or none.
+    const repo = store.get().repo;
+    view.setMatches(stepper && repo ? matchedFiles(repo, stepper.hits) : null);
     input.blur();
     dialog.hidden = true;
     scrim.hidden = true;
@@ -172,5 +289,5 @@ export function mountSearch(app: App): { open(): void; close(): boolean } {
     return true;
   }
 
-  return { open, close };
+  return { open, close, stop, step, stepping: () => stepper !== null };
 }

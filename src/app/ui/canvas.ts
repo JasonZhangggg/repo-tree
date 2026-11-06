@@ -13,7 +13,7 @@ import type { Picked } from '../../render/tree-view';
 
 const TAP_SLOP = 6;
 /** Panels over the canvas that labels keep off. */
-const PANELS = '.bar, .title, .side, .controls';
+const PANELS = '.bar, .title, .side, .controls, .steps';
 /** How much a label straight behind the trunk shrinks, and how much its stem thins. */
 const DEPTH_SHRINK = 0.15;
 const STEM_THIN = 0.4;

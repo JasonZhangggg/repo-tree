@@ -2,6 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { quietSettings, ready, serveRepo } from './github';
 
 test.use({ reducedMotion: 'reduce' });
+// Each test grows two trees, one after the other, on a software renderer shared with other workers.
+test.describe.configure({ timeout: 60_000 });
 
 let errors: string[];
 test.beforeEach(async ({ page }) => {

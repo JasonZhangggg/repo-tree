@@ -45,6 +45,8 @@ export const treeUniforms = {
    * for the sun or a cloud (the whole tree and ground fade), or -1 for nothing.
    */
   uFocus: { value: -1 },
+  /** 1 while search matches are lit: leaves outside them (`aMatch` 0) fade, and bark with them. */
+  uMatch: { value: 0 },
 };
 
 /** Whether an element with pick id `id` fades because the mouse is over something else. */
@@ -136,7 +138,8 @@ vId = aId;
 const SELECTED_OUT = '(uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5))';
 /** Outside the highlighted range, or, with none, not what the mouse is over. */
 const OUTSIDE = `(${SELECTED_OUT} || (uSel.y < 0.0 && ${focusOut('vId')}))`;
-const OTHER_CATEGORY = '(uCategory >= 0.0 && abs(vSlot - uCategory) > 0.5)';
+const OTHER_CATEGORY =
+  '((uCategory >= 0.0 && abs(vSlot - uCategory) > 0.5) || (uMatch > 0.5 && vMatch < 0.5))';
 /**
  * Mixes a `faded` fragment toward the sky by `amount`. `grey` (0 to 1) first drains its color, so
  * a leaf of another category goes the grey of faded bark.
@@ -154,7 +157,7 @@ export const FADE = fade(OUTSIDE);
 export const GROUND_FADE =
   fade(`${SELECTED_OUT} || ${focusOut('vPick')}`) + HOVER_TINT(focusOn('vPick'));
 const FADE_UNIFORMS =
-  'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uCategory;\nuniform float uFocus;\n';
+  'uniform vec2 uSel;\nuniform vec3 uFade;\nuniform float uCategory;\nuniform float uFocus;\nuniform float uMatch;\n';
 
 const HSL = /* glsl */ `
 vec3 hue2rgb(float h) {
@@ -190,7 +193,7 @@ const LEAF_TUNING =
  * Runs on the output color.
  */
 const POP = /* glsl */ `
-if (uCategory >= 0.0 && !${OTHER_CATEGORY}) {
+if ((uCategory >= 0.0 || uMatch > 0.5) && !${OTHER_CATEGORY}) {
   vec3 hsl = toHSL(clamp(gl_FragColor.rgb, 0.0, 1.0));
   bool night = dot(uFade, vec3(0.299, 0.587, 0.114)) < 0.4;
   float l = night ? mix(hsl.z, POP_LIGHT, POP_LIFT) : hsl.z * POP_L;
@@ -205,6 +208,8 @@ if (uCategory >= 0.0 && !${OTHER_CATEGORY}) {
  */
 const LEAF_VERTEX = /* glsl */ `
 attribute float aSlot;
+attribute float aMatch;
+varying float vMatch;
 attribute vec2 aShade;
 attribute float aHeat;
 attribute float aFall;
@@ -284,7 +289,10 @@ export const barkShader = <M extends Material>(m: M) =>
           '#include <color_fragment>',
           '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uDeadBark, vDead);',
         )
-        .replace('#include <dithering_fragment>', fade(`uCategory >= 0.0 || ${OUTSIDE}`));
+        .replace(
+          '#include <dithering_fragment>',
+          fade(`uCategory >= 0.0 || uMatch > 0.5 || ${OUTSIDE}`),
+        );
   });
 
 export const leafShader = <M extends Material>(m: M, slots: number) =>
@@ -294,14 +302,14 @@ export const leafShader = <M extends Material>(m: M, slots: number) =>
       LEAF_VERTEX +
       shader.vertexShader.replace(
         '#include <begin_vertex>',
-        '#include <begin_vertex>\nint slot = int(aSlot);\nvLeaf = offsetHSL(mix(uSlots[slot], uSlots[min(slot + 1, SLOTS - 1)], fract(aSlot)), aShade.x, aShade.y);\nvSlot = aSlot;\nvHeat = aHeat;\n' +
+        '#include <begin_vertex>\nint slot = int(aSlot);\nvLeaf = offsetHSL(mix(uSlots[slot], uSlots[min(slot + 1, SLOTS - 1)], fract(aSlot)), aShade.x, aShade.y);\nvSlot = aSlot;\nvHeat = aHeat;\nvMatch = aMatch;\n' +
           FLUTTER +
           FALL,
       );
     shader.fragmentShader =
       LEAF_TUNING +
       FADE_UNIFORMS +
-      'varying vec3 vLeaf;\nvarying float vSlot;\nvarying float vHeat;\n' +
+      'varying vec3 vLeaf;\nvarying float vSlot;\nvarying float vHeat;\nvarying float vMatch;\n' +
       '#define SELF_LIT 0.5\nuniform float uGlow;\n' +
       HSL +
       shader.fragmentShader
@@ -387,11 +395,11 @@ vGlow = aHeat > 0.0 ? (1.0 - aRim) * (0.55 + 0.45 * aHeat) * uGlow * GLOW_GAIN :
         );
     shader.vertexShader = '#define GLOW_GAIN 1.2\n' + shader.vertexShader;
     shader.fragmentShader =
-      'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\nuniform float uFocus;\n' +
+      'varying float vGlow;\nuniform vec2 uSel;\nuniform float uCategory;\nuniform float uFocus;\nuniform float uMatch;\n' +
       shader.fragmentShader.replace(
         'vec4 diffuseColor = vec4( diffuse, opacity );',
         `vec4 diffuseColor = vec4( diffuse, opacity * clamp(vGlow, 0.0, 1.0) );
-if (${OUTSIDE} || uCategory >= 0.0) diffuseColor.a *= 0.25;`,
+if (${OUTSIDE} || uCategory >= 0.0 || uMatch > 0.5) diffuseColor.a *= 0.25;`,
       );
   });
 

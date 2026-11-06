@@ -173,6 +173,11 @@ export interface TreeView {
    */
   setHover(hover: Hover | null): void;
   /**
+   * Lights the leaves of the files marked in `files` (by RepoIndex.files id, nonzero to light)
+   * and fades the rest of the crown and the bark, as a legend highlight does; or none.
+   */
+  setMatches(files: Uint8Array | null): void;
+  /**
    * Perches birds on folders of the tree on show, or none; a new tree keeps them, on its own
    * folders. They grow in at the end of the tree's growth and hide while the timeline is open.
    */
@@ -585,6 +590,26 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       return Math.hypot(x - cx, y - cy) <= r;
     });
     return hit ? hit.which : null;
+  };
+
+  let matches: Uint8Array | null = null;
+  /** Writes each leaf's `aMatch`: 1 where its sprig stands for any matched file. */
+  const applyMatches = () => {
+    treeUniforms.uMatch.value = matches && shown ? 1 : 0;
+    if (!shown) return;
+    const { leaves, sprigs } = shown.model;
+    const lit = new Float32Array(leaves.nodeId.length);
+    if (matches) {
+      for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
+        for (let k = sprigs.file[s]!; k < sprigs.file[s + 1]!; k++) {
+          if (!matches[sprigs.files[k]!]) continue;
+          lit.fill(1, sprigs.vertex[s]!, sprigs.vertex[s + 1]!);
+          break;
+        }
+      }
+    }
+    shown.leaves.geometry.setAttribute('aMatch', new BufferAttribute(lit, 1));
+    requestRender();
   };
 
   const requestRender = () => {
@@ -1133,6 +1158,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       treeUniforms.uFloor.value = model.bounds.min[1];
       treeUniforms.uWindHeight.value = Math.max(1, model.bounds.max[1]);
       applyBirths(null);
+      // Matches name the last tree's files: the caller lights this tree's again.
+      matches = null;
+      applyMatches();
       // Perches name the last tree's folders: the caller gives this tree's.
       birdPerches = null;
       perchBirds();
@@ -1275,6 +1303,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       weather.setFocus(sky, focus !== -1);
       treeUniforms.uFocus.value = focus;
       requestRender();
+    },
+
+    setMatches(files) {
+      matches = files;
+      applyMatches();
     },
 
     pickAt(x, y) {

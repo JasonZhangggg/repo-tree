@@ -47,12 +47,14 @@ export const treeUniforms = {
   uFocus: { value: -1 },
   /** 1 while search matches are lit: leaves outside them (`aMatch` 0) fade, and bark with them. */
   uMatch: { value: 0 },
+  /** 1 tints what uFocus names (the mouse is over it); 0 keeps it plain (a rock pinned by a click). */
+  uFocusTint: { value: 1 },
 };
 
 /** Whether an element with pick id `id` fades because the mouse is over something else. */
 export const focusOut = (id: string) => `(uFocus != -1.0 && abs(${id} - uFocus) > 0.5)`;
 /** Whether an element with pick id `id` is the rock or bird under the mouse. */
-const focusOn = (id: string) => `(uFocus >= 0.0 && abs(${id} - uFocus) < 0.5)`;
+const focusOn = (id: string) => `(uFocusTint > 0.5 && uFocus >= 0.0 && abs(${id} - uFocus) < 0.5)`;
 /**
  * Shifts the color of what the mouse is over a little toward a warm light where `on` holds, so it
  * stands out from the faded scene without glowing.
@@ -71,7 +73,7 @@ export function focusFading<M extends Material>(material: M): M {
   material.onBeforeCompile = (shader, renderer) => {
     own(shader, renderer);
     shader.fragmentShader =
-      'uniform float uFocus;\nuniform vec3 uFade;\n' +
+      'uniform float uFocus;\nuniform float uFocusTint;\nuniform vec3 uFade;\n' +
       shader.fragmentShader.replace(
         '#include <dithering_fragment>',
         fade(focusOut('vId')) + HOVER_TINT(focusOn('vId')),

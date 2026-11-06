@@ -202,7 +202,10 @@ export function mountCanvas(app: App): {
     // A bird says which pull request it stands for, and keeps the pin as it was.
     if (picked?.bird !== undefined && pr.open(picked.bird)) return;
     const repo = store.get().repo;
+    // The rock of several files pins the root folder plainly, so it remembers it was a rock.
+    pilePinned = picked?.rock !== undefined && !!repo && rockFiles(repo, picked.rock).length > 1;
     app.select(picked === null || !repo ? null : selectionOf(repo, picked));
+    keepRock(store.get());
   });
 
   // A double click glides to the branch under it (the first click pinned it), or back out to
@@ -424,7 +427,38 @@ export function mountCanvas(app: App): {
     else lastGlide = 0;
   };
 
+  /** Whether the pin came from a tap on the rock of several files. */
+  let pilePinned = false;
+  /** The rock the pin stands for: the one holding its file, or the pile tapped for it. */
+  const rockOf = ({ repo, selection }: AppState): number | null => {
+    if (!repo || selection?.folder !== 0) return null;
+    const { rocks } = repo.tree;
+    if (selection.file === undefined) {
+      return pilePinned && rocks.length > 0 && rocks.at(-1)!.files.length > 1
+        ? rocks.length - 1
+        : null;
+    }
+    const own = selection.file - repo.index.folders.own[0]!;
+    const rock = rocks.findIndex((r) => r.files.includes(own));
+    return rock < 0 ? null : rock;
+  };
+  let kept: number | null = null;
+  /** A pinned rock stays lit while the rest fades, as a pinned folder's leaves do. */
+  const keepRock = (state: AppState) => {
+    const rock = rockOf(state);
+    if (rock === kept) return;
+    kept = debug.keptRock = rock;
+    view.keepRock(rock);
+  };
+
   store.subscribe((state, prev) => {
+    if (
+      state.repo !== prev.repo ||
+      (state.selection !== prev.selection && state.selection?.folder !== 0)
+    ) {
+      pilePinned = false;
+    }
+    if (state.selection !== prev.selection || state.repo !== prev.repo) keepRock(state);
     if (state.repo && state.repo !== prev.repo) {
       setHovered(null);
       view.setHover(null);

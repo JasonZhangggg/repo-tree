@@ -231,4 +231,37 @@ test.describe('with motion allowed', () => {
     await expect(page.getByRole('button', { name: 'Pause timeline' })).toBeVisible();
     await expect(date(page)).toHaveText(/2020|2021/);
   });
+
+  test('a drag while playing shows the month over the thumb, then plays on', async ({ page }) => {
+    await page.goto('./');
+    await ready(page, 'vitejs/vite');
+    await timelineButton(page).click();
+    await expect(page.getByRole('button', { name: 'Pause timeline' })).toBeVisible();
+    const range = page.getByRole('slider', { name: 'Timeline position' });
+    const box = (await range.boundingBox())!;
+    const y = box.y + box.height / 2;
+    // A press anywhere on the track takes the thumb there, not only on the thumb.
+    await page.mouse.move(box.x + box.width * 0.6, y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.5, y, { steps: 5 });
+    const bubble = page.locator('#timeline-bubble');
+    await expect(bubble).toHaveCSS('opacity', '1');
+    await expect(bubble).toHaveText((await date(page).textContent())!);
+    await expect(page.getByRole('button', { name: 'Play timeline' })).toBeVisible();
+    const held = await date(page).textContent();
+    await page.mouse.up();
+    await expect(bubble).toHaveCSS('opacity', '0');
+    await expect(page.getByRole('button', { name: 'Pause timeline' })).toBeVisible();
+    await expect(date(page)).not.toHaveText(held!);
+  });
+});
+
+test('a phone gives the track the whole width', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'the phone layout');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await timelineButton(page).click();
+  const range = (await page.getByRole('slider', { name: 'Timeline position' }).boundingBox())!;
+  const bar = (await scrubber(page).boundingBox())!;
+  expect(range.width / bar.width).toBeGreaterThan(0.85);
 });

@@ -1719,12 +1719,14 @@ body:not([data-shell]) :is(.bar, .title) {
     transform 0.16s var(--ease),
     box-shadow 0.16s var(--ease);
 }
+[data-dragging] #timeline-range::-webkit-slider-thumb,
 #timeline-range:active::-webkit-slider-thumb {
   transform: scale(1.2);
   box-shadow:
     0 0 0 6px rgba(184, 64, 31, 0.14),
     0 2px 6px rgba(60, 40, 20, 0.3);
 }
+[data-dragging] #timeline-range::-moz-range-thumb,
 #timeline-range:active::-moz-range-thumb {
   transform: scale(1.2);
   box-shadow:
@@ -3278,5 +3280,72 @@ body:has(.scrubber:not([hidden])) .toast {
   .steps-btn {
     width: 40px;
     height: 40px;
+  }
+}
+
+/* While the thumb is dragged a bubble over it names the month, which a finger would hide. */
+.scrub-bubble {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: calc(var(--thumb) / 2 + var(--at, 1) * (100% - var(--thumb)));
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--on-ink);
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 4px) scale(0.92);
+  transition:
+    opacity 0.14s var(--ease),
+    transform 0.14s var(--ease);
+}
+.scrub-bubble::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+  transform: translateX(-50%);
+}
+.scrubber[data-dragging] .scrub-bubble {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+/* A phone gives the track a row of its own, the full width, above play, the date and close. */
+@media (max-width: 760px) {
+  .scrubber {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      'track track track'
+      'play when close';
+    row-gap: 2px;
+    padding: 6px 8px 8px;
+    border-radius: 26px;
+  }
+  .scrub-track {
+    grid-area: track;
+    margin: 0 6px;
+    height: 44px;
+  }
+  #timeline-range {
+    height: 30px;
+  }
+  .scrub-play {
+    grid-area: play;
+  }
+  .scrub-when {
+    grid-area: when;
+    width: auto;
+  }
+  .scrub-close {
+    grid-area: close;
+    margin-left: 0;
   }
 }

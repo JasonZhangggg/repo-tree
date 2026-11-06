@@ -3,11 +3,11 @@ import type { Loaded } from '../load/load-in-worker';
 import { parseRepoRef, type RepoRef } from '../repo/ref';
 import { treeHeight } from '../grow/size';
 import {
-  defaultPartner,
   languageRows,
-  pairScale,
+  partnerChoices,
   sharedRank,
   sizeLine,
+  sizeScales,
   treeStats,
 } from './compare';
 
@@ -57,46 +57,64 @@ describe('compare', () => {
     expect(rank.get('TypeScript')).toBeCloseTo(50 / 55 + 20 / 61);
     expect(rank.get('C')).toBeCloseTo(40 / 61);
     expect(rank.get('CSS')).toBeCloseTo(5 / 55);
-    expect(languageRows(a, b, 3)).toEqual([
-      { lang: 'TypeScript', a: 50, b: 20 },
-      { lang: 'C', a: 0, b: 40 },
-      { lang: 'CSS', a: 5, b: 0 },
+    expect(languageRows([a, b], 3)).toEqual([
+      { lang: 'TypeScript', files: [50, 20] },
+      { lang: 'C', files: [0, 40] },
+      { lang: 'CSS', files: [5, 0] },
     ]);
   });
 
   test('says how the sizes compare', () => {
-    expect(sizeLine({ name: 'vite', files: 2916 }, { name: 'dotfiles', files: 36 })).toBe(
-      'vite has 81× the files of dotfiles',
-    );
-    expect(sizeLine({ name: 'a', files: 30 }, { name: 'b', files: 100 })).toBe(
-      'b has 3.3× the files of a',
-    );
-    expect(sizeLine({ name: 'a', files: 100 }, { name: 'b', files: 102 })).toBe(
-      'a and b have about as many files',
-    );
+    expect(
+      sizeLine([
+        { name: 'vite', files: 2916 },
+        { name: 'dotfiles', files: 36 },
+      ]),
+    ).toBe('vite has 81× the files of dotfiles');
+    expect(
+      sizeLine([
+        { name: 'a', files: 30 },
+        { name: 'b', files: 100 },
+      ]),
+    ).toBe('b has 3.3× the files of a');
+    expect(
+      sizeLine([
+        { name: 'a', files: 100 },
+        { name: 'b', files: 102 },
+      ]),
+    ).toBe('a and b have about as many files');
+    // With more trees, the biggest against the smallest.
+    const three = [
+      { name: 'vite', files: 2916 },
+      { name: 'dotfiles', files: 36 },
+      { name: 'react', files: 2410 },
+    ];
+    expect(sizeLine(three)).toBe("vite has the most files, 81× dotfiles's");
   });
 
-  test('opens beside the most recent other repo, else a quick sample that is not on show', () => {
-    expect(defaultPartner(ref('vitejs/vite'), ['vitejs/vite', 'facebook/react'])).toEqual(
-      ref('facebook/react'),
+  test('offers recent repos, then samples, leaving out those already compared', () => {
+    const choices = partnerChoices(
+      [ref('vitejs/vite'), ref('acme/web')],
+      ['vitejs/vite', 'facebook/react', 'ACME/web', 'facebook/react'],
     );
-    expect(defaultPartner(ref('acme/web'), [])).toEqual(ref('vitejs/vite'));
-    expect(defaultPartner(ref('ViteJS/vite'), [])).toEqual(ref('mathiasbynens/dotfiles'));
+    expect(choices.recent).toEqual([ref('facebook/react')]);
+    expect(choices.samples).toEqual([ref('mathiasbynens/dotfiles'), ref('torvalds/linux')]);
   });
 });
 
-describe('pairScale', () => {
-  test('keeps the bigger tree and shrinks the smaller by the cube root of their files', () => {
-    const { a, b } = pairScale(2898, 900);
+describe('sizeScales', () => {
+  test('keeps the biggest tree and shrinks the others by the cube root of their files', () => {
+    const [a, b, c] = sizeScales([2898, 900, 2898]);
     expect(a).toBe(1);
+    expect(c).toBe(1);
     // vite is 3.2× the files: a tree beside it stands about 1/1.48 of its height.
-    expect((treeHeight(900) * b) / treeHeight(2898)).toBeCloseTo(Math.cbrt(900 / 2898), 5);
-    expect(pairScale(900, 2898)).toEqual({ a: b, b: 1 });
+    expect((treeHeight(900) * b!) / treeHeight(2898)).toBeCloseTo(Math.cbrt(900 / 2898), 5);
+    expect(sizeScales([900, 2898])).toEqual([b, 1]);
   });
 
   test('never grows a tree, and keeps a tiny one big enough to see', () => {
-    expect(pairScale(500, 500)).toEqual({ a: 1, b: 1 });
-    const { b } = pairScale(80_000, 1);
-    expect(treeHeight(1) * b).toBeCloseTo(0.35, 5);
+    expect(sizeScales([500, 500])).toEqual([1, 1]);
+    const [, b] = sizeScales([80_000, 1]);
+    expect(treeHeight(1) * b!).toBeCloseTo(0.35, 5);
   });
 });

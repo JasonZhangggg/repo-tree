@@ -13,15 +13,11 @@ describe('share links', () => {
     });
   });
 
-  test('reads and writes the repo compared beside it, and drops a malformed one', () => {
-    const link = { ref: ref('vitejs/vite'), vs: ref('mathiasbynens/dotfiles') };
-    expect(formatLink(link)).toBe('#/vitejs/vite?vs=mathiasbynens/dotfiles');
+  test('reads and writes the repos compared beside it, and drops a malformed one', () => {
+    const link = { ref: ref('vitejs/vite'), vs: [ref('mathiasbynens/dotfiles'), ref('acme/web')] };
+    expect(formatLink(link)).toBe('#/vitejs/vite?vs=mathiasbynens/dotfiles&vs=acme/web');
     expect(parseLink(formatLink(link))).toEqual(link);
     expect(parseLink('#/vitejs/vite?vs=nope')).toEqual({ ref: ref('vitejs/vite') });
-    const first = { ...link, vsFirst: true };
-    expect(formatLink(first)).toBe('#/vitejs/vite?vs=mathiasbynens/dotfiles&vsfirst=1');
-    expect(parseLink(formatLink(first))).toEqual(first);
-    expect(parseLink('#/vitejs/vite?vsfirst=1')).toEqual({ ref: ref('vitejs/vite') });
   });
 
   test('reads a weather preview and drops an unknown one', () => {

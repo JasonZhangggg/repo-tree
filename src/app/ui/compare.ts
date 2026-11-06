@@ -1,253 +1,127 @@
+import { cachedRuns, cacheRuns } from '../../load/cache';
 import { loadInWorker, type Loaded, type LoadSource } from '../../load/load-in-worker';
 import { githubToken } from '../../repo/auth';
-import { parseRepoRef, type RepoRef } from '../../repo/ref';
-import { PALETTES } from '../../render/palette';
+import { ciKey, fetchRuns, loadSampleRuns, type CiRun } from '../../repo/ci';
+import type { RepoRef } from '../../repo/ref';
+import type { Facts } from '../../timeline/facts';
+import { PALETTES, type ColorBy, type LegendEntry } from '../../render/palette';
 import { leafCategories } from '../../render/tree-view';
 import type { App } from '../app';
-import { defaultPartner, languageRows, rankOf, sizeLine, treeStats } from '../compare';
+import { languageRows, rankOf, sizeLine, treeStats } from '../compare';
 import { byId, fill, h, icon, ICONS } from '../dom';
 import { describeError } from '../errors';
 import { bytes, count, percent, plural } from '../format';
 import { SEED } from '../loader';
-import { readRecent } from '../recent';
-import { sampleFor, SAMPLES } from '../samples';
-import { qualityOf, sameRef, type AppState } from '../state';
+import { sampleFor } from '../samples';
+import {
+  companionFactsOf,
+  companionsOf,
+  factsOf,
+  MAX_COMPARED,
+  qualityOf,
+  sameRef,
+  type AppState,
+  type HistoryFacts,
+} from '../state';
+import { paintWeather, repoMeta } from './header';
 
-/** Languages the table lists, across both trees. */
-const LANG_ROWS = 6;
-/** Trees grown to compare, kept so switching back is instant. */
+/** Rows each mode's comparison lists. */
+const ROWS = 6;
+/** Busiest files listed for each tree. */
+const HOT_ROWS = 5;
+/** Trees grown to compare, kept so changing back is instant. */
 const KEEP = 3;
 
-const leafFiles = (s: { langs: { files: number }[] }) =>
-  s.langs.reduce((sum, l) => sum + l.files, 0);
 const nameOf = (ref: { owner: string; repo: string }) => `${ref.owner}/${ref.repo}`;
 const plain = ({ owner, repo }: { owner: string; repo: string }) => ({ owner, repo }) as RepoRef;
+const tail = (path: string) => {
+  const parts = path.split('/');
+  return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : path;
+};
+const letter = (i: number) =>
+  h(
+    'span',
+    { class: 'cmp-letter', 'data-side': 'abcde'[i] ?? 'e', 'aria-hidden': 'true' },
+    'ABCDE'[i] ?? '?',
+  );
 
-type Side = 'a' | 'b';
-const LETTER: Record<Side, string> = { a: 'A', b: 'B' };
-const badge = (side: Side) => h('span', { class: 'cmp-badge', 'data-side': side }, LETTER[side]);
+const MODE_TITLE: Record<ColorBy, string> = {
+  language: 'Languages',
+  folder: 'Top-level folders',
+  activity: 'Last changed',
+  changes: 'How often files change',
+  owner: 'Owners',
+};
+
+/** The letter each compared tree goes by, the repo on show first. */
+const LETTERS = 'ABCDE';
 
 /**
- * Compare trees: two repos, A and B, each on its own island in the same world, A on the left in
- * the default view. The title card turns into a compare card with one identical row per tree:
- * its letter, name and size, picked to show its details in the panels, and Change to put another
- * repo in its place. A name tag with the same letter hangs under each island, and the side panel
- * sets both side by side in a table. Color by applies to both, and languages rank across the two
- * so each wears one color on both; CI weather, birds and folder labels show for neither, so
- * nothing on screen tells only one tree's story.
- *
- * The tree whose details show is the repo on show (`state.repo`); the other is `state.compare`,
- * grown into `state.companion`. Picking the other row trades the two, and each keeps its letter
- * and its island (`state.compareFirst` says whether the compared one is A).
+ * Compare trees: the repo on show (A) and up to four more (B–E), each on its own island in the
+ * same world, in a row. The repo card gains a row per compared repo, alike: its letter, name, CI
+ * chip, branch and counts, and × to take it away (A's × hands the panels to B). Under them,
+ * "Compare with another repo" turns the search bar's Grow into Compare until it picks one or
+ * loses focus (header.ts), and goes quiet at MAX_COMPARED. A letter tag hangs under each
+ * island. The side panel trades its single-tree panels for all the trees side by side: the
+ * overall numbers, then whatever Color by shows, for each. Color by colors every tree, each from
+ * its own history where the mode needs one; the sky, birds and folder labels show for none.
+ * `state.compare` names B–E, `state.companions` holds them once grown.
  */
 export function mountCompare(app: App): { open(): void; close(): boolean } {
   const { store, view } = app;
   const root = byId('compare');
-  const title = byId('title');
   const panel = byId('compare-panel');
+  const title = byId('title');
+  const form = byId<HTMLFormElement>('repo-form');
   const openButton = byId<HTMLButtonElement>('compare-open');
 
-  const exit = h(
+  // A's letter in its card, shown only while comparing, and A's own way out of the comparison.
+  byId('repo-switch').append(letter(0));
+  const dropMain = h(
     'button',
-    { type: 'button', class: 'cmp-exit', id: 'compare-exit', 'aria-label': 'Stop comparing' },
+    {
+      type: 'button',
+      class: 'icon-btn cmp-x',
+      id: 'compare-drop-a',
+      'aria-label': 'Remove A from the comparison',
+    },
     icon(...ICONS.close),
-    h('span', {}, 'Exit'),
   );
+  // The compared repos' rows and the add row close A's card, as one card with it.
+  title.append(dropMain, root);
 
-  /** One row per tree, built alike: the radio that shows its details, and Change. */
-  const makeRow = (side: Side) => {
-    const radio = h('input', { type: 'radio', name: 'cmp-shown' });
-    const name = h('strong', { class: 'cmp-name' });
-    const sub = h('span', { class: 'cmp-sub' });
-    const state = h('span', { class: 'cmp-state', 'aria-hidden': 'true' });
-    const change = h(
-      'button',
-      {
-        type: 'button',
-        class: 'cmp-change',
-        'aria-expanded': 'false',
-        'aria-controls': 'compare-form',
-      },
-      'Change',
-    );
-    const el = h(
-      'div',
-      { class: 'cmp-tree', 'data-side': side },
-      h(
-        'label',
-        { class: 'cmp-pick' },
-        radio,
-        badge(side),
-        h('span', { class: 'cmp-id' }, name, sub),
-        state,
-      ),
-      change,
-    );
-    radio.addEventListener('change', () => radio.checked && show(side));
-    change.addEventListener('click', () => toggleForm(side));
-    return { side, el, radio, name, sub, state, change };
-  };
-  const rows = { a: makeRow('a'), b: makeRow('b') };
-
-  const line = h('p', { class: 'cmp-line', id: 'compare-line' });
-  const input = h('input', {
-    type: 'text',
-    id: 'compare-input',
-    placeholder: 'owner/repo or GitHub URL',
-    autocomplete: 'off',
-    autocapitalize: 'off',
-    spellcheck: 'false',
-    enterkeyhint: 'go',
-    'aria-describedby': 'compare-error',
-  });
-  const error = h('p', { class: 'field-error', id: 'compare-error', role: 'alert' });
-  const chips = h('div', { class: 'cmp-chips', role: 'group', 'aria-label': 'Quick picks' });
-  const form = h(
-    'form',
-    { class: 'cmp-form', id: 'compare-form', novalidate: true },
-    h(
-      'div',
-      { class: 'cmp-field' },
-      input,
-      h('button', { type: 'submit', class: 'go' }, 'Compare'),
-    ),
-    error,
-    chips,
+  const rows = h('div', { class: 'cmp-list-rows' });
+  const add = h(
+    'button',
+    { type: 'button', class: 'cmp-add', id: 'compare-add' },
+    h('span', { class: 'cmp-plus', 'aria-hidden': 'true' }, '+'),
+    h('span', {}, 'Compare with another repo'),
   );
-  form.hidden = true;
-  /** The row the field replaces, while it is open. */
-  let changing: Side | null = null;
+  root.append(rows, add);
 
-  root.append(
-    h('div', { class: 'cmp-head' }, h('h2', { class: 'cmp-title' }, 'Comparing two trees'), exit),
-    h(
-      'div',
-      { class: 'cmp-trees', role: 'radiogroup', 'aria-label': 'Details shown for' },
-      rows.a.el,
-      rows.b.el,
-    ),
-    form,
-    line,
-  );
-
-  const table = h('table', { class: 'cmp-table', 'aria-label': 'Both trees side by side' });
-  const shownNote = h('p', { class: 'cmp-note' });
-  panel.append(h('h2', { class: 'h' }, 'Side by side'), table, shownNote);
-
-  // Name tags under the islands, matching the rows; a tap shows that tree's details.
+  // Name tags under the islands, one per letter.
   const tagLayer = byId('island-tags');
-  const makeTag = (side: Side) => {
-    const name = h('span', { class: 'tag-name' });
+  const tags = [...LETTERS].map((L, i) => {
+    const name = h('span', {});
     const el = h(
-      'button',
-      { type: 'button', class: 'island-tag', 'data-side': side, tabindex: '-1' },
-      h('b', {}, LETTER[side]),
+      'span',
+      { class: 'island-tag', 'data-side': L.toLowerCase() },
+      h('b', {}, L),
       name,
     );
     el.hidden = true;
-    el.addEventListener('click', () => show(side));
     tagLayer.append(el);
-    return { el, name };
-  };
-  const tags = { a: makeTag('a'), b: makeTag('b') };
-
-  const memory = new Map<string, Loaded>();
-  let abort: AbortController | null = null;
-  let loading: RepoRef | null = null;
-  let failed: RepoRef | null = null;
-  /** Why `failed` did not grow. */
-  let failure = '';
-
-  /** The repo on show, or the one loading in its place. */
-  const mainRef = (state: AppState): RepoRef | null => {
-    const { load, repo } = state;
-    if (load.phase === 'loading' || load.phase === 'error') return plain(load.ref);
-    return repo ? plain(repo.info.ref) : null;
-  };
-  /** Which side the repo on show stands on. */
-  const mainSide = (state: AppState): Side => (state.compareFirst ? 'b' : 'a');
-  const other = (side: Side): Side => (side === 'a' ? 'b' : 'a');
-
-  /** Hands the panels to that side's tree; the trees keep their sides and letters. */
-  function show(side: Side) {
-    const state = store.get();
-    const { repo, compare } = state;
-    if (!repo || !compare || side === mainSide(state)) return;
-    store.dispatch({ type: 'compare', ref: plain(repo.info.ref), first: !state.compareFirst });
-    app.load(compare);
-  }
-
-  const toggleForm = (side: Side) => showForm(changing === side ? null : side);
-  const showForm = (side: Side | null) => {
-    changing = side;
-    form.hidden = side === null;
-    for (const row of Object.values(rows)) {
-      row.change.setAttribute('aria-expanded', String(row.side === side));
-    }
-    if (side) {
-      rows[side].el.after(form);
-      input.setAttribute('aria-label', `Repository to put in place of ${LETTER[side]}`);
-      error.textContent = '';
-      fillChips();
-      input.focus();
-    }
-  };
-
-  const fillChips = () => {
-    const state = store.get();
-    const shown = [mainRef(state), state.compare].filter(Boolean) as RepoRef[];
-    const names = [...readRecent(), ...SAMPLES.map((s) => `${s.owner}/${s.repo}`)].filter(
-      (n, i, all) => {
-        const ref = parseRepoRef(n);
-        if ('kind' in ref || shown.some((s) => sameRef(plain(s), plain(ref)))) return false;
-        return all.findIndex((other) => other.toLowerCase() === n.toLowerCase()) === i;
-      },
-    );
-    fill(
-      chips,
-      ...names
-        .slice(0, 5)
-        .map((n) =>
-          h(
-            'button',
-            { type: 'button', onclick: () => pick(parseRepoRef(n) as RepoRef) },
-            n.slice(n.indexOf('/') + 1),
-          ),
-        ),
-    );
-  };
-
-  /** Puts a repo in place of the side the field is open for. */
-  const pick = (ref: RepoRef) => {
-    const side = changing;
-    error.textContent = '';
-    input.value = '';
-    showForm(null);
-    if (!side) return;
-    const state = store.get();
-    if (side === mainSide(state)) app.load(plain(ref));
-    else store.dispatch({ type: 'compare', ref: plain(ref) });
-    rows[side].radio.focus();
-  };
-
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const ref = parseRepoRef(input.value);
-    if ('kind' in ref) {
-      error.textContent = 'Enter owner/repo or a GitHub URL';
-      return;
-    }
-    const state = store.get();
-    const keep = changing === mainSide(state) ? state.compare : mainRef(state);
-    if (keep && sameRef(plain(ref), plain(keep))) {
-      error.textContent = 'That one is already the other tree';
-      return;
-    }
-    pick(ref);
+    return { el, name, i };
   });
 
-  /** Grows the compared repo: the one on show as it is, else from memory, else in a worker. */
-  async function grow(ref: RepoRef) {
+  const memory = new Map<string, Loaded>();
+  /** Repos growing now, by name, and those that could not grow, with why. */
+  const loading = new Map<string, AbortController>();
+  const failed = new Map<string, string>();
+  const keyOf = (ref: { owner: string; repo: string }) => nameOf(ref).toLowerCase();
+
+  /** Grows a compared repo: the one on show as it is, else from memory, else in a worker. */
+  async function grow(ref: RepoRef, fresh = false) {
     const state = store.get();
     const main = state.repo;
     if (main && sameRef(plain(main.info.ref), ref)) {
@@ -255,249 +129,497 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
     }
     const { hidden } = state.settings;
     const quality = qualityOf(state);
-    const key = `${nameOf(ref).toLowerCase()}|${hidden.join('/')}|${quality}`;
-    const kept = memory.get(key);
+    const key = `${keyOf(ref)}|${hidden.join('/')}|${quality}`;
+    const kept = fresh ? undefined : memory.get(key);
     if (kept) return store.dispatch({ type: 'companion', companion: kept });
-    if (loading && sameRef(loading, ref)) return;
-    abort?.abort();
-    const signal = (abort = new AbortController()).signal;
-    loading = ref;
-    failed = null;
+    if (!fresh && loading.has(keyOf(ref))) return;
+    loading.get(keyOf(ref))?.abort();
+    const abort = new AbortController();
+    loading.set(keyOf(ref), abort);
+    failed.delete(keyOf(ref));
     render(store.get());
     const token = githubToken(state.settings.token);
-    const sample = sampleFor(ref);
+    const sample = fresh ? undefined : sampleFor(ref);
     const source: LoadSource = sample
       ? { kind: 'sample', id: sample.id, base: new URL('./', location.href).href }
-      : { kind: 'github', ref, token, fresh: false };
+      : { kind: 'github', ref, token, fresh };
     try {
       const result = await loadInWorker(
         { source, filters: { hidden }, params: { seed: SEED, quality } },
         { step: () => {} },
-        signal,
+        abort.signal,
       );
+      if (abort.signal.aborted) return;
       if ('kind' in result) {
-        failed = ref;
-        failure = describeError(result, ref, { hasToken: !!token }).title;
+        failed.set(keyOf(ref), describeError(result, ref, { hasToken: !!token }).title);
         return;
       }
       memory.set(key, result);
       if (memory.size > KEEP) memory.delete(memory.keys().next().value!);
       store.dispatch({ type: 'companion', companion: result });
+      void readRuns(result, false);
     } catch (reason) {
-      if (signal.aborted) return;
+      if (abort.signal.aborted) return;
       console.error(reason);
-      failed = ref;
-      failure = 'Couldn’t grow it';
+      failed.set(keyOf(ref), 'Couldn’t grow it');
     } finally {
-      if (abort?.signal === signal) {
-        abort = null;
-        loading = null;
+      if (loading.get(keyOf(ref)) === abort) {
+        loading.delete(keyOf(ref));
         render(store.get());
       }
     }
   }
 
-  /** Each side's name, and its size once grown or what is keeping it. */
-  const describe = (state: AppState) => {
-    const { repo, compare, companion, load } = state;
-    const main = mainRef(state)!;
-    const mainLoaded = repo && sameRef(plain(repo.info.ref), main) && load.phase === 'idle';
-    const size = (l: Loaded) => {
-      const s = treeStats(l);
-      return `${plural(s.files, 'file')} · ${plural(s.folders, 'folder')}`;
-    };
-    const mainSub =
-      load.phase === 'error' ? 'Couldn’t grow it' : mainLoaded ? size(repo!) : 'Growing…';
-    const compareSub = companion
-      ? size(companion)
-      : failed && sameRef(failed, compare)
-        ? failure
-        : 'Growing…';
-    const mine = { ref: main, sub: mainSub, busy: !mainLoaded && load.phase !== 'error' };
-    const theirs = { ref: compare!, sub: compareSub, busy: !companion && !failed };
-    return state.compareFirst ? { a: theirs, b: mine } : { a: mine, b: theirs };
+  /** A compared repo's recent Actions runs, for its CI chip, as the loader reads A's. */
+  const reading = new Set<string>();
+  async function readRuns(repo: Loaded, fresh: boolean) {
+    const state = store.get();
+    if (!state.settings.weather) return;
+    const { ref, branch } = repo.info;
+    const key = ciKey(ref, branch);
+    if (reading.has(key) || (!fresh && state.ci[key] !== undefined)) return;
+    reading.add(key);
+    try {
+      let runs: CiRun[] | null | undefined = fresh ? undefined : await cachedRuns(key);
+      if (runs === undefined) {
+        runs = await fetchRuns(ref, branch, githubToken(state.settings.token), undefined);
+        if (runs) void cacheRuns(key, runs);
+        else {
+          const sample = sampleFor({ ...ref, ref: branch });
+          if (sample)
+            runs = await loadSampleRuns(sample.id, branch, new URL('./', location.href).href);
+        }
+      }
+      store.dispatch({ type: 'ci', key, runs: runs ?? null });
+    } catch {
+      // The chip stays hidden.
+    } finally {
+      reading.delete(key);
+    }
+  }
+
+  const remove = (ref: RepoRef) => {
+    const { compare } = store.get();
+    loading.get(keyOf(ref))?.abort();
+    loading.delete(keyOf(ref));
+    failed.delete(keyOf(ref));
+    store.dispatch({ type: 'compare', refs: compare.filter((r) => !sameRef(r, ref)) });
   };
 
-  /** Short names, unless both repos share one. */
-  const labels = (a: RepoRef, b: RepoRef) => {
-    const same = a.repo.toLowerCase() === b.repo.toLowerCase();
-    return { a: same ? nameOf(a) : a.repo, b: same ? nameOf(b) : b.repo };
+  /** One row per compared repo, like A's card: letter, name, CI, branch and counts, and ×. */
+  const rowOf = (state: AppState, ref: RepoRef, i: number) => {
+    const grown = state.companions.find((c) => sameRef(plain(c.info.ref), ref)) ?? null;
+    const key = keyOf(ref);
+    const chip = h('a', { class: 'weather', target: '_blank', rel: 'noopener' });
+    chip.hidden = true;
+    paintWeather(chip, state, grown);
+    chip.addEventListener('click', (event) => {
+      if (chip.dataset.sky !== 'unknown' || !grown) return;
+      event.preventDefault();
+      void readRuns(grown, true);
+    });
+    const growing = !grown && !failed.has(key);
+    const x = h(
+      'button',
+      {
+        type: 'button',
+        class: 'icon-btn cmp-x',
+        'aria-label': `Remove ${nameOf(ref)} from the comparison`,
+      },
+      icon(...ICONS.close),
+    );
+    x.addEventListener('click', () => remove(ref));
+    return h(
+      'div',
+      {
+        class: 'cmp-row',
+        'data-repo': nameOf(ref),
+        'aria-busy': growing ? 'true' : null,
+      },
+      letter(i),
+      h(
+        'p',
+        { class: 'name', role: 'heading', 'aria-level': '2' },
+        h(
+          'a',
+          { href: `https://github.com/${nameOf(ref)}`, target: '_blank', rel: 'noopener' },
+          nameOf(ref),
+        ),
+      ),
+      chip,
+      x,
+      grown
+        ? h('p', { class: 'meta' }, ...repoMeta(grown, () => void grow(ref, true)))
+        : h(
+            'p',
+            { class: 'cmp-status', role: 'status' },
+            growing ? `Growing ${nameOf(ref)}…` : failed.get(key)!,
+          ),
+    );
   };
 
   const render = (state: AppState) => {
-    if (!state.compare || !mainRef(state)) return;
-    const sides = describe(state);
-    const shown = mainSide(state);
-    for (const side of ['a', 'b'] as const) {
-      const row = rows[side];
-      const { ref, sub, busy } = sides[side];
-      row.name.textContent = nameOf(ref);
-      row.sub.textContent = sub;
-      row.el.toggleAttribute('data-shown', side === shown);
-      row.state.textContent = side === shown ? 'In panels' : 'Show in panels';
-      row.el.toggleAttribute('aria-busy', busy);
-      row.radio.checked = side === shown;
-      row.radio.setAttribute('aria-label', `${LETTER[side]}: ${nameOf(ref)}`);
-      row.change.setAttribute('aria-label', `Change ${LETTER[side]}, ${nameOf(ref)}`);
-      tags[side].name.textContent = nameOf(ref);
-      tags[side].el.toggleAttribute('data-shown', side === shown);
-      tags[side].el.title = side === shown ? 'Details in the panels' : 'Show its details';
-    }
-    root.toggleAttribute('aria-busy', sides.a.busy || sides.b.busy);
+    const on = state.compare.length > 0;
+    fill(rows, ...state.compare.map((ref, i) => rowOf(state, ref, i + 1)));
+    const full = state.compare.length + 1 >= MAX_COMPARED;
+    add.disabled = full || !state.repo;
+    add.lastElementChild!.textContent = full
+      ? `${MAX_COMPARED} repos is the most at once`
+      : on
+        ? 'Add another repo'
+        : 'Compare with another repo';
+  };
+  add.addEventListener('click', () => form.dispatchEvent(new Event('repo-add')));
+  dropMain.addEventListener('click', () => {
+    // B takes A's place, and the rest keep theirs.
+    const { compare } = store.get();
+    const [next, ...rest] = compare;
+    if (!next) return;
+    store.dispatch({ type: 'compare', refs: rest });
+    app.load(next);
+  });
+  /** The rows a mode's legend gives each tree, matched by label, in the first legend's order. */
+  const legendRows = (legends: LegendEntry[][]) => {
+    const totals = legends.map((l) =>
+      Math.max(
+        1,
+        l.reduce((sum, e) => sum + e.files, 0),
+      ),
+    );
+    const labels = new Map<string, { color: string; files: number[] }>();
+    legends.forEach((list, i) => {
+      for (const e of list) {
+        if (/^\d+ more$/.test(e.label)) continue;
+        const row = labels.get(e.label) ?? { color: e.color, files: legends.map(() => 0) };
+        row.files[i]! += e.files;
+        labels.set(e.label, row);
+      }
+    });
+    return { rows: [...labels].map(([label, r]) => ({ label, ...r })), totals };
   };
 
-  const renderTable = (state: AppState) => {
-    const { repo, companion } = state;
-    if (!repo || !companion) {
-      line.textContent = '';
-      return fill(table);
-    }
-    const [mine, theirs] = [
-      { loaded: repo, stats: treeStats(repo) },
-      { loaded: companion, stats: treeStats(companion) },
+  const share = (files: number, total: number, color: string) =>
+    h(
+      'span',
+      { class: 'cmp-share' },
+      files > 0 &&
+        h('span', {
+          class: 'cmp-fill',
+          style: `--w:${total ? (files / total) * 100 : 0}%;--c:${color}`,
+        }),
+      h('span', { class: 'cmp-num' }, files ? percent(files, total) : '–'),
+    );
+  const row = (head: Node | string, cells: (Node | string)[]) =>
+    h('tr', {}, h('th', { scope: 'row' }, head), ...cells.map((c) => h('td', {}, c)));
+  const swatch = (label: string, color: string) =>
+    h(
+      'span',
+      { class: 'cmp-lang' },
+      h('i', { style: `background:${color}` }),
+      h('span', {}, label),
+    );
+
+  /** Why a tree's history is not on the table, or null once it is. */
+  const historyNote = (history: HistoryFacts<Loaded> | null | undefined, facts: Facts | null) => {
+    if (facts) return null;
+    if (!history || history.status === 'loading') return 'Reading its history…';
+    return history.status === 'missing' ? 'No stored history' : 'History unavailable';
+  };
+
+  const renderPanel = (state: AppState) => {
+    const { repo } = state;
+    const others = companionsOf(state);
+    if (!repo || !others.length) return fill(panel);
+    const trees = [repo, ...others];
+    // Letters follow compare's order, so a tree still growing leaves its letter unused.
+    const letters = [
+      0,
+      ...others.map((c) => state.compare.findIndex((r) => sameRef(r, plain(c.info.ref))) + 1),
     ];
-    const [a, b] = state.compareFirst ? [theirs, mine] : [mine, theirs];
-    const short = labels(plain(a.loaded.info.ref), plain(b.loaded.info.ref));
-    line.textContent = sizeLine(
-      { name: short.a, files: a.stats.files },
-      { name: short.b, files: b.stats.files },
-    );
-    const palette = PALETTES[state.settings.palette];
-    const colors = new Map(
-      leafCategories(repo.tree, 'language', palette, null, rankOf(state)).legend.map((e) => [
-        e.label,
-        e.color,
-      ]),
-    );
-    const row = (head: Node | string, x: Node | string, y: Node | string) =>
-      h('tr', {}, h('th', { scope: 'row' }, head), h('td', {}, x), h('td', {}, y));
-    const share = (files: number, total: number, color: string) =>
-      h(
-        'span',
-        { class: 'cmp-share' },
-        files > 0 &&
-          h('span', {
-            class: 'cmp-fill',
-            style: `--w:${total ? (files / total) * 100 : 0}%;--c:${color}`,
-          }),
-        h('span', { class: 'cmp-num' }, files ? percent(files, total) : '–'),
-      );
-    const head = (side: Side) =>
+    const stats = trees.map(treeStats);
+    const names = trees.map((l) => l.info.ref.repo.toLowerCase());
+    const short = (l: Loaded) =>
+      names.filter((n) => n === l.info.ref.repo.toLowerCase()).length > 1
+        ? nameOf(l.info.ref)
+        : l.info.ref.repo;
+    panel.dataset.trees = String(trees.length);
+    const head = (l: Loaded, i: number) =>
       h(
         'th',
-        { scope: 'col', 'aria-label': `${LETTER[side]}, ${short[side]}` },
-        h('span', { class: 'cmp-col' }, badge(side), h('span', {}, short[side])),
+        { scope: 'col', title: nameOf(l.info.ref) },
+        h(
+          'span',
+          { class: 'cmp-col' },
+          letter(letters[i]!),
+          h('span', { class: 'cmp-colname' }, short(l)),
+        ),
       );
-    const [sa, sb] = [a.stats, b.stats];
-    fill(
-      table,
-      h('thead', {}, h('tr', {}, h('td', {}), head('a'), head('b'))),
-      h(
-        'tbody',
-        {},
-        row('Files', count(sa.files), count(sb.files)),
-        row('Folders', count(sa.folders), count(sb.folders)),
-        row('Deepest', plural(sa.depth, 'level'), plural(sb.depth, 'level')),
-        row('Size', bytes(sa.bytes), bytes(sb.bytes)),
-        // Shares of the files the leaves count by language, as the legend's are.
-        ...languageRows(sa, sb, LANG_ROWS).map(({ lang, a: x, b: y }) => {
-          const color = colors.get(lang) ?? palette.rest;
-          return row(
-            h('span', { class: 'cmp-lang' }, h('i', { style: `background:${color}` }), lang),
-            share(x, leafFiles(sa), color),
-            share(y, leafFiles(sb), color),
+    const thead = () => h('thead', {}, h('tr', {}, h('td', {}), ...trees.map(head)));
+    const table = (label: string, ...rows: Node[]) =>
+      h('table', { class: 'cmp-table', 'aria-label': label }, thead(), h('tbody', {}, ...rows));
+
+    const palette = PALETTES[state.settings.palette];
+    const mode = state.settings.colorBy;
+    const rank = rankOf(state);
+    const facts = [factsOf(state), ...others.map((c) => companionFactsOf(state, c))];
+    const histories = [
+      state.history,
+      ...others.map((c) => state.companionHistory.find((x) => x.repo === c)),
+    ];
+    const notes = trees.map((_, i) => historyNote(histories[i], facts[i]!));
+    const legendOf = (l: Loaded, f: Facts | null) =>
+      leafCategories(l.tree, mode, palette, f, mode === 'folder' ? null : rank).legend;
+    const listHead = (i: number) =>
+      h('p', { class: 'cmp-list-head' }, letter(letters[i]!), h('span', {}, short(trees[i]!)));
+
+    let section: Node[];
+    if (mode === 'language') {
+      const colors = new Map(
+        leafCategories(repo.tree, 'language', palette, null, rank).legend.map((e) => [
+          e.label,
+          e.color,
+        ]),
+      );
+      const totals = stats.map((st) => st.langs.reduce((sum, l) => sum + l.files, 0));
+      section = [
+        table(
+          'Languages side by side',
+          ...languageRows(stats, ROWS).map(({ lang, files }) => {
+            const color = colors.get(lang) ?? palette.rest;
+            return row(
+              swatch(lang, color),
+              files.map((n, i) => share(n, totals[i]!, color)),
+            );
+          }),
+        ),
+      ];
+    } else if (mode === 'folder' || mode === 'owner') {
+      // Each tree has its own folders and people, so each lists its biggest.
+      const list = (i: number) => {
+        const note = mode === 'owner' ? notes[i] : null;
+        const legend = note
+          ? []
+          : legendOf(trees[i]!, facts[i]!).filter((e) => !/^\d+ more$/.test(e.label));
+        const total = Math.max(
+          1,
+          legend.reduce((sum, e) => sum + e.files, 0),
+        );
+        const suffix = mode === 'folder' ? '/' : '';
+        return h(
+          'div',
+          { class: 'cmp-list' },
+          listHead(i),
+          note
+            ? h('p', { class: 'more' }, note)
+            : h(
+                'ol',
+                {},
+                ...[...legend]
+                  .sort((x, y) => y.files - x.files)
+                  .slice(0, ROWS)
+                  .map((e) =>
+                    h(
+                      'li',
+                      { title: e.label + suffix },
+                      swatch(`${e.label}${suffix}`, e.color),
+                      h('span', { class: 'cmp-num' }, percent(e.files, total)),
+                    ),
+                  ),
+              ),
+        );
+      };
+      section = [h('div', { class: 'cmp-lists' }, ...trees.map((_, i) => list(i)))];
+    } else {
+      const { rows, totals } = legendRows(
+        trees.map((l, i) => (facts[i] ? legendOf(l, facts[i]!) : [])),
+      );
+      section = [
+        table(
+          `${MODE_TITLE[mode]} side by side`,
+          ...(notes.some(Boolean)
+            ? [
+                row(
+                  '',
+                  notes.map((n) => n ?? ''),
+                ),
+              ]
+            : []),
+          ...rows.map((r) =>
+            row(
+              swatch(r.label, r.color),
+              r.files.map((n, i) => (facts[i] ? share(n, totals[i]!, r.color) : '')),
+            ),
+          ),
+        ),
+      ];
+      if (mode === 'changes' && facts.some(Boolean)) {
+        const hot = (i: number) => {
+          const f = facts[i]!;
+          const l = trees[i]!;
+          return h(
+            'div',
+            { class: 'cmp-list' },
+            listHead(i),
+            !f
+              ? h('p', { class: 'more' }, 'No history yet')
+              : busiest(f).length === 0
+                ? h('p', { class: 'more' }, 'No changes recorded')
+                : h(
+                    'ol',
+                    {},
+                    ...busiest(f).map((file) =>
+                      h(
+                        'li',
+                        { title: l.index.files.paths[file]! },
+                        h('span', { class: 'fn' }, tail(l.index.files.paths[file]!)),
+                        h('span', { class: 'cmp-num' }, count(f.fileChurn[file]!)),
+                      ),
+                    ),
+                  ),
           );
-        }),
-      ),
-    );
-    const shown = mainSide(state);
+        };
+        section.push(
+          h('h3', { class: 'h' }, 'Busiest files'),
+          h('div', { class: 'cmp-lists' }, ...trees.map((_, i) => hot(i))),
+        );
+      }
+    }
+
     fill(
-      shownNote,
-      'Panels below show',
-      badge(shown),
-      h('strong', {}, short[shown]),
+      panel,
+      h('h2', { class: 'h' }, 'Side by side'),
       h(
-        'button',
-        { type: 'button', class: 'cmp-note-switch', onclick: () => show(other(shown)) },
-        'Show ',
-        badge(other(shown)),
-        short[other(shown)],
+        'p',
+        { class: 'cmp-line', id: 'compare-line' },
+        sizeLine(trees.map((l, i) => ({ name: short(l), files: stats[i]!.files }))),
       ),
+      table(
+        'All trees side by side',
+        row(
+          'Files',
+          stats.map((st) => count(st.files)),
+        ),
+        row(
+          'Folders',
+          stats.map((st) => count(st.folders)),
+        ),
+        row(
+          'Deepest',
+          stats.map((st) => plural(st.depth, 'level')),
+        ),
+        row(
+          'Size',
+          stats.map((st) => bytes(st.bytes)),
+        ),
+        row(
+          'Languages',
+          stats.map((st) => count(st.langs.length)),
+        ),
+      ),
+      h('h2', { class: 'h' }, MODE_TITLE[mode]),
+      ...section,
     );
   };
 
   const sync = (state: AppState, prev: AppState | null) => {
-    const { compare, companion, repo } = state;
-    const on = compare !== null;
-    root.hidden = !on;
-    title.toggleAttribute('data-compare', on);
+    const { compare, repo } = state;
+    const on = compare.length > 0;
+    root.hidden = !repo;
     document.body.toggleAttribute('data-compare', on);
     openButton.setAttribute('aria-pressed', String(on));
     openButton.setAttribute('aria-disabled', String(!repo));
-    panel.hidden = !(on && companion && repo);
-    if (!on) {
-      abort?.abort();
-      abort = loading = failed = null;
-      showForm(null);
-      delete root.dataset.ready;
-      tagLayer.hidden = true;
-      return;
+    dropMain.hidden = !on;
+    const others = companionsOf(state);
+    panel.hidden = !(on && others.length && repo);
+    for (const key of [...loading.keys()]) {
+      if (!compare.some((r) => keyOf(r) === key)) {
+        loading.get(key)!.abort();
+        loading.delete(key);
+      }
     }
-    const moved = !prev || !sameRef(compare, prev.compare) || repo !== prev.repo;
-    if (moved && !sameRef(compare, failed) && !companion) void grow(compare);
-    if (!companion) delete root.dataset.ready;
+    for (const key of [...failed.keys()]) {
+      if (!compare.some((r) => keyOf(r) === key)) failed.delete(key);
+    }
+    const moved = !prev || prev.compare !== compare || repo !== prev.repo;
+    if (moved) {
+      for (const ref of compare) {
+        const grown = state.companions.some((c) => sameRef(plain(c.info.ref), ref));
+        if (!grown && !failed.has(keyOf(ref))) void grow(ref);
+      }
+    }
+    if (!others.length) delete root.dataset.ready;
     render(state);
     if (
       !prev ||
-      companion !== prev.companion ||
+      state.companions !== prev.companions ||
+      compare !== prev.compare ||
       repo !== prev.repo ||
-      state.compareFirst !== prev.compareFirst ||
-      state.settings.palette !== prev.settings.palette
+      state.settings.palette !== prev.settings.palette ||
+      state.settings.colorBy !== prev.settings.colorBy ||
+      state.history !== prev.history ||
+      state.companionHistory !== prev.companionHistory
     ) {
-      renderTable(state);
+      renderPanel(state);
     }
+    // The card carries the full names, so a tag needs only the repo's own, unless two share it.
+    const refs = repo ? [plain(repo.info.ref), ...compare] : [...compare];
+    const short = (ref: RepoRef) =>
+      refs.filter((r) => r.repo.toLowerCase() === ref.repo.toLowerCase()).length > 1
+        ? nameOf(ref)
+        : ref.repo;
+    tags.forEach((tag, i) => (tag.name.textContent = refs[i] ? short(refs[i]!) : ''));
   };
   store.subscribe((state, prev) => sync(state, prev));
 
-  // The compared tree is on show once it has grown in, while the timeline (which hides it) is
-  // shut; the name tags follow the islands.
+  // The compared trees are on show once grown in, while the timeline (which hides them) is shut;
+  // the name tags follow the islands.
   view.onFrame(({ growth, islands }) => {
     const state = store.get();
-    const { companion, timeline } = state;
-    const on = !!companion && timeline === null && growth > 0.2;
+    const others = companionsOf(state);
+    const on = others.length > 0 && state.timeline === null && growth > 0.2;
     tagLayer.hidden = !on;
     if (!on) return;
-    const feet = state.compareFirst
-      ? { a: islands.companion, b: islands.main }
-      : { a: islands.main, b: islands.companion };
-    for (const side of ['a', 'b'] as const) {
-      const foot = feet[side];
-      const tag = tags[side].el;
-      tag.hidden = !foot?.visible;
-      if (foot?.visible) tag.style.transform = `translate(${foot.x}px, ${foot.y}px)`;
-    }
+    const letters = [
+      0,
+      ...others.map((c) => state.compare.findIndex((r) => sameRef(r, plain(c.info.ref))) + 1),
+    ];
+    const feet = [islands.main, ...islands.companions];
+    tags.forEach((tag) => (tag.el.hidden = true));
+    feet.forEach((foot, i) => {
+      const tag = tags[letters[i]!];
+      if (!tag || !foot) return;
+      tag.el.hidden = !foot.visible;
+      if (foot.visible) tag.el.style.transform = `translate(${foot.x}px, ${foot.y}px)`;
+    });
     if (growth < 1) return;
-    const shown = nameOf(companion.info.ref);
+    const shown = others.map((c) => nameOf(c.info.ref)).join(' ');
     if (root.dataset.ready !== shown) root.dataset.ready = shown;
   });
 
+  /** Starts adding a repo to compare: the search bar's Grow turns to Compare. */
   function open() {
-    const { repo, compare } = store.get();
-    if (!repo || compare) return;
-    store.dispatch({ type: 'compare', ref: defaultPartner(repo.info.ref, readRecent()) });
+    if (!store.get().repo) return;
+    form.dispatchEvent(new Event('repo-add'));
   }
   function close(): boolean {
-    if (store.get().compare === null) return false;
-    store.dispatch({ type: 'compare', ref: null });
+    if (!store.get().compare.length) return false;
+    store.dispatch({ type: 'compare', refs: [] });
     return true;
   }
 
-  openButton.addEventListener('click', () => (store.get().compare ? close() : open()));
-  exit.addEventListener('click', () => {
-    close();
-    openButton.focus();
-  });
+  openButton.addEventListener('click', () => (store.get().compare.length ? close() : open()));
 
   sync(store.get(), null);
   return { open, close };
+}
+
+/**
+ * A tree's most changed files, busiest first: by churn alone, since the hotspots that glow on
+ * the tree leave a small repo with none to list.
+ */
+function busiest(facts: Facts): number[] {
+  return Array.from(facts.fileChurn.keys())
+    .filter((i) => facts.fileChurn[i]! > 0)
+    .sort((a, b) => facts.fileChurn[b]! - facts.fileChurn[a]! || a - b)
+    .slice(0, HOT_ROWS);
 }

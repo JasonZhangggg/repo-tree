@@ -135,8 +135,21 @@ test('a folder that does not exist yet has no label and cannot be hovered', asyn
   test.skip(isMobile, 'hover needs a mouse');
   const labelled = (path: string) => page.locator('#labels .pill', { hasText: path });
   const pointAt = async (path: string) => {
-    const labels = await page.evaluate(() => (window as unknown as Debug).__repoTree.labels);
-    return labels.find((l) => l.path === path)!;
+    // The view eases into its framing beside the panels, so wait for the label to stand still.
+    const read = async () =>
+      (await page.evaluate(() => (window as unknown as Debug).__repoTree.labels)).find(
+        (l) => l.path === path,
+      )!;
+    let point = await read();
+    await expect
+      .poll(async () => {
+        const last = point;
+        await page.waitForTimeout(200);
+        point = await read();
+        return Math.hypot(point.x - last.x, point.y - last.y);
+      })
+      .toBeLessThan(2);
+    return point;
   };
   const hoversNear = async ({ x, y }: { x: number; y: number }) => {
     for (const [dx, dy] of [

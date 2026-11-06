@@ -1,6 +1,6 @@
 import type { LoadStep } from '../../load/load-in-worker';
 import { actionsUrl } from '../../repo/ci';
-import { parseRepoRef } from '../../repo/ref';
+import { parseRepoRef, type RepoRef } from '../../repo/ref';
 import { PALETTES } from '../../render/palette';
 import { githubUrl, type App } from '../app';
 import { byId, fill, h, icon, ICONS } from '../dom';
@@ -10,8 +10,13 @@ import { describeError, type ErrorAction } from '../errors';
 import { compact, count, plural } from '../format';
 import { readRecent } from '../recent';
 import { SAMPLES } from '../samples';
-import { ciFailed, weatherOf, type AppState } from '../state';
+import { partnerChoices } from '../compare';
+import { ciFailed, ciOf, MAX_COMPARED, sameRef, type AppState } from '../state';
+import type { Loaded } from '../../load/load-in-worker';
 import { describeWeather, shortVerdict } from '../weather';
+
+const plainOf = (ref: { owner: string; repo: string }) =>
+  ({ owner: ref.owner, repo: ref.repo }) as RepoRef;
 
 const STEPS: { step: LoadStep; label: string }[] = [
   { step: 'fetch', label: 'Fetching' },
@@ -62,14 +67,61 @@ export function mountHeader(app: App): void {
     input.setAttribute('aria-expanded', 'false');
   };
 
+  /**
+   * The field grows a repo in place of the one on show, unless the repo card's "Compare with
+   * another repo" asked it to add one beside instead: then its button says Compare until it
+   * picks one or loses focus.
+   */
+  const go = byId<HTMLButtonElement>('repo-go');
+  const adding = () => form.hasAttribute('data-adding');
+  const setAdding = (on: boolean) => {
+    if (on === adding()) return;
+    form.toggleAttribute('data-adding', on);
+    go.textContent = on ? 'Compare' : 'Grow';
+    const repo = store.get().repo;
+    input.placeholder =
+      on && repo
+        ? `Compare ${repo.info.ref.owner}/${repo.info.ref.repo} with…`
+        : 'owner/repo or GitHub URL';
+  };
+  form.addEventListener('repo-add', () => {
+    setInvalid('');
+    setAdding(true);
+    openField();
+  });
+
+  /** Grows the repo, or in adding mode puts it beside the others; false when it can't be added. */
+  const take = (ref: RepoRef): boolean => {
+    if (!adding()) {
+      app.load(ref);
+      return true;
+    }
+    const { repo, compare } = store.get();
+    const plainRef = { owner: ref.owner, repo: ref.repo } as RepoRef;
+    if (
+      (repo && sameRef(plainRef, plainOf(repo.info.ref))) ||
+      compare.some((r) => sameRef(r, plainRef))
+    ) {
+      setInvalid('That one is already in the comparison. Pick another.');
+      return false;
+    }
+    if (compare.length + 1 >= MAX_COMPARED) {
+      setInvalid(`${MAX_COMPARED} repos is the most at once. Remove one to add another.`);
+      return false;
+    }
+    store.dispatch({ type: 'compare', refs: [...compare, plainRef] });
+    return true;
+  };
+
   const choose = (name: string) => {
     const ref = parseRepoRef(name);
     if ('kind' in ref) return;
+    if (!take(ref)) return;
     input.value = '';
     setInvalid('');
     closeSuggest();
+    setAdding(false);
     input.blur();
-    app.load(ref);
   };
 
   const openSuggest = () => {
@@ -82,15 +134,37 @@ export function mountHeader(app: App): void {
         h('span', {}, label),
         note && h('small', {}, note),
       );
-    suggest.replaceChildren(
-      ...(recent.length
-        ? [h('p', { class: 'h' }, 'Recent'), ...recent.map((r) => row(r, ICONS.history))]
-        : []),
-      h('p', { class: 'h' }, 'Bundled samples'),
-      ...SAMPLES.map((s) => row(`${s.owner}/${s.repo}`, ICONS.sample, `${compact(s.files)} files`)),
-    );
-    suggest.hidden = false;
-    input.setAttribute('aria-expanded', 'true');
+    const sampleRow = (ref: { owner: string; repo: string }) => {
+      const sample = SAMPLES.find((s) => sameRef(plainOf(s), plainOf(ref)))!;
+      return row(`${ref.owner}/${ref.repo}`, ICONS.sample, `${compact(sample.files)} files`);
+    };
+    if (adding()) {
+      // Only repos not already compared.
+      const { repo, compare } = store.get();
+      const taken = [...(repo ? [plainOf(repo.info.ref)] : []), ...compare];
+      const choices = partnerChoices(taken, recent);
+      suggest.replaceChildren(
+        ...(choices.recent.length
+          ? [
+              h('p', { class: 'h' }, 'Recent'),
+              ...choices.recent.map((r) => row(`${r.owner}/${r.repo}`, ICONS.history)),
+            ]
+          : []),
+        ...(choices.samples.length
+          ? [h('p', { class: 'h' }, 'Bundled samples'), ...choices.samples.map(sampleRow)]
+          : []),
+      );
+    } else {
+      suggest.replaceChildren(
+        ...(recent.length
+          ? [h('p', { class: 'h' }, 'Recent'), ...recent.map((r) => row(r, ICONS.history))]
+          : []),
+        h('p', { class: 'h' }, 'Bundled samples'),
+        ...SAMPLES.map(sampleRow),
+      );
+    }
+    suggest.hidden = !suggest.childElementCount;
+    input.setAttribute('aria-expanded', String(!suggest.hidden));
   };
 
   form.addEventListener('submit', (event) => {
@@ -104,10 +178,11 @@ export function mountHeader(app: App): void {
     const ref = parseRepoRef(text);
     if ('kind' in ref)
       return setInvalid('Use owner/repo, like vitejs/vite, or paste a GitHub URL.');
+    if (!take(ref)) return;
     input.value = '';
     closeSuggest();
+    setAdding(false);
     input.blur();
-    app.load(ref);
   });
   input.addEventListener('input', () => setInvalid(''));
   // The hint is about what was typed, so it goes when the field does.
@@ -123,6 +198,7 @@ export function mountHeader(app: App): void {
     if (event.key === 'Escape') {
       closeSuggest();
       setInvalid('');
+      setAdding(false);
       input.blur();
     }
   });
@@ -154,6 +230,7 @@ export function mountHeader(app: App): void {
     setTimeout(() => {
       if (form.contains(document.activeElement)) return;
       closeSuggest();
+      setAdding(false);
       setOpen(false);
     }, 400);
   };
@@ -169,6 +246,7 @@ export function mountHeader(app: App): void {
       if (!document.body.hasAttribute('data-repo-open') && suggest.hidden) return;
       if (form.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
       closeSuggest();
+      setAdding(false);
       setOpen(false);
     },
     true,
@@ -177,6 +255,9 @@ export function mountHeader(app: App): void {
     if (pressing) return;
     if (form.contains(event.relatedTarget as Node | null)) return;
     closeSuggest();
+    // Clicking out takes the field back to growing in place.
+    if (!input.value.trim()) setInvalid('');
+    setAdding(false);
     setOpen(false);
   });
 
@@ -338,117 +419,11 @@ export function mountHeader(app: App): void {
       return;
     }
     byId<HTMLAnchorElement>('open-github').href = githubUrl(repo.info.ref);
-    const { folders } = repo.index;
-    const langs = repo.index.langs.filter((l) => l !== 'Other').length;
-    // Not `.dot`: that class is the label anchors' dot, absolutely placed.
-    const sep = (cls = 'sep') => h('span', { class: cls, 'aria-hidden': 'true' }, '·');
-    fill(
-      meta,
-      h(
-        'a',
-        {
-          // On a phone the default branch goes unsaid; a branch asked for by link still shows.
-          class: repo.info.ref.ref === undefined ? 'branch default' : 'branch',
-          href: githubUrl(repo.info.ref, repo.info.branch),
-          target: '_blank',
-          rel: 'noopener',
-          title: `Open ${repo.info.branch} on GitHub`,
-        },
-        icon(...ICONS.branch),
-        h('span', {}, repo.info.branch),
-      ),
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'icon-btn',
-          'aria-label': 'Reload from GitHub',
-          title: 'Reload from GitHub, skipping the cache',
-          // The ref as it was asked for: pinning the branch here would make the reload a
-          // branch link, which reads history but is never offered to compute one.
-          onclick: () => app.load(repo.info.ref, { fresh: true }),
-        },
-        icon(...ICONS.reload),
-      ),
-      repo.sample
-        ? h(
-            'span',
-            { class: 'opt', title: 'Bundled with the app. Reload for the live tree.' },
-            'snapshot',
-          )
-        : null,
-      repo.sample ? sep('sep opt') : null,
-      h('span', { class: 'files' }, plural(folders.files[0]!, 'file')),
-      sep('sep opt'),
-      h('span', { class: 'opt' }, plural(folders.files.length - 1, 'folder')),
-      sep('sep opt langs'),
-      h('span', { class: 'opt langs' }, plural(langs, 'language')),
-      // A phone keeps this in its More menu.
-      h(
-        'a',
-        {
-          class: 'icon-btn gh',
-          href: githubUrl(repo.info.ref),
-          target: '_blank',
-          rel: 'noopener',
-          'aria-label': 'Open on GitHub',
-          title: 'Open on GitHub',
-        },
-        icon(...ICONS.external),
-      ),
-    );
+    fill(meta, ...repoMeta(repo, () => app.load(repo.info.ref, { fresh: true })));
   };
 
   /** The weather chip under the title: what the sky stands for, linking to the Actions runs. */
-  const renderWeather = (state: AppState) => {
-    const weather = weatherOf(state);
-    weatherChip.removeAttribute('role');
-    weatherChip.removeAttribute('tabindex');
-    if (ciFailed(state)) {
-      // Said rather than left out, so a missing sky reads as GitHub not answering; a tap asks again.
-      weatherChip.hidden = false;
-      weatherChip.dataset.sky = 'unknown';
-      weatherChip.removeAttribute('href');
-      weatherChip.setAttribute('role', 'button');
-      weatherChip.tabIndex = 0;
-      weatherChip.title =
-        'GitHub didn’t send this repository’s CI runs (its rate limit, or the network). Tap to try again.';
-      weatherChip.setAttribute('aria-label', 'CI unavailable, try again');
-      fill(
-        weatherChip,
-        icon(...ICONS.cloudy),
-        h('strong', {}, 'CI unavailable'),
-        h('b', { class: 'short', 'aria-hidden': 'true' }, 'CI unavailable'),
-      );
-      return;
-    }
-    if (!weather || !state.repo) {
-      weatherChip.hidden = true;
-      return;
-    }
-    const { sky, health } = weather;
-    const { ref, branch } = state.repo.info;
-    const { verdict, detail } = describeWeather(sky, health, Date.now());
-    const snow = PALETTES[state.settings.palette].precip === 'snow';
-    const glyph = snow && (sky === 'rain' || sky === 'storm') ? 'snow' : sky;
-    weatherChip.hidden = false;
-    weatherChip.dataset.sky = sky;
-    if (health) weatherChip.href = actionsUrl(ref, branch);
-    else weatherChip.removeAttribute('href');
-    weatherChip.title = !health
-      ? 'A weather preview from the link, not this repository’s CI'
-      : health.runs
-        ? `Weather from the last ${plural(health.runs, 'finished GitHub Actions run')} on ${branch}`
-        : `No finished GitHub Actions runs on ${branch}`;
-    weatherChip.setAttribute('aria-label', detail ? `${verdict}, ${detail}` : verdict);
-    fill(
-      weatherChip,
-      icon(...ICONS[glyph]),
-      h('strong', {}, verdict),
-      h('b', { class: 'short', 'aria-hidden': 'true' }, shortVerdict(verdict)),
-      detail && h('span', {}, detail),
-    );
-  };
+  const renderWeather = (state: AppState) => paintWeather(weatherChip, state, state.repo);
 
   const render = (state: AppState, prev?: AppState) => {
     if (!prev || state.load !== prev.load || state.repo !== prev.repo) renderTitle(state);
@@ -484,4 +459,124 @@ export function mountHeader(app: App): void {
     if (event.key === 'Enter' || event.key === ' ') retry(event);
   });
   render(store.get());
+}
+
+/**
+ * The repo card's second line: the branch (a link to it), reload, whether it is a bundled
+ * snapshot, its files, folders and languages, and a link to GitHub. Each card has one, alike.
+ */
+export function repoMeta(repo: Loaded & { sample?: string }, reload: () => void): (Node | null)[] {
+  const { folders } = repo.index;
+  const langs = repo.index.langs.filter((l) => l !== 'Other').length;
+  // Not `.dot`: that class is the label anchors' dot, absolutely placed.
+  const sep = (cls = 'sep') => h('span', { class: cls, 'aria-hidden': 'true' }, '·');
+  return [
+    h(
+      'a',
+      {
+        // On a phone the default branch goes unsaid; a branch asked for by link still shows.
+        class: repo.info.ref.ref === undefined ? 'branch default' : 'branch',
+        href: githubUrl(repo.info.ref, repo.info.branch),
+        target: '_blank',
+        rel: 'noopener',
+        title: `Open ${repo.info.branch} on GitHub`,
+      },
+      icon(...ICONS.branch),
+      h('span', {}, repo.info.branch),
+    ),
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'icon-btn',
+        'aria-label': 'Reload from GitHub',
+        title: 'Reload from GitHub, skipping the cache',
+        // The ref as it was asked for: pinning the branch here would make the reload a
+        // branch link, which reads history but is never offered to compute one.
+        onclick: reload,
+      },
+      icon(...ICONS.reload),
+    ),
+    repo.sample
+      ? h(
+          'span',
+          { class: 'opt', title: 'Bundled with the app. Reload for the live tree.' },
+          'snapshot',
+        )
+      : null,
+    repo.sample ? sep('sep opt') : null,
+    h('span', { class: 'files' }, plural(folders.files[0]!, 'file')),
+    sep('sep opt'),
+    h('span', { class: 'opt' }, plural(folders.files.length - 1, 'folder')),
+    sep('sep opt langs'),
+    h('span', { class: 'opt langs' }, plural(langs, 'language')),
+    // A phone keeps this in its More menu.
+    h(
+      'a',
+      {
+        class: 'icon-btn gh',
+        href: githubUrl(repo.info.ref),
+        target: '_blank',
+        rel: 'noopener',
+        'aria-label': 'Open on GitHub',
+        title: 'Open on GitHub',
+      },
+      icon(...ICONS.external),
+    ),
+  ];
+}
+
+/**
+ * A repo card's weather chip: what its CI's sky stands for, linking to the Actions runs, or that
+ * GitHub didn't send them (a tap asks again, through the chip's own click handler). Hidden with
+ * weather off or before the runs arrive.
+ */
+export function paintWeather(chip: HTMLAnchorElement, state: AppState, repo: Loaded | null): void {
+  const weather = ciOf(state, repo);
+  chip.removeAttribute('role');
+  chip.removeAttribute('tabindex');
+  if (ciFailed(state, repo)) {
+    // Said rather than left out, so a missing sky reads as GitHub not answering; a tap asks again.
+    chip.hidden = false;
+    chip.dataset.sky = 'unknown';
+    chip.removeAttribute('href');
+    chip.setAttribute('role', 'button');
+    chip.tabIndex = 0;
+    chip.title =
+      'GitHub didn’t send this repository’s CI runs (its rate limit, or the network). Tap to try again.';
+    chip.setAttribute('aria-label', 'CI unavailable, try again');
+    fill(
+      chip,
+      icon(...ICONS.cloudy),
+      h('strong', {}, 'CI unavailable'),
+      h('b', { class: 'short', 'aria-hidden': 'true' }, 'CI unavailable'),
+    );
+    return;
+  }
+  if (!weather || !repo) {
+    chip.hidden = true;
+    return;
+  }
+  const { sky, health } = weather;
+  const { ref, branch } = repo.info;
+  const { verdict, detail } = describeWeather(sky, health, Date.now());
+  const snow = PALETTES[state.settings.palette].precip === 'snow';
+  const glyph = snow && (sky === 'rain' || sky === 'storm') ? 'snow' : sky;
+  chip.hidden = false;
+  chip.dataset.sky = sky;
+  if (health) chip.href = actionsUrl(ref, branch);
+  else chip.removeAttribute('href');
+  chip.title = !health
+    ? 'A weather preview from the link, not this repository’s CI'
+    : health.runs
+      ? `Weather from the last ${plural(health.runs, 'finished GitHub Actions run')} on ${branch}`
+      : `No finished GitHub Actions runs on ${branch}`;
+  chip.setAttribute('aria-label', detail ? `${verdict}, ${detail}` : verdict);
+  fill(
+    chip,
+    icon(...ICONS[glyph]),
+    h('strong', {}, verdict),
+    h('b', { class: 'short', 'aria-hidden': 'true' }, shortVerdict(verdict)),
+    detail && h('span', {}, detail),
+  );
 }

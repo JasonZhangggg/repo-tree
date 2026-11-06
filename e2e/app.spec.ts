@@ -390,7 +390,7 @@ test('the tree frames beside the panels, not under them', async ({ page, isMobil
   await page.goto('./#/torvalds/linux');
   await ready(page, 'torvalds/linux');
   await settle(page);
-  const panels = [await boxOf(page, '.title'), await boxOf(page, '#overview')];
+  const panels = [await boxOf(page, '#title'), await boxOf(page, '#overview')];
   // Labels may sit over a panel's edge, so they go too: at once, since #labels fades its opacity
   // and a later rule shows it, which a plain `opacity: 0` here would lose to.
   await page.addStyleTag({
@@ -456,7 +456,7 @@ test('on a phone the tree stays in view as folders are pinned', async ({ page, i
   await expect(sheet).toHaveAttribute('aria-expanded', 'false');
   await expect(detail(page)).toBeHidden();
 
-  const header = await boxOf(page, '.title');
+  const header = await boxOf(page, '#title');
   const controls = await boxOf(page, '.controls');
   const width = page.viewportSize()!.width;
   const band = {
@@ -646,14 +646,29 @@ test('Grow with an empty field offers the list instead of an error', async ({ pa
   await expect(page.locator('#repo-error')).toBeEmpty();
 });
 
+test('on a desktop the repo field keeps its own row above the card', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'a phone folds the field into the card');
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  const input = page.getByLabel('GitHub repository');
+  await expect(input).toBeVisible();
+  const field = (await page.locator('#repo-form').boundingBox())!;
+  const card = (await page.locator('#title').boundingBox())!;
+  expect(card.y).toBeGreaterThanOrEqual(field.y + field.height);
+  // The card's mark and name still put the cursor in the field.
+  await page.locator('#repo-link').click();
+  await expect(input).toBeFocused();
+});
+
 test('the repo field folds into the repo card', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'the desktop keeps the field open in its own row');
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   const input = page.getByLabel('GitHub repository');
   await expect(input).toBeHidden();
   const row = (await page.locator('#title').boundingBox())!;
-  // A phone's card is one row; a desktop's two, the name over the branch and counts.
-  expect(row.height, 'a compact card').toBeLessThan(isMobile ? 60 : 90);
+  // A phone's card is one row.
+  expect(row.height, 'a compact card').toBeLessThan(60);
   await page.locator('#repo-switch').click();
   await expect(input).toBeFocused();
   await expect(page.locator('#suggest')).toBeVisible();

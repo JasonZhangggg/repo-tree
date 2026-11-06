@@ -533,41 +533,60 @@ const JOURNEYS = {
   },
 
   compare: async ({ page, step }) => {
-    const besideReady = (repo) =>
-      expect(page.locator('#compare')).toHaveAttribute('data-ready', repo, { timeout: 60_000 });
+    const besideReady = (...repos) =>
+      expect(page.locator('#compare')).toHaveAttribute('data-ready', repos.join(' '), {
+        timeout: 60_000,
+      });
+    const field = page.getByLabel('GitHub repository');
+    // The card's add row, or Compare under More actions on a phone.
+    const startAdding = async () => {
+      const add = page.locator('#compare-add');
+      if (await add.isVisible()) return add.click();
+      await page.getByRole('button', { name: 'More actions' }).click();
+      await page.getByRole('button', { name: 'Compare trees' }).click();
+    };
     await serveRepo(page, 'acme/widgets');
-    await step('open', async () => {
+    await step('adding', async () => {
       await page.goto(base);
       await ready(page, 'vitejs/vite');
-      // On a phone Compare sits behind More actions.
-      if (await page.locator('#compare-open').isHidden()) {
-        await page.getByRole('button', { name: 'More actions' }).click();
-      }
-      await page.getByRole('button', { name: 'Compare trees' }).click();
+      await startAdding();
+      await expect(page.locator('#repo-go')).toHaveText('Compare');
+      await expect(page.locator('#suggest')).toBeVisible();
+      await settle(page);
+    });
+    await step('open', async () => {
+      await page.locator('#suggest button', { hasText: 'mathiasbynens/dotfiles' }).click();
       await besideReady('mathiasbynens/dotfiles');
       await expect(page).toHaveURL(/vs=mathiasbynens\/dotfiles/);
+      await expect(page.locator('#repo-go')).toHaveText('Grow');
       await expect(page.locator('#compare-line')).toHaveText(/vite has \d+× the files of dotfiles/);
       await settle(page);
     });
-    await step('change', async () => {
-      await page.getByRole('button', { name: /^Change B/ }).click();
-      await page.getByLabel('Repository to put in place of B').fill('acme/widgets');
-      await page.getByLabel('Repository to put in place of B').press('Enter');
-      await besideReady('acme/widgets');
-      await expect(page).toHaveURL(/vs=acme\/widgets/);
+    await step('three', async () => {
+      await startAdding();
+      await field.fill('acme/widgets');
+      await field.press('Enter');
+      await besideReady('mathiasbynens/dotfiles', 'acme/widgets');
+      await expect(page).toHaveURL(/vs=mathiasbynens\/dotfiles&vs=acme\/widgets/);
       await settle(page);
     });
-    await step('switch', async () => {
-      await page.getByRole('radio', { name: /^B: / }).check();
-      await ready(page, 'acme/widgets');
-      await besideReady('vitejs/vite');
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText('acme/widgets');
-      await expect(page.getByRole('radio', { name: 'A: vitejs/vite' })).not.toBeChecked();
+    await step('changes', async () => {
+      // The side by side follows Color by: each tree's change levels and busiest files.
+      await page.goto(`${base}#/vitejs/vite?vs=mathiasbynens/dotfiles&colorBy=changes`);
+      await ready(page, 'vitejs/vite');
+      await besideReady('mathiasbynens/dotfiles');
+      const toggle = page.locator('#sheet-toggle');
+      if ((await page.locator('#compare-panel').isHidden()) && (await toggle.isVisible()))
+        await toggle.click();
+      await expect(page.locator('#compare-panel .cmp-list')).toHaveCount(2);
       await settle(page);
+      if (await toggle.isVisible()) await toggle.click();
     });
     await step('stop', async () => {
-      await page.getByRole('button', { name: 'Stop comparing' }).click();
-      await expect(page.getByRole('group', { name: 'Compared tree' })).toBeHidden();
+      await page
+        .getByRole('button', { name: 'Remove mathiasbynens/dotfiles from the comparison' })
+        .click();
+      await expect(page.locator('#compare .cmp-row')).toHaveCount(0);
       await expect(page).not.toHaveURL(/vs=/);
       await settle(page);
     });

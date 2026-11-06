@@ -12,8 +12,8 @@ import { describeWeather } from '../weather';
 import type { Picked } from '../../render/tree-view';
 
 const TAP_SLOP = 6;
-/** Folder labels show for the repo on show, and for neither tree while two are compared. */
-const labelsOn = (state: AppState) => state.settings.labels && state.compare === null;
+/** Folder labels show for the repo on show, and for no tree while several are compared. */
+const labelsOn = (state: AppState) => state.settings.labels && state.compare.length === 0;
 /** Panels over the canvas that labels keep off. */
 const PANELS = '.bar, .title, .side, .controls, .steps';
 /** How much a label straight behind the trunk shrinks, and how much its stem thins. */

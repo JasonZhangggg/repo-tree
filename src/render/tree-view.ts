@@ -959,6 +959,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       scene.add(glow);
     }
     glow.geometry = geometry;
+    // The glow sits on the tree's own leaves, so it takes their scale in a grove.
+    glow.scale.setScalar(mainScale);
     glow.visible = count > 0;
   };
 
@@ -1500,6 +1502,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       releaseCompanions();
       mainScale = models.length ? (scale?.main ?? 1) : 1;
       if (shown) for (const mesh of [shown.bark, shown.leaves]) mesh.scale.setScalar(mainScale);
+      glow?.scale.setScalar(mainScale);
       models.forEach((model, i) => {
         const bark = new Mesh(geometry(model.bark), barkMaterial);
         const leafGeometry = geometry(model.leaves).setAttribute(

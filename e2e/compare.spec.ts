@@ -196,6 +196,8 @@ test('the timeline replays every tree in the grove on one calendar', async ({ pa
   // Both trees stay on show, and the count is theirs together.
   await expect(page.locator('.island-tag:visible')).toHaveText(['vite', 'dotfiles']);
   await expect(files).toHaveAttribute('title', /across 2 trees$/);
+  // The link's date is before vite's first commit but on the grove's calendar, so it shows.
+  await expect(page.locator('#timeline-date')).toHaveText('Jan 2016');
   const before = Number((await files.textContent())!.replace(/\D/g, ''));
   await page.getByRole('slider', { name: 'Timeline position' }).press('End');
   await expect(files).toHaveAttribute('title', /^2,934 files across 2 trees$/);

@@ -261,24 +261,18 @@ export type Births = { nodes: Float32Array; sprigs: Float32Array };
 
 /**
  * Trees compared side by side replay on one calendar, so a younger repo's island stays bare
- * until its first commit. The shared axis spans the oldest first commit to the newest head; like
- * each tree's own, LINEAR of it follows time and the rest follows activity, each tree weighing
- * the same however big. Each timeline comes back on that axis: its births, folders and census
- * moved there through the dates they stand for, and `start`, `end` and `ease` the shared ones,
- * so the scrubber, the dates and the file counts read the same on all.
+ * until its first commit. The shared axis spans the oldest first commit to the newest head and
+ * runs evenly in time: one tree's own busy years would stretch the others' quiet ones, so with
+ * several trees a year takes the same room wherever it falls. Each timeline comes back on that
+ * axis: its births, folders and census moved there through the dates they stand for, and
+ * `start`, `end` and `ease` the shared ones, so the scrubber, the dates and the file counts read
+ * the same on all.
  */
 export function sharedTimelines(timelines: readonly Timeline[]): Timeline[] {
   if (timelines.length < 2) return [...timelines];
-  const at = Float64Array.from(
-    [...new Set(timelines.flatMap((t) => [...t.ease.at]))].sort((a, b) => a - b),
-  );
-  const weights = new Float64Array(at.length);
-  for (let i = 1; i < at.length; i++) {
-    for (const t of timelines) {
-      weights[i]! += progressOf(t.ease, at[i]!) - progressOf(t.ease, at[i - 1]!);
-    }
-  }
-  const ease = easeOf(at, weights);
+  const first = Math.min(...timelines.map((t) => t.start));
+  const last = Math.max(...timelines.map((t) => t.end));
+  const ease = easeOf(Float64Array.of(first, last), new Float64Array(2));
   return timelines.map((t) => {
     const move = (p: number) =>
       p >= 1 ? progressOf(ease, t.end) : progressOf(ease, dateOf(t.ease, p));
@@ -293,8 +287,8 @@ export function sharedTimelines(timelines: readonly Timeline[]): Timeline[] {
     // The trunk stands from the tree's first commit, not before it.
     nodes[0] = move(0);
     return {
-      start: at[0]!,
-      end: at[at.length - 1]!,
+      start: first,
+      end: last,
       ease,
       nodes,
       sprigs: moved(t.sprigs),

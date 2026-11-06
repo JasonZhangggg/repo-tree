@@ -17,29 +17,78 @@ import { qualityOf, sameRef, type AppState } from '../state';
 const LANG_ROWS = 6;
 /** Trees grown to compare, kept so switching back is instant. */
 const KEEP = 3;
-const SWITCH_ICON = ['M7 7h12m0 0-3.5-3.5M19 7l-3.5 3.5', 'M17 17H5m0 0 3.5 3.5M5 17l3.5-3.5'];
 
 const leafFiles = (s: { langs: { files: number }[] }) =>
   s.langs.reduce((sum, l) => sum + l.files, 0);
 const nameOf = (ref: { owner: string; repo: string }) => `${ref.owner}/${ref.repo}`;
 const plain = ({ owner, repo }: { owner: string; repo: string }) => ({ owner, repo }) as RepoRef;
 
+type Side = 'a' | 'b';
+const LETTER: Record<Side, string> = { a: 'A', b: 'B' };
+const badge = (side: Side) => h('span', { class: 'cmp-badge', 'data-side': side }, LETTER[side]);
+
 /**
- * Compare trees: a second repo grows on its own island beside the one on show, in the same
- * world, and the camera frames and orbits both (main.ts hands it to the view). The panels keep
- * describing the repo on show; Switch trades the two, so the other one gets them. The title card
- * names the compared repo with Switch, Change and Stop, and the side panel sets both side by side
- * in a table. Color by applies to both, and languages rank across the two so each wears one
- * color on both. `state.compare` names the second repo, `state.companion` holds it once grown.
+ * Compare trees: two repos, A and B, each on its own island in the same world, A on the left in
+ * the default view. The title card turns into a compare card with one identical row per tree:
+ * its letter, name and size, picked to show its details in the panels, and Change to put another
+ * repo in its place. A name tag with the same letter hangs under each island, and the side panel
+ * sets both side by side in a table. Color by applies to both, and languages rank across the two
+ * so each wears one color on both; CI weather, birds and folder labels show for neither, so
+ * nothing on screen tells only one tree's story.
+ *
+ * The tree whose details show is the repo on show (`state.repo`); the other is `state.compare`,
+ * grown into `state.companion`. Picking the other row trades the two, and each keeps its letter
+ * and its island (`state.compareFirst` says whether the compared one is A).
  */
 export function mountCompare(app: App): { open(): void; close(): boolean } {
   const { store, view } = app;
   const root = byId('compare');
+  const title = byId('title');
   const panel = byId('compare-panel');
   const openButton = byId<HTMLButtonElement>('compare-open');
 
-  const name = h('strong', { class: 'cmp-name' });
-  const meta = h('span', { class: 'cmp-meta' });
+  const exit = h(
+    'button',
+    { type: 'button', class: 'cmp-exit', id: 'compare-exit', 'aria-label': 'Stop comparing' },
+    icon(...ICONS.close),
+    h('span', {}, 'Exit'),
+  );
+
+  /** One row per tree, built alike: the radio that shows its details, and Change. */
+  const makeRow = (side: Side) => {
+    const radio = h('input', { type: 'radio', name: 'cmp-shown' });
+    const name = h('strong', { class: 'cmp-name' });
+    const sub = h('span', { class: 'cmp-sub' });
+    const state = h('span', { class: 'cmp-state', 'aria-hidden': 'true' });
+    const change = h(
+      'button',
+      {
+        type: 'button',
+        class: 'cmp-change',
+        'aria-expanded': 'false',
+        'aria-controls': 'compare-form',
+      },
+      'Change',
+    );
+    const el = h(
+      'div',
+      { class: 'cmp-tree', 'data-side': side },
+      h(
+        'label',
+        { class: 'cmp-pick' },
+        radio,
+        badge(side),
+        h('span', { class: 'cmp-id' }, name, sub),
+        state,
+      ),
+      change,
+    );
+    radio.addEventListener('change', () => radio.checked && show(side));
+    change.addEventListener('click', () => toggleForm(side));
+    return { side, el, radio, name, sub, state, change };
+  };
+  const rows = { a: makeRow('a'), b: makeRow('b') };
+
   const line = h('p', { class: 'cmp-line', id: 'compare-line' });
   const input = h('input', {
     type: 'text',
@@ -49,7 +98,6 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
     autocapitalize: 'off',
     spellcheck: 'false',
     enterkeyhint: 'go',
-    'aria-label': 'Repository to compare',
     'aria-describedby': 'compare-error',
   });
   const error = h('p', { class: 'field-error', id: 'compare-error', role: 'alert' });
@@ -67,61 +115,87 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
     chips,
   );
   form.hidden = true;
-  const switchButton = h(
-    'button',
-    { type: 'button', class: 'cmp-act', id: 'compare-switch' },
-    icon(...SWITCH_ICON),
-    h('span', {}, 'Switch'),
-  );
-  const change = h(
-    'button',
-    {
-      type: 'button',
-      class: 'cmp-act',
-      id: 'compare-change',
-      'aria-expanded': 'false',
-      'aria-controls': 'compare-form',
-    },
-    'Change',
-  );
-  const stop = h(
-    'button',
-    { type: 'button', class: 'cmp-stop', 'aria-label': 'Stop comparing' },
-    icon(...ICONS.close),
-  );
+  /** The row the field replaces, while it is open. */
+  let changing: Side | null = null;
+
   root.append(
+    h('div', { class: 'cmp-head' }, h('h2', { class: 'cmp-title' }, 'Comparing two trees'), exit),
     h(
       'div',
-      { class: 'cmp-row' },
-      h('span', { class: 'cmp-tag' }, 'Beside'),
-      h('p', { class: 'cmp-with' }, name, meta),
-      stop,
+      { class: 'cmp-trees', role: 'radiogroup', 'aria-label': 'Details shown for' },
+      rows.a.el,
+      rows.b.el,
     ),
-    line,
-    h('div', { class: 'cmp-actions' }, switchButton, change),
     form,
+    line,
   );
+
   const table = h('table', { class: 'cmp-table', 'aria-label': 'Both trees side by side' });
-  panel.append(h('h2', { class: 'h' }, 'Side by side'), table);
+  const shownNote = h('p', { class: 'cmp-note' });
+  panel.append(h('h2', { class: 'h' }, 'Side by side'), table, shownNote);
+
+  // Name tags under the islands, matching the rows; a tap shows that tree's details.
+  const tagLayer = byId('island-tags');
+  const makeTag = (side: Side) => {
+    const name = h('span', { class: 'tag-name' });
+    const el = h(
+      'button',
+      { type: 'button', class: 'island-tag', 'data-side': side, tabindex: '-1' },
+      badge(side),
+      name,
+    );
+    el.hidden = true;
+    el.addEventListener('click', () => show(side));
+    tagLayer.append(el);
+    return { el, name };
+  };
+  const tags = { a: makeTag('a'), b: makeTag('b') };
 
   const memory = new Map<string, Loaded>();
   let abort: AbortController | null = null;
   let loading: RepoRef | null = null;
   let failed: RepoRef | null = null;
+  /** Why `failed` did not grow. */
+  let failure = '';
 
-  const showForm = (on: boolean) => {
-    form.hidden = !on;
-    change.setAttribute('aria-expanded', String(on));
-    if (on) {
+  /** The repo on show, or the one loading in its place. */
+  const mainRef = (state: AppState): RepoRef | null => {
+    const { load, repo } = state;
+    if (load.phase === 'loading' || load.phase === 'error') return plain(load.ref);
+    return repo ? plain(repo.info.ref) : null;
+  };
+  /** Which side the repo on show stands on. */
+  const mainSide = (state: AppState): Side => (state.compareFirst ? 'b' : 'a');
+  const other = (side: Side): Side => (side === 'a' ? 'b' : 'a');
+
+  /** Hands the panels to that side's tree; the trees keep their sides and letters. */
+  function show(side: Side) {
+    const state = store.get();
+    const { repo, compare } = state;
+    if (!repo || !compare || side === mainSide(state)) return;
+    store.dispatch({ type: 'compare', ref: plain(repo.info.ref), first: !state.compareFirst });
+    app.load(compare);
+  }
+
+  const toggleForm = (side: Side) => showForm(changing === side ? null : side);
+  const showForm = (side: Side | null) => {
+    changing = side;
+    form.hidden = side === null;
+    for (const row of Object.values(rows)) {
+      row.change.setAttribute('aria-expanded', String(row.side === side));
+    }
+    if (side) {
+      rows[side].el.after(form);
+      input.setAttribute('aria-label', `Repository to put in place of ${LETTER[side]}`);
+      error.textContent = '';
       fillChips();
       input.focus();
     }
   };
-  change.addEventListener('click', () => showForm(form.hidden === true));
 
   const fillChips = () => {
-    const { repo, compare } = store.get();
-    const shown = [repo?.info.ref, compare].filter(Boolean) as RepoRef[];
+    const state = store.get();
+    const shown = [mainRef(state), state.compare].filter(Boolean) as RepoRef[];
     const names = [...readRecent(), ...SAMPLES.map((s) => `${s.owner}/${s.repo}`)].filter(
       (n, i, all) => {
         const ref = parseRepoRef(n);
@@ -143,11 +217,17 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
     );
   };
 
+  /** Puts a repo in place of the side the field is open for. */
   const pick = (ref: RepoRef) => {
+    const side = changing;
     error.textContent = '';
     input.value = '';
-    showForm(false);
-    store.dispatch({ type: 'compare', ref: plain(ref) });
+    showForm(null);
+    if (!side) return;
+    const state = store.get();
+    if (side === mainSide(state)) app.load(plain(ref));
+    else store.dispatch({ type: 'compare', ref: plain(ref) });
+    rows[side].radio.focus();
   };
 
   form.addEventListener('submit', (event) => {
@@ -155,6 +235,12 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
     const ref = parseRepoRef(input.value);
     if ('kind' in ref) {
       error.textContent = 'Enter owner/repo or a GitHub URL';
+      return;
+    }
+    const state = store.get();
+    const keep = changing === mainSide(state) ? state.compare : mainRef(state);
+    if (keep && sameRef(plain(ref), plain(keep))) {
+      error.textContent = 'That one is already the other tree';
       return;
     }
     pick(ref);
@@ -177,8 +263,7 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
     const signal = (abort = new AbortController()).signal;
     loading = ref;
     failed = null;
-    root.setAttribute('aria-busy', 'true');
-    meta.textContent = ' · growing…';
+    render(store.get());
     const token = githubToken(state.settings.token);
     const sample = sampleFor(ref);
     const source: LoadSource = sample
@@ -192,7 +277,7 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
       );
       if ('kind' in result) {
         failed = ref;
-        meta.textContent = ` · ${describeError(result, ref, { hasToken: !!token }).title}`;
+        failure = describeError(result, ref, { hasToken: !!token }).title;
         return;
       }
       memory.set(key, result);
@@ -202,25 +287,80 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
       if (signal.aborted) return;
       console.error(reason);
       failed = ref;
-      meta.textContent = ' · couldn’t grow it';
+      failure = 'Couldn’t grow it';
     } finally {
       if (abort?.signal === signal) {
         abort = null;
         loading = null;
-        root.removeAttribute('aria-busy');
+        render(store.get());
       }
     }
   }
 
+  /** Each side's name, and its size once grown or what is keeping it. */
+  const describe = (state: AppState) => {
+    const { repo, compare, companion, load } = state;
+    const main = mainRef(state)!;
+    const mainLoaded = repo && sameRef(plain(repo.info.ref), main) && load.phase === 'idle';
+    const size = (l: Loaded) => {
+      const s = treeStats(l);
+      return `${plural(s.files, 'file')} · ${plural(s.folders, 'folder')}`;
+    };
+    const mainSub =
+      load.phase === 'error' ? 'Couldn’t grow it' : mainLoaded ? size(repo!) : 'Growing…';
+    const compareSub = companion
+      ? size(companion)
+      : failed && sameRef(failed, compare)
+        ? failure
+        : 'Growing…';
+    const mine = { ref: main, sub: mainSub, busy: !mainLoaded && load.phase !== 'error' };
+    const theirs = { ref: compare!, sub: compareSub, busy: !companion && !failed };
+    return state.compareFirst ? { a: theirs, b: mine } : { a: mine, b: theirs };
+  };
+
+  /** Short names, unless both repos share one. */
+  const labels = (a: RepoRef, b: RepoRef) => {
+    const same = a.repo.toLowerCase() === b.repo.toLowerCase();
+    return { a: same ? nameOf(a) : a.repo, b: same ? nameOf(b) : b.repo };
+  };
+
+  const render = (state: AppState) => {
+    if (!state.compare || !mainRef(state)) return;
+    const sides = describe(state);
+    const shown = mainSide(state);
+    for (const side of ['a', 'b'] as const) {
+      const row = rows[side];
+      const { ref, sub, busy } = sides[side];
+      row.name.textContent = nameOf(ref);
+      row.sub.textContent = sub;
+      row.el.toggleAttribute('data-shown', side === shown);
+      row.state.textContent = side === shown ? 'In panels' : 'Show in panels';
+      row.el.toggleAttribute('aria-busy', busy);
+      row.radio.checked = side === shown;
+      row.radio.setAttribute('aria-label', `${LETTER[side]}: ${nameOf(ref)}`);
+      row.change.setAttribute('aria-label', `Change ${LETTER[side]}, ${nameOf(ref)}`);
+      tags[side].name.textContent = nameOf(ref);
+      tags[side].el.toggleAttribute('data-shown', side === shown);
+      tags[side].el.title = side === shown ? 'Details in the panels' : 'Show its details';
+    }
+    root.toggleAttribute('aria-busy', sides.a.busy || sides.b.busy);
+  };
+
   const renderTable = (state: AppState) => {
     const { repo, companion } = state;
-    if (!repo || !companion) return fill(table);
-    const [sa, sb] = [treeStats(repo), treeStats(companion)];
-    const sameName = repo.info.ref.repo.toLowerCase() === companion.info.ref.repo.toLowerCase();
-    const label = (l: Loaded) => (sameName ? nameOf(l.info.ref) : l.info.ref.repo);
+    if (!repo || !companion) {
+      line.textContent = '';
+      return fill(table);
+    }
+    const [mine, theirs] = [
+      { loaded: repo, stats: treeStats(repo) },
+      { loaded: companion, stats: treeStats(companion) },
+    ];
+    const [a, b] = state.compareFirst ? [theirs, mine] : [mine, theirs];
+    const short = labels(plain(a.loaded.info.ref), plain(b.loaded.info.ref));
     line.textContent = sizeLine(
-      { name: label(repo), files: sa.files },
-      { name: label(companion), files: sb.files },
+      { name: short.a, files: a.stats.files },
+      { name: short.b, files: b.stats.files },
     );
     const palette = PALETTES[state.settings.palette];
     const colors = new Map(
@@ -242,19 +382,16 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
           }),
         h('span', { class: 'cmp-num' }, files ? percent(files, total) : '–'),
       );
+    const head = (side: Side) =>
+      h(
+        'th',
+        { scope: 'col', 'aria-label': `${LETTER[side]}, ${short[side]}` },
+        h('span', { class: 'cmp-col' }, badge(side), h('span', {}, short[side])),
+      );
+    const [sa, sb] = [a.stats, b.stats];
     fill(
       table,
-      h(
-        'thead',
-        {},
-        h(
-          'tr',
-          {},
-          h('td', {}),
-          h('th', { scope: 'col' }, label(repo)),
-          h('th', { scope: 'col' }, label(companion)),
-        ),
-      ),
+      h('thead', {}, h('tr', {}, h('td', {}), head('a'), head('b'))),
       h(
         'tbody',
         {},
@@ -263,14 +400,28 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
         row('Deepest', plural(sa.depth, 'level'), plural(sb.depth, 'level')),
         row('Size', bytes(sa.bytes), bytes(sb.bytes)),
         // Shares of the files the leaves count by language, as the legend's are.
-        ...languageRows(sa, sb, LANG_ROWS).map(({ lang, a, b }) => {
+        ...languageRows(sa, sb, LANG_ROWS).map(({ lang, a: x, b: y }) => {
           const color = colors.get(lang) ?? palette.rest;
           return row(
             h('span', { class: 'cmp-lang' }, h('i', { style: `background:${color}` }), lang),
-            share(a, leafFiles(sa), color),
-            share(b, leafFiles(sb), color),
+            share(x, leafFiles(sa), color),
+            share(y, leafFiles(sb), color),
           );
         }),
+      ),
+    );
+    const shown = mainSide(state);
+    fill(
+      shownNote,
+      'Panels below show',
+      badge(shown),
+      h('strong', {}, short[shown]),
+      h(
+        'button',
+        { type: 'button', class: 'cmp-note-switch', onclick: () => show(other(shown)) },
+        'Show ',
+        badge(other(shown)),
+        short[other(shown)],
       ),
     );
   };
@@ -279,29 +430,28 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
     const { compare, companion, repo } = state;
     const on = compare !== null;
     root.hidden = !on;
+    title.toggleAttribute('data-compare', on);
+    document.body.toggleAttribute('data-compare', on);
     openButton.setAttribute('aria-pressed', String(on));
     openButton.setAttribute('aria-disabled', String(!repo));
     panel.hidden = !(on && companion && repo);
     if (!on) {
       abort?.abort();
       abort = loading = failed = null;
-      showForm(false);
+      showForm(null);
       delete root.dataset.ready;
+      tagLayer.hidden = true;
       return;
     }
     const moved = !prev || !sameRef(compare, prev.compare) || repo !== prev.repo;
-    if (moved && !sameRef(compare, failed)) {
-      name.textContent = nameOf(compare);
-      if (!companion) void grow(compare);
-    }
+    if (moved && !sameRef(compare, failed) && !companion) void grow(compare);
     if (!companion) delete root.dataset.ready;
-    else if (companion !== prev?.companion || moved) {
-      meta.textContent = ` · ${plural(treeStats(companion).files, 'file')}`;
-    }
+    render(state);
     if (
       !prev ||
       companion !== prev.companion ||
       repo !== prev.repo ||
+      state.compareFirst !== prev.compareFirst ||
       state.settings.palette !== prev.settings.palette
     ) {
       renderTable(state);
@@ -309,10 +459,24 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
   };
   store.subscribe((state, prev) => sync(state, prev));
 
-  // The compared tree is on show once it has grown in, while the timeline (which hides it) is shut.
-  view.onFrame(({ growth }) => {
-    const { companion, timeline } = store.get();
-    if (growth < 1 || !companion || timeline !== null) return;
+  // The compared tree is on show once it has grown in, while the timeline (which hides it) is
+  // shut; the name tags follow the islands.
+  view.onFrame(({ growth, islands }) => {
+    const state = store.get();
+    const { companion, timeline } = state;
+    const on = !!companion && timeline === null && growth > 0.2;
+    tagLayer.hidden = !on;
+    if (!on) return;
+    const feet = state.compareFirst
+      ? { a: islands.companion, b: islands.main }
+      : { a: islands.main, b: islands.companion };
+    for (const side of ['a', 'b'] as const) {
+      const foot = feet[side];
+      const tag = tags[side].el;
+      tag.hidden = !foot?.visible;
+      if (foot?.visible) tag.style.transform = `translate(${foot.x}px, ${foot.y}px)`;
+    }
+    if (growth < 1) return;
     const shown = nameOf(companion.info.ref);
     if (root.dataset.ready !== shown) root.dataset.ready = shown;
   });
@@ -329,15 +493,9 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
   }
 
   openButton.addEventListener('click', () => (store.get().compare ? close() : open()));
-  stop.addEventListener('click', () => {
+  exit.addEventListener('click', () => {
     close();
     openButton.focus();
-  });
-  switchButton.addEventListener('click', () => {
-    const { repo, compare } = store.get();
-    if (!repo || !compare) return;
-    store.dispatch({ type: 'compare', ref: plain(repo.info.ref) });
-    app.load(compare);
   });
 
   sync(store.get(), null);

@@ -63,6 +63,7 @@ const store = createStore({
   history: null,
   compare: null,
   companion: null,
+  compareFirst: false,
 });
 
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -196,6 +197,7 @@ function linkOf(state: AppState): string | null {
     wx: state.preview ?? undefined,
     t: state.timeline ?? undefined,
     vs: state.compare ?? undefined,
+    vsFirst: state.compareFirst || undefined,
     pins: pinsOf(state),
   });
 }
@@ -206,7 +208,7 @@ function applyLink(link: ViewLink) {
   if (link.colorBy) patch.colorBy = link.colorBy;
   if (Object.keys(patch).length) store.dispatch({ type: 'settings', patch });
   store.dispatch({ type: 'preview', sky: link.wx ?? null });
-  store.dispatch({ type: 'compare', ref: link.vs ?? null });
+  store.dispatch({ type: 'compare', ref: link.vs ?? null, first: !!link.vsFirst });
   pinTray.receive(link.ref, link.pins ?? []);
   const { repo } = store.get();
   const same =
@@ -241,9 +243,13 @@ store.subscribe((state, prev) => {
   }
   // The compared tree stands beside this one, out of the way while the timeline replays it alone.
   const companion = (s: AppState) => (s.timeline === null ? s.companion : null);
-  if (companion(state) !== companion(prev) || state.repo !== prev.repo) {
+  if (
+    companion(state) !== companion(prev) ||
+    state.repo !== prev.repo ||
+    state.compareFirst !== prev.compareFirst
+  ) {
     view.setLanguageRank(rankOf(state));
-    view.setCompanion(companion(state)?.tree ?? null);
+    view.setCompanion(companion(state)?.tree ?? null, state.compareFirst ? 'left' : 'right');
   }
   const birds = birdsOf(state);
   if (birds !== birdsOf(prev) || state.repo !== prev.repo) {

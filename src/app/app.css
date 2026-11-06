@@ -3297,90 +3297,54 @@ body:has(.scrubber:not([hidden])) .toast {
   }
 }
 
-/* Compare trees: the compared repo, under the name in the repo card, with Switch, Change and
-   Stop; its table sits in the side panel (compare.ts). */
+/* Compare trees: the repo card becomes a compare card, one identical row per tree (A, B), and a
+   tag with the same letter hangs under each island; the table sits in the side panel
+   (compare.ts). */
+.title[data-compare] {
+  width: min(430px, var(--col));
+  padding: 10px 10px 10px 12px;
+}
+.title[data-compare] > :is(.repo-switch, .meta, .weather) {
+  display: none;
+}
+/* Still the page's heading for screen readers; the rows name both trees on screen. */
+.title[data-compare] > h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .title .compare {
   grid-column: 1 / -1;
   display: grid;
-  gap: 6px;
-  margin: 6px 0 2px 4px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
+  gap: 8px;
+  min-width: 0;
 }
 .title .compare[hidden] {
   display: none;
 }
-.cmp-row {
+.cmp-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  min-width: 0;
 }
-.cmp-tag {
-  flex: none;
-  padding: 2px 7px;
-  border-radius: 6px;
-  background: var(--wash);
+.cmp-title {
+  margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.cmp-with {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cmp-name {
-  font: 600 13px var(--mono);
-}
-.cmp-meta {
-  color: var(--muted);
-}
-.cmp-stop {
-  flex: none;
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: none;
-  color: var(--muted);
-}
-.cmp-stop svg {
-  width: 13px;
-  height: 13px;
-}
-@media (hover: hover) and (pointer: fine) {
-  .cmp-stop:hover {
-    background: var(--wash);
-    color: var(--ink);
-  }
-}
-.cmp-line {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12.5px;
-}
-.cmp-line:empty {
-  display: none;
-}
-.cmp-actions {
-  display: flex;
-  gap: 6px;
-}
-.cmp-act {
+.cmp-exit {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 12px;
+  gap: 5px;
+  height: 28px;
+  padding: 0 11px 0 9px;
   border: 0;
   border-radius: 999px;
   background: var(--wash);
@@ -3389,26 +3353,168 @@ body:has(.scrubber:not([hidden])) .toast {
   font-weight: 600;
   transition: transform 0.15s var(--ease);
 }
-.cmp-act:active {
+.cmp-exit:active {
   transform: scale(var(--press));
 }
-.cmp-act svg {
-  width: 15px;
-  height: 15px;
+.cmp-exit svg {
+  width: 13px;
+  height: 13px;
 }
-.cmp-act[aria-expanded='true'] {
+.cmp-trees {
+  display: grid;
+  gap: 6px;
+}
+/* The letters: A dark, B light, the same in the rows, the tags and the table. */
+.cmp-badge {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  font: 700 12px var(--sans);
+  line-height: 1;
+}
+.cmp-badge[data-side='a'] {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+.cmp-badge[data-side='b'] {
+  background: var(--raised);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.cmp-tree {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 4px 4px 0;
+  border-radius: 11px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
+}
+.cmp-tree[data-shown] {
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.cmp-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 4px 10px;
+  cursor: pointer;
+}
+/* The radio lies over the whole row, unseen, so the row is what is clicked or tapped. */
+.cmp-pick {
+  position: relative;
+}
+.cmp-pick input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.cmp-tree[data-shown] .cmp-pick input {
+  cursor: default;
+}
+.cmp-tree:has(.cmp-pick :focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.cmp-id {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+.cmp-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 13px var(--mono);
+}
+.cmp-sub {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmp-tree[aria-busy] .cmp-sub {
+  animation: cmp-pulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes cmp-pulse {
+  to {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmp-tree[aria-busy] .cmp-sub {
+    animation: none;
+  }
+}
+.cmp-state {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--wash);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.cmp-tree:not([data-shown]) .cmp-state {
+  visibility: hidden;
+}
+.cmp-change {
+  flex: none;
+  height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.cmp-change[aria-expanded='true'] {
   background: var(--ink);
   color: var(--on-ink);
 }
 @media (hover: hover) and (pointer: fine) {
-  .cmp-act:not([aria-expanded='true']):hover {
+  .cmp-exit:hover,
+  .cmp-change:not([aria-expanded='true']):hover {
     background: color-mix(in srgb, var(--ink) 12%, transparent);
+    color: var(--ink);
   }
+  .cmp-tree:not([data-shown]):hover {
+    background: var(--hover);
+  }
+  .cmp-tree:not([data-shown]):hover .cmp-state {
+    visibility: visible;
+  }
+}
+.cmp-line {
+  margin: 0 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.cmp-line:empty {
+  display: none;
 }
 .cmp-form {
   position: relative;
   display: grid;
   gap: 6px;
+  padding: 2px 0 4px;
 }
 .cmp-form[hidden] {
   display: none;
@@ -3458,6 +3564,59 @@ body:has(.scrubber:not([hidden])) .toast {
   background: var(--ink);
   color: var(--on-ink);
 }
+/* Name tags under the islands. */
+#island-tags {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+#island-tags[hidden] {
+  display: none;
+}
+.island-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 220px;
+  margin: 10px 0 0;
+  padding: 4px 11px 4px 4px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font: 600 12.5px var(--mono);
+  translate: -50% 0;
+  pointer-events: auto;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.island-tag[hidden] {
+  display: none;
+}
+.island-tag .cmp-badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.island-tag .tag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.island-tag[data-shown] {
+  cursor: default;
+  box-shadow:
+    inset 0 0 0 1.5px var(--ink),
+    var(--shadow);
+}
 .cmp-panel[hidden] {
   display: none;
 }
@@ -3483,6 +3642,24 @@ body:has(.scrubber:not([hidden])) .toast {
 }
 .cmp-table thead th {
   font: 600 12px var(--mono);
+  padding-bottom: 7px;
+}
+.cmp-col {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cmp-col > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmp-col .cmp-badge,
+.cmp-note .cmp-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  font-size: 10.5px;
 }
 .cmp-table tbody th {
   width: 34%;
@@ -3515,19 +3692,68 @@ body:has(.scrubber:not([hidden])) .toast {
 .cmp-num {
   color: var(--muted);
 }
+.cmp-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.cmp-note strong {
+  color: var(--ink);
+  font: 600 12.5px var(--mono);
+}
+.cmp-note-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  height: 28px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--wash);
+  color: var(--ink);
+  font: 600 12px var(--mono);
+}
+@media (hover: hover) and (pointer: fine) {
+  .cmp-note-switch:hover {
+    background: color-mix(in srgb, var(--ink) 12%, transparent);
+  }
+}
 @media (max-width: 760px) {
-  /* Its own row, after the name and the CI chip. */
+  .title[data-compare] {
+    width: auto;
+    padding: 8px;
+  }
   .title .compare {
-    order: 3;
     flex: 1 0 100%;
-    margin: 0 2px 2px;
+    gap: 6px;
   }
   /* 16px keeps iOS from zooming into the field. */
   .cmp-field input {
     font-size: 16px;
   }
-  .cmp-act {
-    height: 36px;
+  .cmp-change,
+  .cmp-exit {
+    height: 34px;
+  }
+  .cmp-tree {
+    padding: 2px 2px 2px 0;
+  }
+  .cmp-pick {
+    padding: 4px 2px 4px 8px;
+  }
+  .cmp-state {
+    display: none;
+  }
+  .island-tag {
+    font-size: 11.5px;
+    max-width: 150px;
   }
 }
 /* Stepping through search matches: a pill under the header, query, place, back, next, stop. */

@@ -550,18 +550,19 @@ const JOURNEYS = {
       await settle(page);
     });
     await step('change', async () => {
-      await page.getByRole('button', { name: 'Change', exact: true }).click();
-      await page.getByLabel('Repository to compare').fill('acme/widgets');
-      await page.getByLabel('Repository to compare').press('Enter');
+      await page.getByRole('button', { name: /^Change B/ }).click();
+      await page.getByLabel('Repository to put in place of B').fill('acme/widgets');
+      await page.getByLabel('Repository to put in place of B').press('Enter');
       await besideReady('acme/widgets');
       await expect(page).toHaveURL(/vs=acme\/widgets/);
       await settle(page);
     });
     await step('switch', async () => {
-      await page.getByRole('button', { name: 'Switch' }).click();
+      await page.getByRole('radio', { name: /^B: / }).check();
       await ready(page, 'acme/widgets');
       await besideReady('vitejs/vite');
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('acme/widgets');
+      await expect(page.getByRole('radio', { name: 'A: vitejs/vite' })).not.toBeChecked();
       await settle(page);
     });
     await step('stop', async () => {

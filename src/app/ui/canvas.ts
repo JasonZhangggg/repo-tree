@@ -12,6 +12,8 @@ import { describeWeather } from '../weather';
 import type { Picked } from '../../render/tree-view';
 
 const TAP_SLOP = 6;
+/** Folder labels show for the repo on show, and for neither tree while two are compared. */
+const labelsOn = (state: AppState) => state.settings.labels && state.compare === null;
 /** Panels over the canvas that labels keep off. */
 const PANELS = '.bar, .title, .side, .controls, .steps';
 /** How much a label straight behind the trunk shrinks, and how much its stem thins. */
@@ -347,7 +349,7 @@ export function mountCanvas(app: App): {
       x,
       y,
     }));
-    if (!store.get().settings.labels || pills.length === 0) return;
+    if (!labelsOn(store.get()) || pills.length === 0) return;
     const at = new Map(labels.map((l) => [l.folder, l]));
     const shown = pills.filter((p) => at.get(p.folder)?.visible);
     layer.style.opacity = shown.length ? '1' : '0';
@@ -468,9 +470,9 @@ export function mountCanvas(app: App): {
     } else if (state.repo && state.selection?.folder !== prev.selection?.folder) {
       buildLabels(state);
     }
-    if (state.settings.labels !== prev.settings.labels) layer.hidden = !state.settings.labels;
+    if (labelsOn(state) !== labelsOn(prev)) layer.hidden = !labelsOn(state);
   });
-  layer.hidden = !store.get().settings.labels;
+  layer.hidden = !labelsOn(store.get());
 
   const setCounts = (counts: ReadonlyMap<number, number> | null) => {
     for (const pill of pills) {

@@ -36,6 +36,12 @@ type Phase =
       others: { repo: Loaded; timeline: Timeline | null }[];
       s: number;
       playing: boolean;
+      /**
+       * A date asked for before the first commit on show, which the scrubber can only show as
+       * that commit: kept until the scrubber moves, so a tree joining the grove with an older
+       * history replays from the date asked for.
+       */
+      before?: number;
     };
 
 const MONTH = new Intl.DateTimeFormat('en-US', {
@@ -149,6 +155,7 @@ export function mountTimeline(
     if (phase.kind !== 'open') return;
     if (phase.s >= 1) seek(0);
     phase.playing = true;
+    phase.before = undefined;
     last = 0;
     syncPlay(true);
     raf ||= requestAnimationFrame(tick);
@@ -245,7 +252,8 @@ export function mountTimeline(
     view.setCompanionBirths(
       new Map(others.flatMap((o) => (o.timeline ? [[o.repo.tree, o.timeline] as const] : []))),
     );
-    phase = { kind: 'open', repo, timeline: main!, others, s: 1, playing: false };
+    const before = at !== undefined && at < main!.start ? at : undefined;
+    phase = { kind: 'open', repo, timeline: main!, others, s: 1, playing: false, before };
     timeline = main!;
     syncButton();
     layTicks();
@@ -338,6 +346,7 @@ export function mountTimeline(
   range.addEventListener('pointercancel', release);
   // Keys still move the native range.
   range.addEventListener('input', () => {
+    if (phase.kind === 'open') phase.before = undefined;
     pause(true);
     seek(Number(range.value) / STEPS);
   });
@@ -355,7 +364,7 @@ export function mountTimeline(
       const now = companionsOf(state);
       const was = phase.others.map((o) => o.repo);
       if (now.length !== was.length || now.some((c, i) => c !== was[i])) {
-        const at = dateAt(phase.timeline, phase.s);
+        const at = phase.before ?? dateAt(phase.timeline, phase.s);
         close(true);
         void open({ at, autoplay: false });
         syncButton();
@@ -369,6 +378,7 @@ export function mountTimeline(
         void open({ at: state.timeline, autoplay: false });
       } else if (phase.kind === 'open' && dateAt(phase.timeline, phase.s) !== state.timeline) {
         pause(true);
+        phase.before = state.timeline < phase.timeline.start ? state.timeline : undefined;
         seek(positionAt(phase.timeline, state.timeline));
       }
     }

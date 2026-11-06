@@ -246,6 +246,17 @@ describe('sharedTimelines', () => {
     expect(b!.sprigs[1]).toBeCloseTo(1);
   });
 
+  test('the shared calendar runs evenly in time, whatever each tree was busy with', () => {
+    const old = line(0, 1000, [0.1, 0.9]);
+    // The young tree's own axis gives its first year most of the room.
+    const young = line(500, 1000, [0.2, 1]);
+    young.ease = { at: Float64Array.of(500, 600, 1000), p: Float64Array.of(0, 0.9, 1) };
+    const [a] = sharedTimelines([old, young]);
+    for (const ms of [0, 250, 500, 600, 800, 1000]) {
+      expect(progressOf(a!.ease, ms)).toBeCloseTo(ms / 1000);
+    }
+  });
+
   test('file counts read the same at a date on the shared axis', () => {
     const old = line(0, 1000, [0.1, 0.5, 0.9]);
     const young = line(500, 1000, [0.2, 0.6]);

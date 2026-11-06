@@ -3,7 +3,7 @@ import { parseRepoRef, type RepoRef } from '../repo/ref';
 import type { ColorBy, PaletteId } from '../render/palette';
 import { COLOR_BYS, PALETTE_IDS } from './settings';
 
-/** Everything a shared URL restores: `#/owner/repo?branch=&palette=&colorBy=&sel=&hl=&wx=&t=`. */
+/** Everything a shared URL restores: `#/owner/repo?branch=&palette=&colorBy=&sel=&hl=&wx=&t=&vs=`. */
 export type ViewLink = {
   ref: RepoRef;
   palette?: PaletteId;
@@ -16,6 +16,8 @@ export type ViewLink = {
   wx?: Sky;
   /** The timeline is open at this date (ms, UTC), written as YYYY-MM-DD; YYYY-MM and YYYY also read. */
   t?: number;
+  /** The compare view is open with this repo (`owner/repo`, its default branch) beside the first. */
+  vs?: RepoRef;
 };
 
 export function parseLink(hash: string): ViewLink | null {
@@ -38,10 +40,12 @@ export function parseLink(hash: string): ViewLink | null {
   if (SKIES.includes(wx as Sky)) link.wx = wx as Sky;
   const t = parseDay(query.get('t'));
   if (t !== undefined) link.t = t;
+  const vs = parseRepoRef(query.get('vs') ?? '');
+  if (!('kind' in vs)) link.vs = vs;
   return link;
 }
 
-export function formatLink({ ref, palette, colorBy, sel, hl, wx, t }: ViewLink): string {
+export function formatLink({ ref, palette, colorBy, sel, hl, wx, t, vs }: ViewLink): string {
   const params: [string, string | undefined][] = [
     ['branch', ref.ref],
     ['palette', palette],
@@ -50,6 +54,7 @@ export function formatLink({ ref, palette, colorBy, sel, hl, wx, t }: ViewLink):
     ['hl', hl],
     ['wx', wx],
     ['t', t === undefined ? undefined : new Date(t).toISOString().slice(0, 10)],
+    ['vs', vs && `${vs.owner}/${vs.repo}`],
   ];
   const query = params
     .filter((p): p is [string, string] => p[1] !== undefined)

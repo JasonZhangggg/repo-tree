@@ -161,7 +161,7 @@ test('the phone row keeps five buttons, Dark mode left of Search, and a short me
 
   await more.tap();
   await expect(more).toHaveAttribute('aria-expanded', 'true');
-  for (const name of [/Copy link/, 'Export PNG'])
+  for (const name of [/Copy link/, 'Export PNG', 'Compare trees'])
     await expect(menu.getByRole('button', { name })).toBeVisible();
   await expect(menu.getByRole('link', { name: 'Open on GitHub' })).toHaveAttribute(
     'href',

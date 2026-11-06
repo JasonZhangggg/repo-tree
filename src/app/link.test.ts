@@ -13,6 +13,13 @@ describe('share links', () => {
     });
   });
 
+  test('reads and writes the repo compared beside it, and drops a malformed one', () => {
+    const link = { ref: ref('vitejs/vite'), vs: ref('mathiasbynens/dotfiles') };
+    expect(formatLink(link)).toBe('#/vitejs/vite?vs=mathiasbynens/dotfiles');
+    expect(parseLink(formatLink(link))).toEqual(link);
+    expect(parseLink('#/vitejs/vite?vs=nope')).toEqual({ ref: ref('vitejs/vite') });
+  });
+
   test('reads a weather preview and drops an unknown one', () => {
     expect(parseLink('#/vitejs/vite?wx=storm')).toEqual({ ref: ref('vitejs/vite'), wx: 'storm' });
     expect(parseLink('#/vitejs/vite?wx=hail')).toEqual({ ref: ref('vitejs/vite') });

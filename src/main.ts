@@ -30,6 +30,8 @@ import { mountSettings } from './app/ui/settings-dialog';
 import { childrenOf, mountSide } from './app/ui/side';
 import { mountHistoryCompute } from './app/ui/history-compute';
 import { mountTimeline } from './app/ui/timeline';
+import { mountCompare } from './app/ui/compare';
+import { rankOf } from './app/compare';
 
 const SETTINGS_KEY = 'repo-tree:settings';
 const MEASURE_MS = 2000;
@@ -59,6 +61,8 @@ const store = createStore({
   preview: null,
   timeline: null,
   history: null,
+  compare: null,
+  companion: null,
 });
 
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -191,6 +195,7 @@ function linkOf(state: AppState): string | null {
     hl: highlight ?? undefined,
     wx: state.preview ?? undefined,
     t: state.timeline ?? undefined,
+    vs: state.compare ?? undefined,
     pins: pinsOf(state),
   });
 }
@@ -201,6 +206,7 @@ function applyLink(link: ViewLink) {
   if (link.colorBy) patch.colorBy = link.colorBy;
   if (Object.keys(patch).length) store.dispatch({ type: 'settings', patch });
   store.dispatch({ type: 'preview', sky: link.wx ?? null });
+  store.dispatch({ type: 'compare', ref: link.vs ?? null });
   pinTray.receive(link.ref, link.pins ?? []);
   const { repo } = store.get();
   const same =
@@ -232,6 +238,12 @@ store.subscribe((state, prev) => {
     reframe();
     container.setAttribute('aria-label', describe(state));
     if (!state.repo.sample && repoKey(state) !== repoKey(prev)) rememberRecent(debug.repo);
+  }
+  // The compared tree stands beside this one, out of the way while the timeline replays it alone.
+  const companion = (s: AppState) => (s.timeline === null ? s.companion : null);
+  if (companion(state) !== companion(prev) || state.repo !== prev.repo) {
+    view.setLanguageRank(rankOf(state));
+    view.setCompanion(companion(state)?.tree ?? null);
   }
   const birds = birdsOf(state);
   if (birds !== birdsOf(prev) || state.repo !== prev.repo) {
@@ -550,6 +562,7 @@ const timeline = mountTimeline(
   compute,
 );
 const settings = mountSettings(app);
+mountCompare(app);
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 mountQuick(app);
 const pinTray = mountPinTray(app, () => {

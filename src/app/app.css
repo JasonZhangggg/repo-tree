@@ -3295,6 +3295,239 @@ body:has(.scrubber:not([hidden])) .toast {
   }
 }
 
+/* Compare trees: the compared repo, under the name in the repo card, with Switch, Change and
+   Stop; its table sits in the side panel (compare.ts). */
+.title .compare {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 2px 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.title .compare[hidden] {
+  display: none;
+}
+.cmp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cmp-tag {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--wash);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cmp-with {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmp-name {
+  font: 600 13px var(--mono);
+}
+.cmp-meta {
+  color: var(--muted);
+}
+.cmp-stop {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+}
+.cmp-stop svg {
+  width: 13px;
+  height: 13px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cmp-stop:hover {
+    background: var(--wash);
+    color: var(--ink);
+  }
+}
+.cmp-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.cmp-line:empty {
+  display: none;
+}
+.cmp-actions {
+  display: flex;
+  gap: 6px;
+}
+.cmp-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--wash);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: transform 0.15s var(--ease);
+}
+.cmp-act:active {
+  transform: scale(var(--press));
+}
+.cmp-act svg {
+  width: 15px;
+  height: 15px;
+}
+.cmp-act[aria-expanded='true'] {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+@media (hover: hover) and (pointer: fine) {
+  .cmp-act:not([aria-expanded='true']):hover {
+    background: color-mix(in srgb, var(--ink) 12%, transparent);
+  }
+}
+.cmp-form {
+  position: relative;
+  display: grid;
+  gap: 6px;
+}
+.cmp-form[hidden] {
+  display: none;
+}
+.cmp-field {
+  display: flex;
+  gap: 6px;
+}
+.cmp-field input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--raised);
+  color: var(--ink);
+  font: 13px var(--mono);
+}
+.cmp-field .go {
+  height: 34px;
+  padding: 0 12px;
+}
+.cmp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.cmp-chips:empty {
+  display: none;
+}
+.cmp-chips button {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--wash);
+  color: var(--ink);
+  font: 12px var(--mono);
+}
+@media (hover: hover) and (pointer: fine) {
+  .cmp-chips button:hover {
+    background: color-mix(in srgb, var(--ink) 12%, transparent);
+  }
+}
+#compare-open[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+.cmp-panel[hidden] {
+  display: none;
+}
+.cmp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  table-layout: fixed;
+}
+.cmp-table th,
+.cmp-table td {
+  padding: 4px 4px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmp-table tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+.cmp-table thead th {
+  font: 600 12px var(--mono);
+}
+.cmp-table tbody th {
+  width: 34%;
+  color: var(--muted);
+}
+.cmp-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+}
+.cmp-lang i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+.cmp-share {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cmp-fill {
+  flex: none;
+  width: calc(var(--w) * 0.5);
+  height: 7px;
+  border-radius: 4px;
+  background: var(--c);
+}
+.cmp-num {
+  color: var(--muted);
+}
+@media (max-width: 760px) {
+  /* Its own row, after the name and the CI chip. */
+  .title .compare {
+    order: 3;
+    flex: 1 0 100%;
+    margin: 0 2px 2px;
+  }
+  /* 16px keeps iOS from zooming into the field. */
+  .cmp-field input {
+    font-size: 16px;
+  }
+  .cmp-act {
+    height: 36px;
+  }
+}
 /* Stepping through search matches: a pill under the header, query, place, back, next, stop. */
 .steps {
   position: absolute;

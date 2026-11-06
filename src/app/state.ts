@@ -60,6 +60,10 @@ export type AppState = {
   timeline: number | null;
   /** Loaded only once something on show needs it (activity, changes or owner colors); null until then. */
   history: HistoryFacts | null;
+  /** The repo compared with the one on show, grown beside it on its own island; null when not comparing. */
+  compare: RepoRef | null;
+  /** That repo once grown (`compare` names it); null while it loads or when not comparing. */
+  companion: Loaded | null;
 };
 
 export type Action =
@@ -85,7 +89,9 @@ export type Action =
   | { type: 'pulls'; key: string; pulls: OpenPulls | null }
   | { type: 'preview'; sky: Sky | null }
   | { type: 'timeline'; at: number | null }
-  | { type: 'history'; history: HistoryFacts };
+  | { type: 'history'; history: HistoryFacts }
+  | { type: 'compare'; ref: RepoRef | null }
+  | { type: 'companion'; companion: Loaded };
 
 const IDLE: LoadState = { phase: 'idle' };
 
@@ -144,6 +150,15 @@ export function reduce(state: AppState, action: Action): AppState {
       return action.at === state.timeline ? state : { ...state, timeline: action.at };
     case 'history':
       return action.history.repo === state.repo ? { ...state, history: action.history } : state;
+    case 'compare':
+      return sameRef(action.ref, state.compare)
+        ? state
+        : { ...state, compare: action.ref, companion: null };
+    case 'companion': {
+      const { owner, repo } = action.companion.info.ref;
+      const named = state.compare && sameRef({ owner, repo } as RepoRef, state.compare);
+      return named ? { ...state, companion: action.companion } : state;
+    }
   }
 }
 
@@ -169,6 +184,16 @@ export function ciFailed(state: AppState): boolean {
   const { repo, settings, preview } = state;
   if (!repo || !settings.weather || preview) return false;
   return state.ci[ciKey(repo.info.ref, repo.info.branch)] === null;
+}
+
+/** Whether two refs name the same repo and branch; GitHub names ignore case. */
+export function sameRef(a: RepoRef | null, b: RepoRef | null): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.owner.toLowerCase() === b.owner.toLowerCase() &&
+    a.repo.toLowerCase() === b.repo.toLowerCase() &&
+    a.ref === b.ref
+  );
 }
 
 /** Whether what is on show needs the repo's history. */

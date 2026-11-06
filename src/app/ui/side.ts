@@ -280,9 +280,11 @@ export function mountSide(app: App): void {
 
   const renderFolders = (state: AppState) => {
     const repo = state.repo!;
-    const colors = langColors(repo, state.settings.palette);
+    // Languages take the leaves' colors, which rank across both trees while comparing.
     const byFolder = new Map(view.legend().map((e) => [e.label, e.color]));
     const rest = slotColors(PALETTES[state.settings.palette]).at(-1)!;
+    const byLang =
+      state.settings.colorBy === 'language' ? byFolder : langColors(repo, state.settings.palette);
     const { files, langs } = repo.index.folders;
     const tops = childrenOf(repo, 0);
     const most = files[tops[0] ?? 0] || 1;
@@ -300,7 +302,7 @@ export function mountSide(app: App): void {
           ? bands[changes.folderChangeBand[f]!]!.color
           : state.settings.colorBy === 'folder'
             ? (byFolder.get(repo.tree.folders.path[f]!) ?? rest)
-            : (colors.get(repo.index.langs[langs[f * TOP_LANGS * 2]!]!) ?? rest);
+            : (byLang.get(repo.index.langs[langs[f * TOP_LANGS * 2]!]!) ?? rest);
     const barColor = owners ? ownerColor : colorOf;
     folders.replaceChildren(
       ...tops.slice(0, FOLDER_ROWS).map((f) =>
@@ -373,36 +375,39 @@ export function mountSide(app: App): void {
               ? 'Leaf colors by changes'
               : 'Leaf colors by language';
     legend.replaceChildren(
-      ...entries.map(({ color, label, files }) =>
-        h(
-          'li',
-          {},
+      // While comparing, the legend has the other tree's languages too, with none of their files here.
+      ...entries
+        .filter((e) => e.files > 0)
+        .map(({ color, label, files }) =>
           h(
-            'button',
-            {
-              type: 'button',
-              'data-label': label,
-              onclick: () => {
-                hoveredLabel = null;
-                app.hoverCategory(null);
-                app.highlight(store.get().highlight === label ? null : label);
+            'li',
+            {},
+            h(
+              'button',
+              {
+                type: 'button',
+                'data-label': label,
+                onclick: () => {
+                  hoveredLabel = null;
+                  app.hoverCategory(null);
+                  app.highlight(store.get().highlight === label ? null : label);
+                },
+                onpointermove: (event: PointerEvent) => {
+                  if (event.pointerType !== 'mouse' || hoveredLabel === label) return;
+                  hoveredLabel = label;
+                  app.hoverCategory(label);
+                },
+                onpointerleave: () => {
+                  hoveredLabel = null;
+                  app.hoverCategory(null);
+                },
               },
-              onpointermove: (event: PointerEvent) => {
-                if (event.pointerType !== 'mouse' || hoveredLabel === label) return;
-                hoveredLabel = label;
-                app.hoverCategory(label);
-              },
-              onpointerleave: () => {
-                hoveredLabel = null;
-                app.hoverCategory(null);
-              },
-            },
-            h('i', { class: 'swatch', style: `--c:${color}` }),
-            h('span', { title: label }, shownLabel(state, label)),
-            h('span', { class: 'num', title: count(files) }, percent(files, total)),
+              h('i', { class: 'swatch', style: `--c:${color}` }),
+              h('span', { title: label }, shownLabel(state, label)),
+              h('span', { class: 'num', title: count(files) }, percent(files, total)),
+            ),
           ),
         ),
-      ),
     );
   };
 
@@ -715,7 +720,10 @@ export function mountSide(app: App): void {
       repoChanged ||
       state.settings.palette !== prev?.settings.palette ||
       state.settings.colorBy !== prev?.settings.colorBy ||
-      state.history !== prev?.history;
+      state.history !== prev?.history ||
+      // A compared tree's languages rank with this one's, which moves their colors.
+      state.companion !== prev?.companion ||
+      state.timeline !== prev?.timeline;
     if (colorsChanged || state.selection !== prev?.selection) renderHot(state);
     if (colorsChanged || state.selection !== prev?.selection) renderFolders(state);
     const focusChanged = state.selection !== prev?.selection || state.highlight !== prev?.highlight;

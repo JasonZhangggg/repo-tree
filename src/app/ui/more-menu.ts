@@ -5,7 +5,7 @@ const MENU_LABELS: Record<string, string> = { share: 'Copy link', export: 'Expor
 
 /**
  * On a phone the bottom row keeps Timeline, Dark mode (just left of Search), Search and Settings,
- * and a short menu behind `More actions` holds Copy link, Export PNG and Open on GitHub; Sign in,
+ * and a short menu behind `More actions` holds Copy link, Export PNG, Compare and Open on GitHub; Sign in,
  * or the GitHub account once signed in, is a bubble of its own at the top right. Grow again and
  * Spin, which the desktop shows as buttons, are left off the phone: Spin is a switch in Settings,
  * and a tree regrows when it loads. The buttons themselves move, so their
@@ -54,6 +54,10 @@ export function mountMoreMenu(phone: MediaQueryList): void {
     // Dark mode sits just left of Search on a phone, and in the view group on a desktop.
     if (phone.matches) search.before(theme);
     else settings.before(theme);
+    // Compare joins the menu on a phone, and stands beside Timeline on a desktop.
+    const compare = byId<HTMLButtonElement>('compare-open');
+    if (phone.matches) menu.append(compare);
+    else byId('timeline').after(compare);
     // The way to the repo on GitHub, which the phone's repo row leaves to the menu, goes last.
     menu.append(byId('open-github'));
   };

@@ -7,9 +7,17 @@ import { pickLabels, relaxLabels, type LabelPick } from '../labels';
 import { birdsOf } from '../birds';
 import { mountCiCard } from './ci-card';
 import { mountPrCard } from './pr-card';
-import { weatherOf, type AppState, type Repo, type Selection } from '../state';
+import {
+  companionsOf,
+  plainRef,
+  weatherOf,
+  type AppState,
+  type Repo,
+  type Selection,
+} from '../state';
 import { describeWeather } from '../weather';
 import type { Picked } from '../../render/tree-view';
+import type { Loaded } from '../../load/load-in-worker';
 
 const TAP_SLOP = 6;
 /** Folder labels show for the repo on show, and for no tree while several are compared. */
@@ -30,11 +38,11 @@ const EDGE = 6;
 const still = matchMedia('(prefers-reduced-motion: reduce)');
 
 /** The root folder's own files a rock lies for, as indices into RepoIndex.files. */
-const rockFiles = (repo: Repo, rock: number) =>
+const rockFiles = (repo: Loaded, rock: number) =>
   repo.tree.rocks[rock]!.files.map((i) => repo.index.folders.own[0]! + i);
 
 /** A rock pins the root folder with its file shown, or plainly when it holds several. */
-const selectionOf = (repo: Repo, { folder, rock }: Picked): Selection => {
+const selectionOf = (repo: Loaded, { folder, rock }: Picked): Selection => {
   if (rock === undefined) return { folder };
   const files = rockFiles(repo, rock);
   return files.length === 1 ? { folder, file: files[0]! } : { folder };
@@ -58,6 +66,12 @@ export function mountCanvas(app: App): {
   });
 
   let hovered: Picked | null = null;
+  /** The repo a pick lies on: the one on show, or a compared one. */
+  const treeOf = (picked: Picked | null): Loaded | null => {
+    const state = store.get();
+    if (picked?.companion === undefined) return state.repo;
+    return companionsOf(state)[picked.companion] ?? null;
+  };
   let pointer: { x: number; y: number; clientX: number; clientY: number } | null = null;
   let pending = false;
   let down: { x: number; y: number } | null = null;
@@ -66,24 +80,43 @@ export function mountCanvas(app: App): {
     if (
       picked?.folder === hovered?.folder &&
       picked?.rock === hovered?.rock &&
-      picked?.bird === hovered?.bird
+      picked?.bird === hovered?.bird &&
+      picked?.companion === hovered?.companion
     ) {
       return;
     }
     hovered = picked;
     const folder = picked?.folder ?? null;
-    const repo = store.get().repo;
+    const repo = treeOf(picked);
     debug.hovered = folder === null || !repo ? null : repo.tree.folders.path[folder]!;
     document.body.dataset.hovered = debug.hovered ?? '';
-    app.hover(folder);
+    debug.hoveredTree =
+      picked?.companion === undefined || !repo
+        ? null
+        : `${repo.info.ref.owner}/${repo.info.ref.repo}`;
+    app.hover(folder, picked?.companion);
     container.style.cursor = folder === null ? '' : 'pointer';
   };
 
   const showTip = (picked: Picked | null) => {
-    const repo = store.get().repo;
+    const repo = treeOf(picked);
     if (picked === null || !pointer || !repo) {
       tip.hidden = true;
       return;
+    }
+    // A compared tree's branch names its repo too, and a click shows that tree.
+    if (picked.companion !== undefined) {
+      const path = repo.tree.folders.path[picked.folder]!;
+      const { owner, repo: name } = repo.info.ref;
+      tip.replaceChildren(
+        h('code', {}, `${owner}/${name}${path ? `/${path}` : ''}/`),
+        h(
+          'span',
+          {},
+          `${plural(repo.index.folders.files[picked.folder]!, 'file')} · click to show`,
+        ),
+      );
+      return placeTip();
     }
     const { folder, rock, bird } = picked;
     const pull = bird === undefined ? undefined : birdsOf(store.get())?.[bird]?.pull;
@@ -203,6 +236,12 @@ export function mountCanvas(app: App): {
     if (picked === null && view.skyAt(x, y) && ci.open()) return;
     // A bird says which pull request it stands for, and keeps the pin as it was.
     if (picked?.bird !== undefined && pr.open(picked.bird)) return;
+    // A compared tree's branch shows that tree alone, with the folder pinned.
+    if (picked?.companion !== undefined) {
+      const other = treeOf(picked);
+      if (other) app.showAlone(plainRef(other), other.tree.folders.path[picked.folder]);
+      return;
+    }
     const repo = store.get().repo;
     // The rock of several files pins the root folder plainly, so it remembers it was a rock.
     pilePinned = picked?.rock !== undefined && !!repo && rockFiles(repo, picked.rock).length > 1;
@@ -217,7 +256,7 @@ export function mountCanvas(app: App): {
     if (!repo) return;
     const rect = container.getBoundingClientRect();
     const picked = view.pickAt(event.clientX - rect.left, event.clientY - rect.top);
-    if (picked?.bird !== undefined) return;
+    if (picked?.bird !== undefined || picked?.companion !== undefined) return;
     if (picked && picked.folder !== 0) app.select(selectionOf(repo, picked), true);
     else if (!picked && !view.skyAt(event.clientX - rect.left, event.clientY - rect.top)) {
       view.frameFolder(0);

@@ -13,8 +13,13 @@ export type App = {
   cancelLoad(): void;
   /** Pins a folder (or one of its files) or clears the pin; `frame` glides the camera to it. */
   select(selection: Selection | null, frame?: boolean): void;
-  /** Previews a folder's highlight while the pointer is over it. */
-  hover(folder: number | null): void;
+  /**
+   * Previews a folder's highlight while the pointer is over it: on the tree on show, or on a
+   * compared tree, by its index in companionsOf.
+   */
+  hover(folder: number | null, companion?: number): void;
+  /** Shows a compared tree alone, as its card line does, with a folder (by path) pinned. */
+  showAlone(ref: RepoRef, select?: string): void;
   /** Highlights the leaves of one legend entry, by label, or clears the highlight. */
   highlight(label: string | null): void;
   /** Previews a legend entry's highlight while the pointer is over it. */

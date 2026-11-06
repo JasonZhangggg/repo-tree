@@ -85,9 +85,10 @@ import {
 
 /**
  * What a pixel shows: a folder's branch, a rock lying for some of the root folder's files, or a
- * bird (an index into what setBirds was given) perched on a folder.
+ * bird (an index into what setBirds was given) perched on a folder. `companion` marks a branch
+ * of a compared tree (its index in setCompanions order), its folder that tree's own.
  */
-export type Picked = { folder: number; rock?: number; bird?: number };
+export type Picked = { folder: number; rock?: number; bird?: number; companion?: number };
 /** What the mouse is over: a rock or a bird as pickAt found it, or the sun or a cloud. */
 export type Hover = Picked | { sky: SkyTarget['which'] };
 /** A bird to perch on a folder's twig, in a plumage. */
@@ -123,7 +124,9 @@ export type Insets = { top: number; right: number; bottom: number; left: number 
 /** The sky to show, and whether it must hold still (reduced motion): no drift, fall or flashes. */
 export type Weather = { sky: Sky; still: boolean };
 /** What stands out while the rest fades: a run of node ids, or the leaves of one legend entry. */
-export type Highlight = { range: readonly [number, number] } | { category: string };
+/** A range of node ids, on the tree on show or on a compared one (setCompanions order). */
+export type Highlight =
+  { range: readonly [number, number]; companion?: number } | { category: string };
 export type ViewStats = {
   renders: number;
   /** How far the camera stands from the point it orbits. */
@@ -305,8 +308,13 @@ const LEVEL = Math.atan2(VIEW_DIRECTION[1], Math.hypot(VIEW_DIRECTION[0], VIEW_D
  * one on screen instead of hiding behind it.
  */
 const GROVE_LEVEL = 0.45;
-/** Added to the companion's node ids, past any real tree's, still exact in a float. */
+/**
+ * Added to the first companion's node ids, past any real tree's; each next one's lie
+ * COMPANION_STRIDE further on, all still exact in a float and in the 24-bit pick id.
+ */
 const COMPANION_IDS = 4_000_000;
+const COMPANION_STRIDE = 2_000_000;
+const companionIds = (k: number) => COMPANION_IDS + k * COMPANION_STRIDE;
 /** The open ground between a tree's island and its companion's. */
 const COMPANION_GAP = 0.35;
 /** Screen right in the default view, on the ground (x, z): across VIEW_DIRECTION. */
@@ -1170,7 +1178,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const showHighlight = () => {
     const h = highlight;
     if (shown && bare() !== barren) applyBirths(timelineBirths);
-    treeUniforms.uSel.value = h && 'range' in h ? [h.range[0], h.range[1]] : [-1, -1];
+    const offset = h && 'range' in h && h.companion !== undefined ? companionIds(h.companion) : 0;
+    treeUniforms.uSel.value =
+      h && 'range' in h ? [h.range[0] + offset, h.range[1] + offset] : [-1, -1];
     treeUniforms.uCategory.value =
       h && 'category' in h && shown
         ? categories().legend.findIndex((e) => e.label === h.category)
@@ -1588,10 +1598,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           mesh.frustumCulled = false;
-          // Its node ids lie past any of the first tree's, so a pin there fades all of it.
+          // Its node ids lie past any of the first tree's, so a pin there fades all of it, and
+          // past the other companions', so picking tells them apart.
           const ids = Float32Array.from(
             mesh.geometry.getAttribute('aId').array,
-            (id) => id + COMPANION_IDS,
+            (id) => id + companionIds(i),
           );
           mesh.geometry.setAttribute('aId', new BufferAttribute(ids, 1));
           mesh.scale.setScalar(scale?.companions[i] ?? 1);
@@ -1710,7 +1721,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         baked,
         glow,
         terrain.cover,
-        ...companions.map((c) => c.group),
+        // A compared tree's branches pick; its island does not.
+        ...companions.flatMap((c) => [c.terrain.land, c.terrain.cover]),
         ...weather.objects,
       ].filter((o): o is NonNullable<typeof o> => !!o?.visible);
       for (const mesh of hidden) mesh.visible = false;
@@ -1732,6 +1744,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       const nodes = shown.model.nodes.folder.length;
       const rocks = shown.model.rocks.length;
       if (id < 0) return null;
+      if (id >= COMPANION_IDS) {
+        const k = Math.floor((id - COMPANION_IDS) / COMPANION_STRIDE);
+        const folder = companions[k]?.model.nodes.folder[id - companionIds(k)];
+        return folder === undefined ? null : { folder, companion: k };
+      }
       if (id < nodes) return { folder: shown.model.nodes.folder[id]! };
       if (id < nodes + rocks) return { folder: 0, rock: id - nodes };
       const bird = id - nodes - rocks;

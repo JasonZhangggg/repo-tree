@@ -100,6 +100,8 @@ debug.view = view;
 const loader = createLoader(store);
 watchHistory(store);
 let hovered: number | null = null;
+/** The compared tree the hovered folder is on, by its index in companionsOf, if not the one on show. */
+let hoveredCompanion: number | undefined;
 /** Whether the camera glided to the pin on show, so clearing it glides back. */
 let framedPin = false;
 let hoveredCategory: string | null = null;
@@ -123,8 +125,9 @@ const app: App = {
     }
     if (!selection) framedPin = false;
   },
-  hover(folder) {
+  hover(folder, companion) {
     hovered = folder;
+    hoveredCompanion = folder === null ? undefined : companion;
     debug.previewed = folder;
     applyHighlight();
   },
@@ -135,6 +138,7 @@ const app: App = {
     hoveredCategory = label;
     applyHighlight();
   },
+  showAlone: (ref, select) => grove.showAlone(ref, select),
   openSettings: (focus) => settings.open(focus),
   signIn: () => void signin.signIn(),
   refreshRuns: () => loader.refreshRuns(),
@@ -159,15 +163,18 @@ function applyHighlight() {
   const folder = category === null ? (selection?.folder ?? hovered) : null;
   // Stepping through search matches keeps them all lit: the pin glides there but fades nothing.
   const faded = searchStepping() ? hovered : folder;
-  const range = repo?.tree.folders.range;
+  // A folder hovered on a compared tree lights there, unless a pin holds the tree on show.
+  const other = selection ? undefined : hoveredCompanion;
+  const tree = other === undefined ? repo : companionsOf(store.get())[other];
+  const range = tree?.tree.folders.range;
   view.setHighlight(
     category !== null
       ? { category }
       : faded === null || faded === 0 || !range
         ? null
-        : { range: [range[2 * faded]!, range[2 * faded + 1]!] },
+        : { range: [range[2 * faded]!, range[2 * faded + 1]!], companion: other },
   );
-  canvas.mark(folder);
+  canvas.mark(other === undefined ? folder : null);
 }
 
 function describe(state: AppState): string {
@@ -582,7 +589,7 @@ const timeline = mountTimeline(
   compute,
 );
 const settings = mountSettings(app);
-mountCompare(app);
+const grove = mountCompare(app);
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 mountQuick(app);
 const pinTray = mountPinTray(app, () => {

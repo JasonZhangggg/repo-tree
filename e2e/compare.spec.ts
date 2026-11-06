@@ -195,6 +195,63 @@ test("a tree's tag or line shows it alone, and the card brings the grove back", 
   expect(page.url()).not.toContain('vs=');
 });
 
+test("hovering another tree's branch names it, and a click shows that tree with it pinned", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'hover');
+  await page.goto('./#/mathiasbynens/dotfiles?vs=vitejs/vite');
+  await besideReady(page, 'vitejs/vite');
+  const debug = () =>
+    page.evaluate(() => {
+      const d = (
+        window as unknown as { __repoTree: { hovered: string | null; hoveredTree: string | null } }
+      ).__repoTree;
+      return { path: d.hovered, tree: d.hoveredTree };
+    });
+
+  // A spot on one of vite's branches above its tag, from the view's own pick; tried again while
+  // the camera still glides as the panels settle.
+  const spot = () =>
+    page.evaluate(() => {
+      type View = { pickAt(x: number, y: number): { folder: number; companion?: number } | null };
+      const view = (window as unknown as { __repoTree: { view: View } }).__repoTree.view;
+      const rect = document.getElementById('view')!.getBoundingClientRect();
+      const tag = [...document.querySelectorAll<HTMLElement>('.island-tag')]
+        .find((el) => !el.hidden && el.textContent?.includes('vite'))!
+        .getBoundingClientRect();
+      const x0 = tag.x + tag.width / 2;
+      for (let dy = 30; dy < 400; dy += 4) {
+        for (const dx of [0, -6, 6, -12, 12, -20, 20]) {
+          const [x, y] = [x0 + dx, tag.y - dy];
+          // A folder's branch, not the trunk: the root folder pins nothing.
+          const picked = view.pickAt(x - rect.left, y - rect.top);
+          if (picked?.companion === 0 && picked.folder !== 0) return { x, y };
+        }
+      }
+      return null;
+    });
+  let found: { path: string | null; tree: string | null } | null = null;
+  await expect(async () => {
+    const at = await spot();
+    expect(at, "a branch of vite's tree above its tag").not.toBeNull();
+    await page.mouse.move(at!.x, at!.y);
+    await expect.poll(() => debug().then((d) => d.tree), { timeout: 1_500 }).toBe('vitejs/vite');
+    found = await debug();
+    expect(found.path, 'a branch, not the trunk').toBeTruthy();
+  }).toPass({ timeout: 30_000 });
+  await expect(page.locator('#tip')).toContainText('click to show');
+  await expect(page.locator('#tip code')).toContainText('vitejs/vite/');
+
+  // A click shows vite alone, the hovered folder pinned, with the way back to both.
+  await page.mouse.down();
+  await page.mouse.up();
+  await ready(page, 'vitejs/vite');
+  expect(page.url()).not.toContain('vs=');
+  await expect.poll(() => decodeURIComponent(page.url())).toContain(`sel=${found!.path}`);
+  await expect(page.locator('#compare-back')).toHaveText(/Back to all 2 trees/);
+});
+
 test('the timeline replays every tree in the grove on one calendar', async ({ page }) => {
   await page.goto('./#/vitejs/vite?vs=mathiasbynens/dotfiles&t=2016');
   await besideReady(page, 'mathiasbynens/dotfiles');

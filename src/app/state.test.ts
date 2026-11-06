@@ -28,6 +28,7 @@ const INITIAL: AppState = {
   timeline: null,
   history: null,
   compare: null,
+  companion: null,
 };
 const repo = (name: string, truncated = false) =>
   ({
@@ -212,5 +213,14 @@ describe('compare', () => {
     expect(open.compare).toEqual(ref('vitejs/vite'));
     expect(reduce(open, { type: 'compare', ref: ref('ViteJS/Vite') })).toBe(open);
     expect(reduce(open, { type: 'compare', ref: null }).compare).toBeNull();
+  });
+
+  test('keeps a grown companion only while it is the repo compared', () => {
+    const open = run({ type: 'compare', ref: ref('vitejs/vite') });
+    const grown = repo('vitejs/vite');
+    const shown = reduce(open, { type: 'companion', companion: grown });
+    expect(shown.companion).toBe(grown);
+    expect(reduce(open, { type: 'companion', companion: repo('acme/web') })).toBe(open);
+    expect(reduce(shown, { type: 'compare', ref: ref('acme/web') }).companion).toBeNull();
   });
 });

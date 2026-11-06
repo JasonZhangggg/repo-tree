@@ -533,9 +533,8 @@ const JOURNEYS = {
   },
 
   compare: async ({ page, step }) => {
-    const pane = (side) => page.locator(`.cmp-pane[data-side="${side}"]`);
-    const paneReady = (side, repo) =>
-      expect(pane(side)).toHaveAttribute('data-ready', repo, { timeout: 60_000 });
+    const besideReady = (repo) =>
+      expect(page.locator('#compare')).toHaveAttribute('data-ready', repo, { timeout: 60_000 });
     await serveRepo(page, 'acme/widgets');
     await step('open', async () => {
       await page.goto(base);
@@ -545,28 +544,31 @@ const JOURNEYS = {
         await page.getByRole('button', { name: 'More actions' }).click();
       }
       await page.getByRole('button', { name: 'Compare trees' }).click();
-      await paneReady('a', 'vitejs/vite');
-      await paneReady('b', 'mathiasbynens/dotfiles');
+      await besideReady('mathiasbynens/dotfiles');
       await expect(page).toHaveURL(/vs=mathiasbynens\/dotfiles/);
       await expect(page.locator('#compare-line')).toHaveText(/vite has \d+× the files of dotfiles/);
+      await settle(page);
     });
     await step('change', async () => {
       await page.getByRole('button', { name: 'Change', exact: true }).click();
       await page.getByLabel('Repository to compare').fill('acme/widgets');
       await page.getByLabel('Repository to compare').press('Enter');
-      await paneReady('b', 'acme/widgets');
+      await besideReady('acme/widgets');
       await expect(page).toHaveURL(/vs=acme\/widgets/);
+      await settle(page);
     });
-    await step('swap', async () => {
-      await page.getByRole('button', { name: 'Swap sides' }).click();
-      await paneReady('a', 'acme/widgets');
-      await paneReady('b', 'vitejs/vite');
-    });
-    await step('close', async () => {
-      await page.keyboard.press('Escape');
-      await expect(page.getByRole('dialog', { name: 'Compare trees' })).toBeHidden();
+    await step('switch', async () => {
+      await page.getByRole('button', { name: 'Switch' }).click();
       await ready(page, 'acme/widgets');
+      await besideReady('vitejs/vite');
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('acme/widgets');
+      await settle(page);
+    });
+    await step('stop', async () => {
+      await page.getByRole('button', { name: 'Stop comparing' }).click();
+      await expect(page.getByRole('group', { name: 'Compared tree' })).toBeHidden();
       await expect(page).not.toHaveURL(/vs=/);
+      await settle(page);
     });
   },
   timeline: async ({ page, step, out }) => {

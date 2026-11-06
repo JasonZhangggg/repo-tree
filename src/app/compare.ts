@@ -1,7 +1,7 @@
 import type { Loaded } from '../load/load-in-worker';
 import { parseRepoRef, type RepoRef } from '../repo/ref';
 import { FIRST_VISIT, SAMPLES } from './samples';
-import { sameRef } from './state';
+import { sameRef, type AppState } from './state';
 
 /** What the compare view sets side by side for each tree. */
 export type TreeStats = {
@@ -32,11 +32,18 @@ export function treeStats({ index, tree }: Pick<Loaded, 'index' | 'tree'>): Tree
   };
 }
 
-/** Both trees' files per language, so the two give each language the same leaf color. */
+/**
+ * Each language's share of each tree, summed, so the two give a language the same leaf color.
+ * Shares rather than files: a small repo's main languages still rank beside a large one's,
+ * instead of all falling into the shared last color.
+ */
 export function sharedRank(a: TreeStats, b: TreeStats): Map<string, number> {
   const rank = new Map<string, number>();
-  for (const { lang, files } of [...a.langs, ...b.langs]) {
-    rank.set(lang, (rank.get(lang) ?? 0) + files);
+  for (const { langs } of [a, b]) {
+    const total = langs.reduce((sum, l) => sum + l.files, 0);
+    for (const { lang, files } of langs) {
+      rank.set(lang, (rank.get(lang) ?? 0) + files / Math.max(1, total));
+    }
   }
   return rank;
 }
@@ -80,3 +87,16 @@ export function defaultPartner(current: RepoRef, recent: readonly string[]): Rep
 }
 
 const plain = ({ owner, repo }: { owner: string; repo: string }) => ({ owner, repo }) as RepoRef;
+
+/**
+ * The shared language ranking while a companion grows beside the repo on show, else null: the
+ * same Map for the same pair, so the view is told only when it changes.
+ */
+export function rankOf({ repo, companion }: Pick<AppState, 'repo' | 'companion'>) {
+  if (!repo || !companion) return null;
+  if (ranked?.repo !== repo || ranked.companion !== companion) {
+    ranked = { repo, companion, rank: sharedRank(treeStats(repo), treeStats(companion)) };
+  }
+  return ranked.rank;
+}
+let ranked: { repo: Loaded; companion: Loaded; rank: Map<string, number> } | null = null;

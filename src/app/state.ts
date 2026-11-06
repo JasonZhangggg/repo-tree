@@ -60,8 +60,10 @@ export type AppState = {
   timeline: number | null;
   /** Loaded only once something on show needs it (activity, changes or owner colors); null until then. */
   history: HistoryFacts | null;
-  /** The repo grown beside the one on show in the compare view, or null while it is closed. */
+  /** The repo compared with the one on show, grown beside it on its own island; null when not comparing. */
   compare: RepoRef | null;
+  /** That repo once grown (`compare` names it); null while it loads or when not comparing. */
+  companion: Loaded | null;
 };
 
 export type Action =
@@ -88,7 +90,8 @@ export type Action =
   | { type: 'preview'; sky: Sky | null }
   | { type: 'timeline'; at: number | null }
   | { type: 'history'; history: HistoryFacts }
-  | { type: 'compare'; ref: RepoRef | null };
+  | { type: 'compare'; ref: RepoRef | null }
+  | { type: 'companion'; companion: Loaded };
 
 const IDLE: LoadState = { phase: 'idle' };
 
@@ -148,7 +151,14 @@ export function reduce(state: AppState, action: Action): AppState {
     case 'history':
       return action.history.repo === state.repo ? { ...state, history: action.history } : state;
     case 'compare':
-      return sameRef(action.ref, state.compare) ? state : { ...state, compare: action.ref };
+      return sameRef(action.ref, state.compare)
+        ? state
+        : { ...state, compare: action.ref, companion: null };
+    case 'companion': {
+      const { owner, repo } = action.companion.info.ref;
+      const named = state.compare && sameRef({ owner, repo } as RepoRef, state.compare);
+      return named ? { ...state, companion: action.companion } : state;
+    }
   }
 }
 

@@ -159,6 +159,7 @@
       <p class="meta" id="repo-meta"></p>
       <a class="weather" id="weather" target="_blank" rel="noopener" hidden></a>
       <div id="status"></div>
+      <div class="compare" id="compare" role="group" aria-label="Compared tree" hidden></div>
     </section>
 
     <aside class="side" id="side" aria-label="Repository details">
@@ -187,6 +188,12 @@
       <div class="quick" id="quick"></div>
       <div class="side-body" id="side-body">
         <section class="panel color-by" id="color-by" aria-label="Color leaves by"></section>
+        <section
+          class="panel cmp-panel"
+          id="compare-panel"
+          aria-label="Side by side"
+          hidden
+        ></section>
         <article class="panel detail" id="detail" hidden aria-label="Pinned folder"></article>
         <section class="panel" id="overview">
           <h2 class="h">Top-level folders</h2>
@@ -247,6 +254,7 @@
         class="pill-btn"
         id="compare-open"
         aria-label="Compare trees"
+        aria-pressed="false"
         aria-disabled="true"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -340,14 +348,6 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="pr-title"
-      hidden
-    ></div>
-    <div
-      class="compare"
-      id="compare"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="compare-title"
       hidden
     ></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

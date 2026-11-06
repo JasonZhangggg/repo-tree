@@ -11,71 +11,63 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(() => expect(errors).toEqual([]));
 
-const dialog = (page: Page) => page.getByRole('dialog', { name: 'Compare trees' });
-const pane = (page: Page, side: 'a' | 'b') => page.locator(`.cmp-pane[data-side="${side}"]`);
-const paneReady = (page: Page, side: 'a' | 'b', repo: string) =>
-  expect(pane(page, side)).toHaveAttribute('data-ready', repo, { timeout: 60_000 });
-/** On a phone Compare sits behind More actions. */
-async function openCompare(page: Page) {
-  const more = page.getByRole('button', { name: 'More actions' });
-  if (await page.locator('#compare-open').isHidden()) await more.click();
-  await page.getByRole('button', { name: 'Compare trees' }).click();
-}
+const compared = (page: Page) => page.getByRole('group', { name: 'Compared tree' });
+/** The compared repo has grown in on its island beside the one on show. */
+const besideReady = (page: Page, repo: string) =>
+  expect(page.locator('#compare')).toHaveAttribute('data-ready', repo, { timeout: 60_000 });
 const table = (page: Page) => page.getByRole('table', { name: 'Both trees side by side' });
 
-test('Compare grows a second repo beside the one on show, and Escape closes it', async ({
+/** On a phone Compare sits behind More actions. */
+async function openCompare(page: Page) {
+  if (await page.locator('#compare-open').isHidden()) {
+    await page.getByRole('button', { name: 'More actions' }).click();
+  }
+  await page.getByRole('button', { name: 'Compare trees' }).click();
+}
+
+test('Compare grows a second repo beside the one on show, and Stop takes it away', async ({
   page,
-  isMobile,
 }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   await openCompare(page);
 
-  await expect(dialog(page)).toBeVisible();
-  await paneReady(page, 'a', 'vitejs/vite');
-  await paneReady(page, 'b', 'mathiasbynens/dotfiles');
+  await besideReady(page, 'mathiasbynens/dotfiles');
+  await expect(compared(page)).toContainText('mathiasbynens/dotfiles');
   expect(page.url()).toContain('vs=mathiasbynens/dotfiles');
   await expect(page.locator('#compare-line')).toHaveText(/vite has \d+× the files of dotfiles/);
+  // The one set of panels still describes the repo on show.
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('vitejs/vite');
+  if (await table(page).isHidden()) await page.locator('#sheet-toggle').click();
   const files = table(page).getByRole('row', { name: /^Files/ });
   await expect(files.getByRole('cell')).toHaveText([/^\d{1,3},\d{3}$/, '36']);
-  // Both trees share one ranking of languages, so the table names languages from either.
-  await expect(table(page).getByRole('row', { name: /JSON/ })).toBeVisible();
+  await expect(table(page).getByRole('row', { name: /JSON/ })).toBeAttached();
 
-  await page.keyboard.press('Escape');
-  await expect(dialog(page)).toBeHidden();
+  await page.getByRole('button', { name: 'Stop comparing' }).click();
+  await expect(compared(page)).toBeHidden();
   expect(page.url()).not.toContain('vs=');
-  await expect(page.locator(isMobile ? '#more' : '#compare-open')).toBeFocused();
 });
 
-test('a link opens the compare view, and Change grows another repo on the right', async ({
-  page,
-}) => {
+test('a link compares two repos, and Change grows another one beside', async ({ page }) => {
   await serveRepo(page, 'acme/widgets');
   await page.goto('./#/vitejs/vite?vs=mathiasbynens/dotfiles');
-  await paneReady(page, 'b', 'mathiasbynens/dotfiles');
+  await besideReady(page, 'mathiasbynens/dotfiles');
 
   await page.getByRole('button', { name: 'Change', exact: true }).click();
   await page.getByLabel('Repository to compare').fill('acme/widgets');
   await page.getByLabel('Repository to compare').press('Enter');
-  await paneReady(page, 'b', 'acme/widgets');
+  await besideReady(page, 'acme/widgets');
   expect(page.url()).toContain('vs=acme/widgets');
-  await expect(pane(page, 'b').locator('.cmp-name')).toHaveText('acme/widgets');
 });
 
-test('Swap trades sides, and Open this tree shows the right-hand repo on its own', async ({
-  page,
-}) => {
+test('Switch gives the panels to the other tree and keeps both in view', async ({ page }) => {
   await page.goto('./#/vitejs/vite?vs=mathiasbynens/dotfiles');
-  await paneReady(page, 'b', 'mathiasbynens/dotfiles');
+  await besideReady(page, 'mathiasbynens/dotfiles');
 
-  await page.getByRole('button', { name: 'Swap sides' }).click();
-  await paneReady(page, 'a', 'mathiasbynens/dotfiles');
-  await paneReady(page, 'b', 'vitejs/vite');
+  await page.getByRole('button', { name: 'Switch' }).click();
+  await ready(page, 'mathiasbynens/dotfiles');
+  await besideReady(page, 'vitejs/vite');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('mathiasbynens/dotfiles');
   expect(page.url()).toContain('#/mathiasbynens/dotfiles');
   expect(page.url()).toContain('vs=vitejs/vite');
-
-  await page.getByRole('button', { name: 'Open this tree' }).click();
-  await expect(dialog(page)).toBeHidden();
-  await ready(page, 'vitejs/vite');
-  expect(page.url()).not.toContain('vs=');
 });

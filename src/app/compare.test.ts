@@ -34,7 +34,7 @@ describe('compare', () => {
     });
   });
 
-  test('ranks languages across both trees, and lists each tree’s count', () => {
+  test('ranks languages by their share of each tree, and lists each tree’s count', () => {
     const a = stats([
       ['TypeScript', 50],
       ['CSS', 5],
@@ -44,12 +44,11 @@ describe('compare', () => {
       ['TypeScript', 20],
       ['Markdown', 1],
     ]);
-    expect([...sharedRank(a, b)]).toEqual([
-      ['TypeScript', 70],
-      ['CSS', 5],
-      ['C', 40],
-      ['Markdown', 1],
-    ]);
+    // Shares of each tree: TypeScript 50/55 + 20/61, C 40/61, CSS 5/55, Markdown 1/61.
+    const rank = sharedRank(a, b);
+    expect(rank.get('TypeScript')).toBeCloseTo(50 / 55 + 20 / 61);
+    expect(rank.get('C')).toBeCloseTo(40 / 61);
+    expect(rank.get('CSS')).toBeCloseTo(5 / 55);
     expect(languageRows(a, b, 3)).toEqual([
       { lang: 'TypeScript', a: 50, b: 20 },
       { lang: 'C', a: 0, b: 40 },

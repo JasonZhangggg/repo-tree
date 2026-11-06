@@ -46,7 +46,7 @@ Each feature file starts with an H1 and one paragraph on what the user sees. The
 - [Changes](./changes.md) covers leaf colors by how often files changed, from the history, the highlighted band and repos with no history.
 - [Busiest files](./busiest.md) covers, in Changes, the busiest files glowing in their own color, the busiest listed under the legend to pin, no glow in other modes and repos with no history.
 - [Owner](./owner.md) covers leaf colors by each top-level folder's owner (CODEOWNERS or top commit author), the highlighted owner, the pinned card's top authors and repos with no history.
-- [Compare trees](./compare.md) covers growing a second repo beside the one on show, the shared language colors and table, Change, Swap, Open this tree, the `vs=` link and closing.
+- [Compare trees](./compare.md) covers a second repo grown on an island beside the one on show, the shared colors and table, Change, Switch, Stop and the `vs=` link.
 - [Weather](./weather.md) covers the sky from recent Actions runs, the chip, sample snapshots, `wx=` previews, failing soft and the setting.
 - [Birds](./birds.md) covers open pull requests perched as birds, the tooltip, the PR card, the request budget, failing soft and the setting.
 - [Hover focus](./hover.md) covers the scene fading around a bird, rock, cloud or the sun under the mouse, with a pointer cursor, by day and night.

@@ -1,16 +1,18 @@
 # Compare trees
 
-A user sets two repos side by side. `Compare trees` in the bottom controls covers the page with two panes, the repo on show on the left and a second repo on the right (stacked on a phone), each tree orbiting on its own. A card on each pane names its repo with files, folders and size, a sentence in the bar says how their file counts compare, and a table below lists files, folders, the deepest folder, size and the top languages with each tree's share. Both trees color leaves by language, ranked across the two, so a language wears one color on both.
+A user compares two repos in one world. `Compare trees` grows a second repo on its own island beside the one on show, close by, and the camera frames and orbits the pair about the middle between them. The app keeps one set of panels, for the repo on show. The repo card gains a `Beside` row naming the compared repo with its file count, a line on how the sizes compare, and `Switch`, `Change` and `Stop comparing`. The side panel gains a `Side by side` table: files, folders, deepest folder, size and the top languages with each tree's share. `Color by` applies to both trees. Languages rank by their share of each tree, so a language wears one color on both.
 
 ## Sub-features
 
-- `compare-open` opens beside the most recent other repo, else `vitejs/vite`, else `mathiasbynens/dotfiles` (a sample, so it grows with no network). The main tree holds still behind it and is inert.
-- `compare-table` the table and the sentence fill once both trees are in; language rows name languages from either tree, with a bar in the leaf color.
-- `compare-change` `Change` opens a field and quick picks (recent repos and samples not on show); a ref grows on the right, a bad one says so under the field, and a load error shows on the pane's card.
-- `compare-swap` `Swap sides` loads the right repo as the one on show and moves the left one to the right.
-- `compare-open-tree` `Open this tree` closes the view and loads the right repo on its own.
-- `compare-link` the hash carries `vs=owner/repo` while open; a link with `vs` opens the view.
-- `compare-close` Escape or the x closes it, drops `vs` and returns focus to the button.
+- `compare-open` opens beside the most recent other repo, else `vitejs/vite`, else `mathiasbynens/dotfiles` (samples grow with no network). The button shows pressed, and a second press stops comparing.
+- `compare-world` both islands sit side by side across the default view with a small gap; Reset view and spin frame the pair.
+- `compare-table` the table and the size line fill once the compared repo has grown; language rows show swatches in the shared leaf colors.
+- `compare-colors` folder colors give each tree its own folders; activity, changes and owner (which need a history) color the compared tree by language.
+- `compare-change` `Change` opens a field and quick picks (recent repos and samples not on show). A bad ref is flagged under the field, and a load error shows in the `Beside` row.
+- `compare-switch` `Switch` loads the compared repo as the one on show, and the old one goes beside it.
+- `compare-link` the hash carries `vs=owner/repo` while comparing, and a link with `vs` compares.
+- `compare-timeline` the compared island steps aside while the timeline is open.
+- `compare-stop` the × in the `Beside` row (or the Compare button again) stops comparing and drops `vs`.
 
 ## How to get to it (user POV)
 
@@ -24,13 +26,14 @@ Preconditions:
 - Baseline from the index. Run `drive compare --port <port>`, and again with `--viewport phone-390`.
 - The journey serves `acme/widgets` from the dotfiles sample through the stand-in API.
 
-- **Open.** Choose `Compare trees`. Step `open`. Both panes reach `data-ready`, the hash has `vs=mathiasbynens/dotfiles` and the bar says `vite has 81× the files of dotfiles`.
-- **Change.** Choose `Change`, enter `acme/widgets`. Step `change`. The right pane grows it and the hash follows.
-- **Swap.** Choose `Swap sides`. Step `swap`. Left shows `acme/widgets`, right `vitejs/vite`.
-- **Close.** Press Escape. Step `close`. The view is gone, the main tree is `acme/widgets` and `vs` left the hash.
+- **Open.** Choose `Compare trees`. Step `open`. `#compare[data-ready="mathiasbynens/dotfiles"]`, the hash has `vs=` and the size line reads `vite has 81× the files of dotfiles`. The screenshot shows two islands.
+- **Change.** Choose `Change`, enter `acme/widgets`. Step `change`. It grows beside, and the hash follows.
+- **Switch.** Choose `Switch`. Step `switch`. The heading is `acme/widgets`, and vite stands beside it.
+- **Stop.** Choose `Stop comparing`. Step `stop`. One island again, and no `vs`.
 
 ## Gotchas
 
-- Each pane is its own WebGL context; wait for `.cmp-pane[data-side=a|b][data-ready="<owner>/<repo>"]`, not `body[data-ready]`, which is the main tree's.
-- `getByRole('button', { name: 'Change' })` also matches `Change repository` behind the view in a non-inert query; use `exact: true`.
-- `torvalds/linux` grows slowly on SwiftShader; the journey avoids it on the right.
+- Wait for `#compare[data-ready="<owner>/<repo>"]` for the compared tree. `body[data-ready]` is only the tree on show.
+- `getByRole('button', { name: 'Change' })` also matches `Change repository`, so use `exact: true`.
+- On a phone the table is in the sheet: open it with `#sheet-toggle` to see it.
+- `torvalds/linux` grows slowly on SwiftShader, so the journey keeps it out.

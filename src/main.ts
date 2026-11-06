@@ -30,6 +30,7 @@ import { childrenOf, mountSide } from './app/ui/side';
 import { mountHistoryCompute } from './app/ui/history-compute';
 import { mountTimeline } from './app/ui/timeline';
 import { mountCompare } from './app/ui/compare';
+import { rankOf } from './app/compare';
 
 const SETTINGS_KEY = 'repo-tree:settings';
 const MEASURE_MS = 2000;
@@ -60,6 +61,7 @@ const store = createStore({
   timeline: null,
   history: null,
   compare: null,
+  companion: null,
 });
 
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -225,6 +227,12 @@ store.subscribe((state, prev) => {
     reframe();
     container.setAttribute('aria-label', describe(state));
     if (!state.repo.sample && repoKey(state) !== repoKey(prev)) rememberRecent(debug.repo);
+  }
+  // The compared tree stands beside this one, out of the way while the timeline replays it alone.
+  const companion = (s: AppState) => (s.timeline === null ? s.companion : null);
+  if (companion(state) !== companion(prev) || state.repo !== prev.repo) {
+    view.setLanguageRank(rankOf(state));
+    view.setCompanion(companion(state)?.tree ?? null);
   }
   const birds = birdsOf(state);
   if (birds !== birdsOf(prev) || state.repo !== prev.repo) {
@@ -495,11 +503,6 @@ addEventListener('resize', reframe);
 addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement;
   const typing = target.matches('input, textarea, select, [contenteditable]');
-  // The compare view covers the app: Escape closes it, and the app's shortcuts wait.
-  if (compare.isOpen()) {
-    if (event.key === 'Escape') compare.close();
-    return;
-  }
   if (event.key === 'Escape') {
     if (search.close() || settings.close() || compute.close() || typing) return;
     const { selection, highlight, load } = store.get();
@@ -544,15 +547,7 @@ const timeline = mountTimeline(
   compute,
 );
 const settings = mountSettings(app);
-const compare = mountCompare(app, {
-  reducedMotion: () => reducedMotion(store.get().settings),
-  pauseMain(paused) {
-    // Hidden behind the compare view, the main tree stops spinning and swaying.
-    const state = store.get();
-    view.setSpin(!paused && spinning(state));
-    view.setReducedMotion(paused || reducedMotion(state.settings));
-  },
-});
+mountCompare(app);
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 mountQuick(app);
 

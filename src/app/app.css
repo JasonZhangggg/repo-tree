@@ -3185,130 +3185,121 @@ body:has(.scrubber:not([hidden])) .toast {
   font-size: 13.5px;
 }
 
-/* Compare trees: two trees side by side over the whole page (stacked on a phone), each in its own
-   pane with a card naming it, and a table of both below. */
-.compare {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
+/* Compare trees: the compared repo, under the name in the repo card, with Switch, Change and
+   Stop; its table sits in the side panel (compare.ts). */
+.title .compare {
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  background: var(--stage);
-  animation: fade 0.15s;
+  gap: 6px;
+  margin: 6px 0 2px 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
-.compare[hidden] {
+.title .compare[hidden] {
   display: none;
 }
-.cmp-bar {
+.cmp-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: calc(env(safe-area-inset-top, 0px) + 14px) max(var(--edge), env(safe-area-inset-right))
-    10px max(var(--edge), env(safe-area-inset-left));
-}
-.cmp-bar h2 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 650;
-  white-space: nowrap;
-}
-.cmp-line {
-  flex: 1;
-  margin: 0;
+  gap: 8px;
   min-width: 0;
+}
+.cmp-tag {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--wash);
   color: var(--muted);
-  font-size: 13.5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.cmp-with {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cmp-swap {
-  height: 36px;
-}
-.cmp-bar .close {
-  position: static;
-  width: 36px;
-  height: 36px;
-  flex: none;
-}
-.cmp-panes {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding: 0 max(var(--edge), env(safe-area-inset-right)) 0
-    max(var(--edge), env(safe-area-inset-left));
-  min-height: 0;
-}
-.cmp-pane {
-  position: relative;
-  min-height: 0;
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow: var(--shadow);
-}
-.cmp-view {
-  position: absolute;
-  inset: 0;
-}
-.cmp-view canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-  touch-action: none;
-}
-.cmp-card {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  right: 10px;
-  display: grid;
-  gap: 4px;
-  max-width: 360px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: var(--card);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: var(--shadow);
-}
 .cmp-name {
-  margin: 0;
-  font: 600 14px/1.3 var(--mono);
-  overflow-wrap: anywhere;
+  font: 600 13px var(--mono);
 }
-.cmp-meta,
-.cmp-status {
+.cmp-meta {
+  color: var(--muted);
+}
+.cmp-stop {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+}
+.cmp-stop svg {
+  width: 13px;
+  height: 13px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cmp-stop:hover {
+    background: var(--wash);
+    color: var(--ink);
+  }
+}
+.cmp-line {
   margin: 0;
   color: var(--muted);
   font-size: 12.5px;
 }
-.cmp-meta:empty,
-.cmp-status:empty {
+.cmp-line:empty {
   display: none;
 }
 .cmp-actions {
   display: flex;
-  gap: 14px;
+  gap: 6px;
 }
-.cmp-form[hidden] {
-  display: none;
-}
-.cmp-open {
+.cmp-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
   border: 0;
-  padding: 0;
-  background: none;
-  color: var(--accent);
+  border-radius: 999px;
+  background: var(--wash);
+  color: var(--ink);
   font-size: 12.5px;
   font-weight: 600;
+  transition: transform 0.15s var(--ease);
 }
-.cmp-open:hover {
-  text-decoration: underline;
+.cmp-act:active {
+  transform: scale(var(--press));
+}
+.cmp-act svg {
+  width: 15px;
+  height: 15px;
+}
+.cmp-act[aria-expanded='true'] {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+@media (hover: hover) and (pointer: fine) {
+  .cmp-act:not([aria-expanded='true']):hover {
+    background: color-mix(in srgb, var(--ink) 12%, transparent);
+  }
 }
 .cmp-form {
   position: relative;
   display: grid;
   gap: 6px;
-  margin-top: 4px;
+}
+.cmp-form[hidden] {
+  display: none;
 }
 .cmp-field {
   display: flex;
@@ -3351,108 +3342,79 @@ body:has(.scrubber:not([hidden])) .toast {
     background: color-mix(in srgb, var(--ink) 12%, transparent);
   }
 }
-.cmp-foot {
-  max-height: 34vh;
-  overflow: auto;
-  padding: 10px max(var(--edge), env(safe-area-inset-right))
-    calc(env(safe-area-inset-bottom, 0px) + 14px) max(var(--edge), env(safe-area-inset-left));
+#compare-open[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+.cmp-panel[hidden] {
+  display: none;
 }
 .cmp-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12.5px;
   font-variant-numeric: tabular-nums;
+  table-layout: fixed;
 }
 .cmp-table th,
 .cmp-table td {
-  padding: 5px 8px;
+  padding: 4px 4px;
   text-align: left;
   border-bottom: 1px solid var(--line);
   font-weight: 400;
-}
-.cmp-table thead th {
-  font: 600 12.5px var(--mono);
-}
-.cmp-table tbody th {
-  width: 22%;
-  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cmp-table td {
-  width: 39%;
+.cmp-table tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+.cmp-table thead th {
+  font: 600 12px var(--mono);
+}
+.cmp-table tbody th {
+  width: 34%;
+  color: var(--muted);
 }
 .cmp-lang {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   color: var(--ink);
 }
 .cmp-lang i {
-  width: 10px;
-  height: 10px;
+  flex: none;
+  width: 9px;
+  height: 9px;
   border-radius: 3px;
 }
 .cmp-share {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .cmp-fill {
-  width: calc(var(--w) * 0.6);
-  min-width: 2px;
-  height: 8px;
+  flex: none;
+  width: calc(var(--w) * 0.5);
+  height: 7px;
   border-radius: 4px;
   background: var(--c);
 }
 .cmp-num {
   color: var(--muted);
-  white-space: nowrap;
-}
-body[data-comparing] :is(#labels, #tip) {
-  visibility: hidden;
 }
 @media (max-width: 760px) {
-  .compare {
-    grid-template-rows: auto minmax(0, 1fr) auto;
-  }
-  .cmp-bar h2 {
-    font-size: 15px;
-  }
-  .cmp-line {
-    display: none;
-  }
-  .cmp-swap span {
-    display: none;
-  }
-  .cmp-swap {
-    padding: 0 10px;
-  }
-  .cmp-bar {
-    justify-content: space-between;
-  }
-  .cmp-bar h2 {
-    flex: 1;
-  }
-  .cmp-panes {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
-    gap: 8px;
-    padding: 0 12px;
-  }
-  .cmp-card {
-    padding: 9px 11px;
-    max-width: none;
-  }
-  .cmp-foot {
-    max-height: 30vh;
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-  .cmp-table {
-    font-size: 12px;
+  /* Its own row, after the name and the CI chip. */
+  .title .compare {
+    order: 3;
+    flex: 1 0 100%;
+    margin: 0 2px 2px;
   }
   /* 16px keeps iOS from zooming into the field. */
   .cmp-field input {
     font-size: 16px;
+  }
+  .cmp-act {
+    height: 36px;
   }
 }

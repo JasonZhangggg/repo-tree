@@ -21,7 +21,7 @@ A user grows a tree from a bundled sample or from any GitHub repository named as
 - Open the app with no hash.
 - Open the repo field (the repo card's GitHub mark or name) and choose `dotfiles`, `vite` or `linux` in its suggestion list.
 - Focus the `owner/repo or GitHub URL` input to see suggestions.
-- Type a repo or paste a URL into the input and press Enter (there is no Grow button; a pick from the list grows at once). A bad name shows `Use owner/repo…` in `#alerts`, the bottom-left corner just above the bottom row's buttons (on a phone a full-width row above them and the sheet, lifted over the keyboard); load errors and the partial-tree notice render there too, in `#notices`.
+- Type a repo or paste a URL into the input and press Enter (there is no Grow button; a pick from the list grows at once). A bad name shows `Use owner/repo…` in `#alerts`, the bottom-left corner just above the bottom row's buttons (on a phone a full-width row under the card up top); load errors and the partial-tree notice render there too, in `#notices`.
 - Open a link with a `#/owner/repo` hash.
 - Choose `Reload from GitHub` beside the branch name.
 

@@ -588,9 +588,10 @@ export function paintWeather(chip: HTMLAnchorElement, state: AppState, repo: Loa
 }
 
 /**
- * Keeps the errors and notices in their own corner, clear of the tree and the cards: the bottom
- * left, just above the bottom row's buttons (or the timeline, while it shows). On a phone that is
- * a full-width row above the bottom buttons and the sheet, lifted over the keyboard while it is up.
+ * Keeps the errors and notices in their own place, clear of the tree and the cards. On a desktop
+ * that is the bottom left, just above the bottom row's buttons (or the timeline, while it shows).
+ * On a phone it is a full-width row right under whichever card is up top: the repo card, or the
+ * repo field open in its place.
  */
 function placeAlerts(alerts: HTMLElement): void {
   const phone = matchMedia('(max-width: 760px)');
@@ -602,26 +603,31 @@ function placeAlerts(alerts: HTMLElement): void {
   const GAP = 12;
   const place = () => {
     if (!alerts.querySelector(':scope > :not(:empty)')) return;
-    const below = ['#timeline', '#grow', '#spin', '#scrubber', ...(phone.matches ? ['#side'] : [])]
+    if (phone.matches) {
+      const above = ['#repo-form', '#title']
+        .map((sel) => shown(document.querySelector(sel)))
+        .filter((b): b is DOMRect => !!b);
+      alerts.style.top = `${Math.round(Math.max(0, ...above.map((b) => b.bottom)) + GAP - 2)}px`;
+      alerts.style.bottom = 'auto';
+      return;
+    }
+    const below = ['#timeline', '#grow', '#spin', '#scrubber']
       .map((sel) => shown(document.querySelector(sel)))
       .filter((b): b is DOMRect => !!b && b.top > innerHeight / 2);
     const top = Math.min(innerHeight, ...below.map((b) => b.top));
-    // The keyboard, where the browser lays it over the page rather than shrinking it.
-    const view = window.visualViewport;
-    const keyboard = view ? Math.max(0, innerHeight - view.height - view.offsetTop) : 0;
-    alerts.style.bottom = `${Math.round(Math.max(innerHeight - top, keyboard) + GAP)}px`;
+    alerts.style.top = 'auto';
+    alerts.style.bottom = `${Math.round(innerHeight - top + GAP)}px`;
   };
   const resize = new ResizeObserver(place);
-  for (const sel of ['#side', '#scrubber', '#alerts']) {
+  for (const sel of ['#repo-form', '#title', '#scrubber', '#alerts']) {
     const el = document.querySelector(sel);
     if (el) resize.observe(el);
   }
   new MutationObserver(place).observe(alerts, { childList: true, subtree: true });
-  new MutationObserver(place).observe(document.body, { attributes: true, subtree: false });
+  new MutationObserver(place).observe(document.body, { attributes: true });
   const scrubber = document.querySelector('#scrubber');
   if (scrubber) new MutationObserver(place).observe(scrubber, { attributes: true });
   addEventListener('resize', place);
-  window.visualViewport?.addEventListener('resize', place);
   phone.addEventListener('change', place);
   place();
 }

@@ -259,7 +259,7 @@ kbd {
 }
 
 /* Errors and notices: their own corner at the bottom left, above the bottom row's buttons and
-   clear of the tree and the cards (header.ts sets how high). The field's own error is one line;
+   clear of the tree and the cards; on a phone, a row under the card up top (header.ts places it). The field's own error is one line;
    a load error is a card with its actions. */
 .alerts {
   position: fixed;
@@ -278,30 +278,18 @@ kbd {
 .alerts:not(:has(> :not(:empty))) {
   display: none;
 }
+/* Plain cards like the repo card: the badge and the title's colour say what kind it is. */
 .alerts .status {
-  box-shadow:
-    inset 3px 0 0 var(--danger),
-    0 0 0 1px var(--line),
-    var(--shadow-lift);
-}
-.alerts .status.notice {
-  box-shadow:
-    inset 3px 0 0 #c48c1e,
-    0 0 0 1px var(--line),
-    var(--shadow-lift);
+  background: var(--card-solid);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
 }
 .field-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   margin: 0;
   padding: 10px 14px;
-  border-radius: 12px;
-  background: var(--raised);
-  box-shadow:
-    inset 3px 0 0 var(--danger),
-    0 0 0 1px var(--line),
-    var(--shadow-lift);
+  border-radius: 14px;
+  background: var(--card-solid);
+  box-shadow: var(--shadow);
   font-size: 13px;
   color: var(--danger);
   font-weight: 550;

@@ -33,6 +33,14 @@ describe('share links', () => {
     );
   });
 
+  test('carries the pin tray as one pin per folder, commas and all', () => {
+    const link: ViewLink = { ref: ref('vitejs/vite'), pins: ['packages/vite', 'docs/a,b'] };
+    const hash = formatLink(link);
+    expect(hash).toBe('#/vitejs/vite?pin=packages/vite&pin=docs/a%2Cb');
+    expect(parseLink(hash)).toEqual(link);
+    expect(parseLink('#/vitejs/vite?pin=')).toEqual({ ref: ref('vitejs/vite') });
+  });
+
   test('writes folder paths and branches readably', () => {
     const link: ViewLink = {
       ref: ref('https://github.com/acme/web/tree/feature/x'),

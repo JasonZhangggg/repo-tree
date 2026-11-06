@@ -3,7 +3,10 @@ import { parseRepoRef, type RepoRef } from '../repo/ref';
 import type { ColorBy, PaletteId } from '../render/palette';
 import { COLOR_BYS, PALETTE_IDS } from './settings';
 
-/** Everything a shared URL restores: `#/owner/repo?branch=&palette=&colorBy=&sel=&hl=&wx=&t=`. */
+/**
+ * Everything a shared URL restores: `#/owner/repo?branch=&palette=&colorBy=&sel=&hl=&wx=&t=`,
+ * with a `pin=` per folder in the pin tray.
+ */
 export type ViewLink = {
   ref: RepoRef;
   palette?: PaletteId;
@@ -16,6 +19,8 @@ export type ViewLink = {
   wx?: Sky;
   /** The timeline is open at this date (ms, UTC), written as YYYY-MM-DD; YYYY-MM and YYYY also read. */
   t?: number;
+  /** The pin tray's folder paths, oldest first. */
+  pins?: string[];
 };
 
 export function parseLink(hash: string): ViewLink | null {
@@ -38,10 +43,12 @@ export function parseLink(hash: string): ViewLink | null {
   if (SKIES.includes(wx as Sky)) link.wx = wx as Sky;
   const t = parseDay(query.get('t'));
   if (t !== undefined) link.t = t;
+  const pins = query.getAll('pin').filter(Boolean);
+  if (pins.length) link.pins = pins;
   return link;
 }
 
-export function formatLink({ ref, palette, colorBy, sel, hl, wx, t }: ViewLink): string {
+export function formatLink({ ref, palette, colorBy, sel, hl, wx, t, pins }: ViewLink): string {
   const params: [string, string | undefined][] = [
     ['branch', ref.ref],
     ['palette', palette],
@@ -50,6 +57,7 @@ export function formatLink({ ref, palette, colorBy, sel, hl, wx, t }: ViewLink):
     ['hl', hl],
     ['wx', wx],
     ['t', t === undefined ? undefined : new Date(t).toISOString().slice(0, 10)],
+    ...(pins ?? []).map((pin): [string, string] => ['pin', pin]),
   ];
   const query = params
     .filter((p): p is [string, string] => p[1] !== undefined)

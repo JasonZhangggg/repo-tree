@@ -337,8 +337,8 @@ type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Qualit
 // 'auto' starts from devicePixelRatio and hardwareConcurrency, then steps down once if the first 2 s after growth render under 30 fps.
 // The token is sent only by fetchSnapshot, which only calls api.github.com.
 
-// app/link.ts  (URL hash: #/owner/repo?branch=&palette=&colorBy=&sel=<folder path>&hl=<legend label>&wx=<sky preview>&t=<YYYY-MM-DD>)
-type ViewLink = { ref: RepoRef; palette?: PaletteId; colorBy?: ColorBy; sel?: string; hl?: string; wx?: Sky; t?: number /* timeline date, ms UTC; YYYY-MM and YYYY also read */ };
+// app/link.ts  (URL hash: #/owner/repo?branch=&palette=&colorBy=&sel=<folder path>&hl=<legend label>&wx=<sky preview>&t=<YYYY-MM-DD>&pin=<folder path>…)
+type ViewLink = { ref: RepoRef; palette?: PaletteId; colorBy?: ColorBy; sel?: string; hl?: string; wx?: Sky; t?: number /* timeline date, ms UTC; YYYY-MM and YYYY also read */; pins?: string[] /* the pin tray's folder paths, oldest first, one pin= each */ };
 function parseLink(hash: string): ViewLink | null;
 function formatLink(link: ViewLink): string;
 // A ref naming a bundled sample on its branch (or with no branch) loads the sample; Reload fetches it live.

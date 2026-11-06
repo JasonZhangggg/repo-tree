@@ -294,6 +294,13 @@ const SPIN_SPEED = 0.55;
  */
 const SWAY = 0.5;
 const FRONT = Math.atan2(VIEW_DIRECTION[0], VIEW_DIRECTION[2]);
+/** How far above level the camera looks on its own, and on a grove of three or more. */
+const LEVEL = Math.atan2(VIEW_DIRECTION[1], Math.hypot(VIEW_DIRECTION[0], VIEW_DIRECTION[2]));
+/**
+ * A grove with a back row is seen from higher up, so the back row stands clear above the front
+ * one on screen instead of hiding behind it.
+ */
+const GROVE_LEVEL = 0.32;
 /** Added to the companion's node ids, past any real tree's, still exact in a float. */
 const COMPANION_IDS = 4_000_000;
 /** The open ground between a tree's island and its companion's. */
@@ -667,6 +674,21 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     gliding = !snap;
     placeCamera();
     requestRender();
+  };
+
+  /** Whether the last grove had a back row, so the view only tilts when that changes. */
+  let rowsBefore: boolean | null = null;
+  /** Turns the camera to look down at `level` above the horizon, keeping its bearing and reach. */
+  const tilt = (level: number) => {
+    const direction = camera.position.clone().sub(controls.target);
+    const reach = direction.length();
+    const flat = Math.hypot(direction.x, direction.z);
+    if (reach < 1e-9) return;
+    const [x, z] =
+      flat < 1e-9 ? [VIEW_DIRECTION[0], VIEW_DIRECTION[2]] : [direction.x, direction.z];
+    const across = Math.hypot(x, z);
+    direction.set((x / across) * Math.cos(level), Math.sin(level), (z / across) * Math.cos(level));
+    camera.position.copy(controls.target).addScaledVector(direction, reach);
   };
 
   /** Moves the camera to the spring's target and distance along its current direction. */
@@ -1229,10 +1251,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       2 * Math.max(reachOf(shown.bounds), ...islands.map((i) => reachOf(i.other))) + COMPANION_GAP;
     const spots = groveSpots([tree.max[1], ...islands.map((i) => i.own.max[1])]);
     companions.forEach((c, k) => {
-      const { across, toward, lift } = spots[k + 1]!;
+      const { across, toward } = spots[k + 1]!;
       c.group.position.set(
         (SIDEWAYS[0] * across + TOWARD[0] * toward) * pitch,
-        lift * pitch,
+        0,
         (SIDEWAYS[1] * across + TOWARD[1] * toward) * pitch,
       );
       c.terrain.land.visible = c.terrain.cover.visible = groundOn;
@@ -1544,6 +1566,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       if (!shown) return;
       applyColorBy();
       placeScene();
+      // Rows need a higher view; a lone tree or a pair goes back to the usual one.
+      const rows = models.length >= 2;
+      if (rows !== (rowsBefore ?? false)) tilt(rows ? GROVE_LEVEL : LEVEL);
+      rowsBefore = rows;
       aim = { kind: 'tree' };
       reaim(false);
       startGrowth();

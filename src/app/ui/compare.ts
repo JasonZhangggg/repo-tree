@@ -389,6 +389,51 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
   let metric: Metric = 'files';
   const swatch = (label: string, color: string) =>
     h('span', { class: 'cmp-key' }, h('i', { style: `background:${color}` }), h('span', {}, label));
+  /**
+   * One key for every tree, as the leaves wear one set of colors: each color with its share of
+   * all the trees' files together. Picking one highlights its leaves on every tree, as the
+   * single tree's legend does.
+   */
+  const sharedKey = (rows: { label: string; color: string; files: number[] }[]) => {
+    const all = rows
+      .map((r) => ({ ...r, n: r.files.reduce((sum, f) => sum + f, 0) }))
+      .filter((r) => r.n > 0);
+    const total = Math.max(
+      1,
+      all.reduce((sum, r) => sum + r.n, 0),
+    );
+    const highlight = store.get().highlight;
+    return h(
+      'ul',
+      { class: 'legend cmp-legend', 'aria-label': 'Leaf colors on every tree' },
+      ...all.map(({ label, color, n }) =>
+        h(
+          'li',
+          {},
+          h(
+            'button',
+            {
+              type: 'button',
+              'data-label': label,
+              'aria-pressed': String(highlight === label),
+              onclick: () => {
+                app.hoverCategory(null);
+                app.highlight(store.get().highlight === label ? null : label);
+              },
+              onpointermove: (event: PointerEvent) => {
+                if (event.pointerType === 'mouse') app.hoverCategory(label);
+              },
+              onpointerleave: () => app.hoverCategory(null),
+            },
+            h('i', { class: 'swatch', style: `--c:${color}` }),
+            h('span', { title: label }, label),
+            h('span', { class: 'num', title: count(n) }, percent(n, total)),
+          ),
+        ),
+      ),
+    );
+  };
+
   /** A bar split into each part's share, in its leaf color, with the parts in its label. */
   const stack = (parts: { label: string; color: string; n: number }[], total: number) => {
     const shown = parts.filter((p) => p.n > 0);
@@ -509,7 +554,7 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
             totals[i]!,
           ),
         ]),
-        h('p', { class: 'cmp-keys' }, ...langs.map((l) => swatch(l.label, l.color))),
+        sharedKey(langs),
       ];
     } else if (mode === 'folder' || mode === 'owner') {
       // Each tree has its own folders and people, so each bar names its own biggest.
@@ -563,7 +608,7 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
                 totals[i]!,
               ),
         ]),
-        h('p', { class: 'cmp-keys' }, ...rows.map((r) => swatch(r.label, r.color))),
+        sharedKey(rows),
       ];
       if (mode === 'changes' && facts.some(Boolean)) {
         const hot = (i: number) => {
@@ -661,6 +706,11 @@ export function mountCompare(app: App): { open(): void; close(): boolean } {
       if (!all.some((r) => sameRef(r, plain(repo.info.ref)))) grove = null;
     }
     render(state);
+    if (prev && state.highlight !== prev.highlight) {
+      for (const b of panel.querySelectorAll<HTMLElement>('.cmp-legend button')) {
+        b.setAttribute('aria-pressed', String(b.dataset.label === state.highlight));
+      }
+    }
     if (
       !prev ||
       state.companions !== prev.companions ||

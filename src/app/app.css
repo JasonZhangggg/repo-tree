@@ -3292,6 +3292,8 @@ body:has(.scrubber:not([hidden])) .toast {
   .pin-drop {
     width: 34px;
     height: 34px;
+  }
+}
 
 /* Stepping through search matches: a pill under the header, query, place, back, next, stop. */
 .steps {

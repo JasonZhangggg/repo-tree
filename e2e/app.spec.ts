@@ -366,6 +366,7 @@ type Debug = {
     view: {
       stats(): { distance: number; renders: number; triangles: number };
       pickAt(x: number, y: number): { folder: number; rock?: number } | null;
+      skyAt(x: number, y: number): boolean;
     };
   };
 };
@@ -959,7 +960,21 @@ test('a double tap glides to a branch, and from the sky back out', async ({ page
   };
   await tapTwice(box.x + at!.x, box.y + at!.y);
   expect((await settle(page)).distance, 'glided in').toBeLessThan(whole * 0.9);
-  await tapTwice(box.x + 20, box.y + box.height * 0.7);
+  // Empty sky: no branch, cloud or sun under it, and no panel over it.
+  const sky = await page.evaluate(() => {
+    const { view } = (window as unknown as Debug).__repoTree;
+    const el = document.getElementById('view')!;
+    const r = el.getBoundingClientRect();
+    for (let y = r.height * 0.2; y < r.height * 0.8; y += 8)
+      for (const x of [16, r.width - 16, 40, r.width - 40]) {
+        const over = document.elementFromPoint(r.left + x, r.top + y);
+        if (!over || !el.contains(over)) continue;
+        if (view.pickAt(x, y) === null && !view.skyAt(x, y)) return { x, y };
+      }
+    return null;
+  });
+  expect(sky, 'some empty sky').not.toBeNull();
+  await tapTwice(box.x + sky!.x, box.y + sky!.y);
   expect((await settle(page)).distance, 'back out').toBeCloseTo(whole, 1);
 });
 

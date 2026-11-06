@@ -7,6 +7,8 @@ export const debug: {
   repo: string;
   ready: boolean;
   hovered: string | null;
+  /** The compared repo (owner/repo) the hovered folder lies on, or null on the repo on show. */
+  hoveredTree: string | null;
   /** The folder the tree previews (fades the rest for), from the canvas or a side-panel row. */
   previewed: number | null;
   /** The rock a pin keeps lit while the rest fades, by its index in the tree's rocks. */
@@ -25,6 +27,7 @@ export const debug: {
   repo: '',
   ready: false,
   hovered: null,
+  hoveredTree: null,
   previewed: null,
   keptRock: null,
   labels: [],

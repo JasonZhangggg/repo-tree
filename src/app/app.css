@@ -3293,10 +3293,10 @@ body:has(.scrubber:not([hidden])) .toast {
   }
 }
 
-/* Compare trees: A's card is the page's own, and B's under it is the same card again, with its
-   own search field (always shown on a desktop, in the card's place on a phone) and × to stop.
-   A letter marks each card, its search field and the tag under its island; the side panel
-   sets both side by side (compare.ts). */
+/* Compare trees: the repo card holds a row per compared repo under A's own, alike (letter,
+   name, CI chip, branch and counts, ×), then "Compare with another repo", which turns the search
+   bar's Grow into Compare. A letter marks each row and the tag under its island; the side panel
+   sets the trees side by side (compare.ts). */
 .cmp-letter {
   display: none;
   flex: none;
@@ -3308,76 +3308,99 @@ body:has(.scrubber:not([hidden])) .toast {
   color: var(--on-ink);
   font: 700 13px/1 var(--sans);
 }
-.cmp-letter[data-side='b'] {
+.cmp-letter:not([data-side='a']) {
   background: var(--raised);
   color: var(--ink);
   box-shadow: inset 0 0 0 1.5px var(--ink);
 }
 body[data-compare] .cmp-letter,
-.cmp-b .cmp-letter,
 .cmp-panel .cmp-letter {
   display: inline-grid;
 }
-/* While comparing, the letter stands where the GitHub mark was. */
-body[data-compare] :is(.repo-switch, .repo) > svg {
+/* While comparing, A's letter stands where the GitHub mark was. */
+body[data-compare] .repo-switch > svg {
   display: none;
 }
-.repo > .cmp-letter {
-  width: 22px;
-  height: 22px;
-  font-size: 12px;
-}
-.cmp-b {
-  position: absolute;
-  left: max(var(--edge), env(safe-area-inset-left, 0px));
-  z-index: 2;
-  display: grid;
-  justify-items: start;
-  gap: 10px;
-  pointer-events: none;
-}
-.cmp-b > * {
-  pointer-events: auto;
-}
-.cmp-b[hidden] {
-  display: none;
-}
-.cmp-b .title {
-  position: relative;
-  inset: auto;
-}
-.cmp-card {
+/* While comparing, A's row makes room for its own ×. */
+body[data-compare] .title:not([data-loading]) {
   grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto;
   grid-template-areas:
-    'switch name weather stop'
-    'switch meta meta stop'
+    'switch name weather x'
+    'switch meta meta x'
     'status status status status';
 }
-.cmp-card > .weather {
+.title > .cmp-x {
+  grid-area: x;
+}
+.cmp-x {
+  align-self: start;
+  margin-left: 2px;
+}
+.cmp-x[hidden] {
+  display: none;
+}
+.cmp-rows {
+  grid-column: 1 / -1;
+  display: grid;
+  margin: 6px -12px -8px -8px;
+}
+.cmp-rows[hidden] {
+  display: none;
+}
+.cmp-list-rows {
+  display: grid;
+}
+.cmp-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto;
+  grid-template-areas:
+    'letter name weather x'
+    'letter meta meta x';
+  align-items: center;
+  gap: 2px 10px;
+  padding: 8px 12px 8px 14px;
+  border-top: 1px solid var(--line);
+}
+.cmp-row > .cmp-letter {
+  grid-area: letter;
+  margin-right: 6px;
+}
+.cmp-row > .name {
+  grid-area: name;
+}
+.cmp-row > .name a {
+  display: block;
+  padding: 1px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+  text-decoration: none;
+}
+.cmp-row > .weather {
   grid-area: weather;
   justify-self: end;
   min-width: 0;
   margin: 0 0 0 6px;
 }
-.cmp-card > .meta {
+.cmp-row > .meta,
+.cmp-row > .cmp-status {
   grid-area: meta;
   padding-left: 4px;
 }
-.cmp-stop {
-  grid-area: stop;
-  align-self: start;
-  margin-left: 2px;
+.cmp-row > .cmp-x {
+  grid-area: x;
 }
 .cmp-status {
-  grid-area: status;
-  margin: 0 0 0 4px;
+  margin: 0;
   color: var(--muted);
   font-size: 13px;
 }
-.cmp-status:empty {
-  display: none;
+.cmp-row[aria-busy] .name,
+.cmp-row[aria-busy] .cmp-status {
+  color: var(--muted);
 }
-.cmp-b[aria-busy] .cmp-status {
+.cmp-row[aria-busy] .cmp-status {
   animation: cmp-pulse 1.2s ease-in-out infinite alternate;
 }
 @keyframes cmp-pulse {
@@ -3386,21 +3409,61 @@ body[data-compare] :is(.repo-switch, .repo) > svg {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cmp-b[aria-busy] .cmp-status {
+  .cmp-row[aria-busy] .cmp-status {
     animation: none;
   }
 }
-#compare-open {
-  flex: none;
+.cmp-add {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px 10px 14px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 14px 14px;
+  background: none;
+  color: var(--muted);
+  font: 600 14px/1.2 var(--sans);
+  text-align: left;
+  cursor: pointer;
 }
-.bar #compare-open {
-  height: 46px;
+.cmp-plus {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1.5px var(--faint);
+  font-size: 16px;
+  font-weight: 500;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cmp-add:not(:disabled):hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
+}
+.cmp-add:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+/* The bar's Grow says Compare while it adds a repo beside the others. */
+.repo[data-adding] {
+  box-shadow:
+    0 0 0 2px var(--ink),
+    var(--shadow);
+}
+/* On a desktop the card's add row is the way in, so the bar has no Compare button of its own;
+   a phone keeps it under More actions. */
+.bar > #compare-open {
+  display: none;
 }
 #compare-open[aria-pressed='true'] {
   background: var(--ink);
   color: var(--on-ink);
 }
-/* The page's own panels describe one tree; while comparing the side panel sets both side by side. */
+/* The page's own panels describe one tree; while comparing the side panel sets them side by side. */
 body[data-compare] #overview {
   display: none;
 }
@@ -3449,7 +3512,7 @@ body[data-compare] #overview {
   color: var(--on-ink);
   font-size: 11px;
 }
-.island-tag[data-side='b'] b {
+.island-tag:not([data-side='a']) b {
   background: var(--raised);
   color: var(--ink);
   box-shadow: inset 0 0 0 1.5px var(--ink);
@@ -3596,56 +3659,43 @@ body[data-compare] #overview {
   margin-top: 4px;
 }
 @media (max-width: 760px) {
-  .cmp-b {
-    right: max(12px, env(safe-area-inset-right, 0px));
-    justify-items: stretch;
-    gap: 0;
+  /* Each compared repo is one row like A's: letter, name, CI and ×. The add row shows once
+     comparing; until then Compare under More actions starts it. */
+  .cmp-rows {
+    order: 4;
+    flex: 1 0 100%;
+    margin: 2px -8px -6px;
   }
-  /* B's card is one row like A's, and its mark or name opens its field in the card's place. */
-  .cmp-b:not([data-open]) .repo,
-  .cmp-b[data-open] .cmp-card {
-    display: none;
-  }
-  .cmp-b .repo {
-    width: auto;
-    height: 48px;
-  }
-  .cmp-card .weather {
-    order: 2;
-  }
-  .cmp-stop {
+  .title > .cmp-x {
     order: 3;
     align-self: center;
   }
-  /* One row, like A's: the name shortens before anything wraps, and only a status takes a second row. */
-  .cmp-card {
-    flex-wrap: nowrap;
+  .cmp-row {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: 'letter name weather x';
+    padding: 6px 8px 6px 10px;
   }
-  .cmp-card:has(.cmp-status:not(:empty)) {
-    flex-wrap: wrap;
+  .cmp-row > .meta {
+    display: none;
   }
-  .cmp-card > .name {
-    flex: 0 1 auto;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .cmp-row > .cmp-status {
+    grid-area: auto;
+    grid-column: 2 / -1;
   }
-  .cmp-card > .name a {
-    display: inline;
+  .cmp-row > .cmp-x {
+    align-self: center;
   }
-  .cmp-card > .meta {
-    flex: 1 1 0;
-    padding-left: 0;
+  .cmp-row > .weather {
+    order: 0;
   }
-  .cmp-status {
-    flex: 1 0 100%;
+  body:not([data-compare]) .cmp-rows {
+    display: none;
   }
-  /* 16px keeps iOS from zooming into the field. */
-  #compare-input {
-    font-size: 16px;
+  .cmp-add {
+    padding: 8px 10px;
   }
   .island-tag {
-    max-width: 160px;
+    max-width: 120px;
   }
 }
 /* Stepping through search matches: a pill under the header, query, place, back, next, stop. */
@@ -3809,4 +3859,11 @@ body[data-compare] #overview {
     grid-area: close;
     margin-left: 0;
   }
+}
+/* With more than two trees the columns are narrow, so the shares go without their bars. */
+.cmp-panel:not([data-trees='2']) .cmp-fill {
+  display: none;
+}
+.cmp-panel:not([data-trees='2']) .cmp-table :is(th, td) {
+  padding-inline: 3px;
 }

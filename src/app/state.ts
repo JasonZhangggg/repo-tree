@@ -60,12 +60,15 @@ export type AppState = {
   timeline: number | null;
   /** Loaded only once something on show needs it (activity, changes or owner colors); null until then. */
   history: HistoryFacts | null;
-  /** The repo compared with the one on show, grown beside it on its own island; null when not comparing. */
-  compare: RepoRef | null;
-  /** That repo once grown (`compare` names it); null while it loads or when not comparing. */
-  companion: Loaded | null;
-  /** The compared repo's history, loaded like `history` once the colors need it. */
-  companionHistory: HistoryFacts<Loaded> | null;
+  /**
+   * The repos compared with the one on show, in order (B, C, …), each grown beside it on its own
+   * island; empty when not comparing.
+   */
+  compare: readonly RepoRef[];
+  /** Those repos once grown, any order; one still loading is missing. */
+  companions: readonly Loaded[];
+  /** Their histories, loaded like `history` once the colors need them, one per companion asked. */
+  companionHistory: readonly HistoryFacts<Loaded>[];
 };
 
 export type Action =
@@ -92,11 +95,13 @@ export type Action =
   | { type: 'preview'; sky: Sky | null }
   | { type: 'timeline'; at: number | null }
   | { type: 'history'; history: HistoryFacts }
-  | { type: 'compare'; ref: RepoRef | null }
+  | { type: 'compare'; refs: readonly RepoRef[] }
   | { type: 'companion'; companion: Loaded }
   | { type: 'companion-history'; history: HistoryFacts<Loaded> };
 
 const IDLE: LoadState = { phase: 'idle' };
+/** The most trees compared at once, the repo on show among them. */
+export const MAX_COMPARED = 5;
 
 export function reduce(state: AppState, action: Action): AppState {
   const { load } = state;
@@ -153,20 +158,46 @@ export function reduce(state: AppState, action: Action): AppState {
       return action.at === state.timeline ? state : { ...state, timeline: action.at };
     case 'history':
       return action.history.repo === state.repo ? { ...state, history: action.history } : state;
-    case 'compare':
-      return sameRef(action.ref, state.compare)
-        ? state
-        : { ...state, compare: action.ref, companion: null, companionHistory: null };
-    case 'companion': {
-      const { owner, repo } = action.companion.info.ref;
-      const named = state.compare && sameRef({ owner, repo } as RepoRef, state.compare);
-      if (!named || action.companion === state.companion) return state;
-      return { ...state, companion: action.companion, companionHistory: null };
+    case 'compare': {
+      const refs = action.refs
+        .filter((ref, i) => action.refs.findIndex((other) => sameRef(other, ref)) === i)
+        .slice(0, MAX_COMPARED - 1);
+      if (
+        refs.length === state.compare.length &&
+        refs.every((r, i) => sameRef(r, state.compare[i]!))
+      )
+        return state;
+      const named = (l: Loaded) => refs.some((r) => sameRef(r, plainRef(l)));
+      const companions = state.companions.filter(named);
+      return {
+        ...state,
+        compare: refs,
+        companions,
+        companionHistory: state.companionHistory.filter((h) => companions.includes(h.repo)),
+      };
     }
-    case 'companion-history':
-      return action.history.repo === state.companion
-        ? { ...state, companionHistory: action.history }
-        : state;
+    case 'companion': {
+      const grown = plainRef(action.companion);
+      if (!state.compare.some((r) => sameRef(r, grown))) return state;
+      if (state.companions.includes(action.companion)) return state;
+      const stale = state.companions.filter((c) => sameRef(plainRef(c), grown));
+      return {
+        ...state,
+        companions: [...state.companions.filter((c) => !stale.includes(c)), action.companion],
+        companionHistory: state.companionHistory.filter((h) => !stale.includes(h.repo)),
+      };
+    }
+    case 'companion-history': {
+      const { repo } = action.history;
+      if (!state.companions.includes(repo)) return state;
+      return {
+        ...state,
+        companionHistory: [
+          ...state.companionHistory.filter((h) => h.repo !== repo),
+          action.history,
+        ],
+      };
+    }
   }
 }
 
@@ -193,7 +224,7 @@ export function ciOf(
  * over both would describe only one of them, so each card says its own instead.
  */
 export function weatherOf(state: AppState): { sky: Sky; health: CiHealth | null } | null {
-  return state.compare ? null : ciOf(state, state.repo);
+  return state.compare.length ? null : ciOf(state, state.repo);
 }
 
 /**
@@ -204,6 +235,17 @@ export function ciFailed(state: AppState, repo: Loaded | null = state.repo): boo
   const { settings, preview } = state;
   if (!repo || !settings.weather || (preview && repo === state.repo)) return false;
   return state.ci[ciKey(repo.info.ref, repo.info.branch)] === null;
+}
+
+/** A grown repo's owner/repo, on its default branch, as compare names it. */
+export const plainRef = (l: Loaded): RepoRef =>
+  ({ owner: l.info.ref.owner, repo: l.info.ref.repo }) as RepoRef;
+
+/** The compared repos once grown, in compare's order (B, C, …), skipping any still loading. */
+export function companionsOf(state: Pick<AppState, 'compare' | 'companions'>): Loaded[] {
+  return state.compare.flatMap(
+    (ref) => state.companions.find((c) => sameRef(plainRef(c), ref)) ?? [],
+  );
 }
 
 /** Whether two refs name the same repo and branch; GitHub names ignore case. */
@@ -228,11 +270,11 @@ export const factsOf = (state: AppState): Facts | null =>
     ? state.history.facts
     : null;
 
-/** The history's facts for the compared repo, once loaded. */
-export const companionFactsOf = (state: AppState): Facts | null =>
-  state.companionHistory?.repo === state.companion && state.companionHistory?.status === 'ready'
-    ? state.companionHistory.facts
-    : null;
+/** A compared repo's history facts, once loaded. */
+export function companionFactsOf(state: AppState, companion: Loaded): Facts | null {
+  const history = state.companionHistory.find((h) => h.repo === companion);
+  return history?.status === 'ready' ? history.facts : null;
+}
 
 export const qualityOf = (state: AppState): Quality =>
   state.settings.quality === 'auto' ? state.autoQuality : state.settings.quality;

@@ -2,7 +2,7 @@ import '@fontsource-variable/hanken-grotesk';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/600.css';
 import './app/app.css';
-import { distanceOf, frameTree, stage } from './render/framing';
+import { distanceOf, frameTree } from './render/framing';
 import { createTreeView } from './render/tree-view';
 import { parseRepoRef, type RepoRef } from './repo/ref';
 import { nameOf, type App } from './app/app';
@@ -18,6 +18,7 @@ import { FIRST_VISIT } from './app/samples';
 import { autoQuality, parseSettings, STEP_DOWN, type Settings } from './app/settings';
 import {
   companionFactsOf,
+  companionsOf,
   createStore,
   factsOf,
   qualityOf,
@@ -38,7 +39,7 @@ import { childrenOf, mountSide } from './app/ui/side';
 import { mountHistoryCompute } from './app/ui/history-compute';
 import { mountTimeline } from './app/ui/timeline';
 import { mountCompare } from './app/ui/compare';
-import { pairScale, rankOf, treeStats } from './app/compare';
+import { rankOf, sizeScales, treeStats } from './app/compare';
 
 const SETTINGS_KEY = 'repo-tree:settings';
 const MEASURE_MS = 2000;
@@ -68,9 +69,9 @@ const store = createStore({
   preview: null,
   timeline: null,
   history: null,
-  compare: null,
-  companion: null,
-  companionHistory: null,
+  compare: [],
+  companions: [],
+  companionHistory: [],
 });
 
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -203,7 +204,7 @@ function linkOf(state: AppState): string | null {
     hl: highlight ?? undefined,
     wx: state.preview ?? undefined,
     t: state.timeline ?? undefined,
-    vs: state.compare ?? undefined,
+    vs: state.compare.length ? [...state.compare] : undefined,
     pins: pinsOf(state),
   });
 }
@@ -214,7 +215,7 @@ function applyLink(link: ViewLink) {
   if (link.colorBy) patch.colorBy = link.colorBy;
   if (Object.keys(patch).length) store.dispatch({ type: 'settings', patch });
   store.dispatch({ type: 'preview', sky: link.wx ?? null });
-  store.dispatch({ type: 'compare', ref: link.vs ?? null });
+  store.dispatch({ type: 'compare', refs: link.vs ?? [] });
   pinTray.receive(link.ref, link.pins ?? []);
   const { repo } = store.get();
   const same =
@@ -247,20 +248,26 @@ store.subscribe((state, prev) => {
     container.setAttribute('aria-label', describe(state));
     if (!state.repo.sample && repoKey(state) !== repoKey(prev)) rememberRecent(debug.repo);
   }
-  // The compared tree stands beside this one, out of the way while the timeline replays it alone.
-  const companion = (s: AppState) => (s.timeline === null ? s.companion : null);
-  if (companion(state) !== companion(prev) || state.repo !== prev.repo) {
+  // The compared trees stand beside this one, out of the way while the timeline replays it alone.
+  const others = (s: AppState) => (s.timeline === null ? companionsOf(s) : []);
+  const [now, then] = [others(state), others(prev)];
+  const moved = now.length !== then.length || now.some((c, i) => c !== then[i]);
+  if (moved || state.repo !== prev.repo) {
     view.setLanguageRank(rankOf(state));
-    const other = companion(state);
-    // The pair's heights show their sizes against each other.
-    const scale =
-      other && state.repo
-        ? pairScale(treeStats(state.repo).files, treeStats(other).files)
-        : { a: 1, b: 1 };
-    view.setCompanion(other?.tree ?? null, 'right', { main: scale.a, companion: scale.b });
+    // Their heights show their sizes against each other.
+    const scales =
+      now.length && state.repo
+        ? sizeScales([state.repo, ...now].map((l) => treeStats(l).files))
+        : [1];
+    view.setCompanions(
+      now.map((l) => l.tree),
+      { main: scales[0]!, companions: scales.slice(1) },
+    );
+    reframe();
   }
-  if (companionFactsOf(state) !== companionFactsOf(prev) || companion(state) !== companion(prev)) {
-    view.setCompanionFacts(companionFactsOf(state));
+  const facts = now.map((c) => companionFactsOf(state, c));
+  if (moved || state.companionHistory !== prev.companionHistory) {
+    view.setCompanionFacts(facts);
   }
   const birds = birdsOf(state);
   if (birds !== birdsOf(prev) || state.repo !== prev.repo) {
@@ -505,7 +512,8 @@ function reframe() {
         return rect && reserved(p, rect, origin);
       })
       .filter((r): r is Rect => r !== null);
-    const room = stage(store.get().settings.ground);
+    // The row of islands while comparing, so a wide row takes a wide region.
+    const room = view.room();
     const fit = (w: number, h: number) => {
       const { position, target } = frameTree(room, w / h);
       return h / distanceOf(position, target);

@@ -102,15 +102,15 @@ export type LabelPosition = {
 };
 /**
  * `crown` is the crown's outline on screen, as an ellipse, which labels sit outside of.
- * `islands` is where the foot of each island shows, the tree on show's and, while one stands
- * beside it, the companion's: the middle of the island's underside, in CSS pixels relative to
- * the container, for name tags to hang under.
+ * `islands` is where the foot of each island shows, the tree on show's and, while others stand
+ * beside it, each companion's in setCompanions order: the middle of the island's underside, in
+ * CSS pixels relative to the container, for name tags to hang under.
  */
 export type FrameInfo = {
   growth: number;
   labels: LabelPosition[];
   crown: Ellipse;
-  islands: { main: IslandFoot; companion: IslandFoot | null };
+  islands: { main: IslandFoot; companions: IslandFoot[] };
 };
 export type IslandFoot = { x: number; y: number; visible: boolean };
 export type Ellipse = { x: number; y: number; rx: number; ry: number };
@@ -155,25 +155,25 @@ export interface TreeView {
    */
   setLanguageRank(rank: ReadonlyMap<string, number> | null): void;
   /**
-   * Grows a second tree on its own island beside this one, in the same world: to the `side`
-   * (right unless told) in the default view, the camera framing and orbiting both. `scale`
-   * shrinks either tree (not its island) from its own height, so the pair can show their sizes
-   * against each other; both are 1 unless told, and null puts the tree on show back at 1. Its leaves follow `setColorBy` for
-   * languages (ranked by `setLanguageRank` while set) and folders, and languages otherwise; it is
-   * not picked, labeled or highlighted. Null removes it.
+   * Grows other trees each on its own island in a row to the right of this one in the default
+   * view, in the same world, the camera framing and orbiting them all. `scale` shrinks any tree
+   * (not its island) from its own height, so they can show their sizes against each other; all
+   * are 1 unless told, and none puts the tree on show back at 1. Their leaves follow `setColorBy`
+   * like this tree's, from their own history once `setCompanionFacts` gives it (languages until
+   * then, ranked by `setLanguageRank` while set); they are not picked, labeled or highlighted.
+   * An empty list removes them.
    */
-  setCompanion(
-    model: TreeModel | null,
-    side?: 'left' | 'right',
-    scale?: { main: number; companion: number },
+  setCompanions(
+    models: readonly TreeModel[],
+    scale?: { main: number; companions: readonly number[] },
   ): void;
   /**
    * What the repo's history says about the tree on show (timeline/facts.ts), or null; a new
    * tree clears it. Activity colors need it; without it they fall back to language.
    */
   setFacts(facts: Facts | null): void;
-  /** The compared tree's history (setCompanion), so it takes the history colors too. */
-  setCompanionFacts(facts: Facts | null): void;
+  /** Each companion's history (setCompanions order), so they take the history colors too. */
+  setCompanionFacts(facts: readonly (Facts | null)[]): void;
   /** What each leaf color stands for under the current palette and color-by. */
   legend(): LegendEntry[];
   /**
@@ -191,6 +191,8 @@ export interface TreeView {
   atHome(): boolean;
   /** Frames the tree into the part of the container the insets leave free, easing there. */
   setInsets(insets: Insets): void;
+  /** The stage the whole view frames: one island's room, or the row of them while comparing. */
+  room(): TreeModel['bounds'];
   /** The folder or rock under a point in CSS pixels relative to the container, from a GPU id pass. */
   pickAt(x: number, y: number): Picked | null;
   /** Whether a point in CSS pixels relative to the container lands on the sun or a cloud. */
@@ -418,20 +420,19 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   scene.add(sky, hemi, key, key.target, fill, ground, contact, baked);
   const terrain = createGround();
   scene.add(terrain.land, terrain.cover);
-  /** The compared tree's history facts (setCompanionFacts), for its colors. */
-  let companionFacts: Facts | null = null;
-  /** How much setCompanion shrank the tree on show, 1 when alone; its island keeps its size. */
+  /** Each companion's history facts (setCompanionFacts), for its colors. */
+  let companionFacts: readonly (Facts | null)[] = [];
+  /** How much setCompanions shrank the tree on show, 1 when alone; its island keeps its size. */
   let mainScale = 1;
-  /** A second tree beside the first (setCompanion), on its own island, moved by its group. */
-  let companion: {
+  /** Other trees beside the first (setCompanions), each on its own island, moved by its group. */
+  let companions: {
     model: TreeModel;
     group: Group;
     bark: Mesh<BufferGeometry, MeshStandardMaterial>;
     leaves: Mesh<BufferGeometry, MeshStandardMaterial>;
     terrain: ReturnType<typeof createGround>;
     groundBounds: TreeModel['bounds'];
-    side: 1 | -1;
-  } | null = null;
+  }[] = [];
   let groundOn = options.ground;
   let night = options.night;
   const moonlight = () => (night ? MOONLIGHT : { key: 1, sky: 1, fill: 1 });
@@ -598,17 +599,20 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   /**
-   * The stage the whole view frames. With a companion it doubles: the same room again where the
-   * companion stands, so the pair is framed together, and spins, about the middle between them.
+   * The stage the whole view frames. With companions it repeats: the same room again where each
+   * companion stands, so the row is framed together, and spins, about its middle.
    */
   const roomOf = () => {
     const one = stage(groundOn);
-    const at = companion?.group.position;
-    if (!at) return one;
-    return union(one, {
-      min: [one.min[0] + at.x, one.min[1], one.min[2] + at.z],
-      max: [one.max[0] + at.x, one.max[1], one.max[2] + at.z],
-    });
+    let room = one;
+    for (const { group } of companions) {
+      const at = group.position;
+      room = union(room, {
+        min: [one.min[0] + at.x, one.min[1], one.min[2] + at.z],
+        max: [one.max[0] + at.x, one.max[1], one.max[2] + at.z],
+      });
+    }
+    return room;
   };
 
   /**
@@ -1018,7 +1022,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     };
     const islands = {
       main: foot(shown.groundBounds, { x: 0, z: 0 }),
-      companion: companion && foot(companion.groundBounds, companion.group.position),
+      companions: companions.map((c) => foot(c.groundBounds, c.group.position)),
     };
     const crown = crownOnScreen(scaled(bounds, mainScale));
     for (const listener of listeners) listener({ growth, labels, crown, islands });
@@ -1045,7 +1049,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     hemi.groundColor.set(palette.light.ground);
     key.color.set(palette.light.key);
     terrain.setPalette(palette);
-    companion?.terrain.setPalette(palette);
+    for (const c of companions) c.terrain.setPalette(palette);
     ground.material.color.set(palette.shadow);
     contact.material.color.set(palette.shadow);
     renderer.shadowMap.needsUpdate = true;
@@ -1150,12 +1154,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const { slot, dead } = slotsOf(shown.model, facts, ramp);
     shown.leaves.geometry.setAttribute('aSlot', new BufferAttribute(slot, 1));
     shown.bark.geometry.setAttribute('aDead', new BufferAttribute(dead, 1));
-    if (companion) {
+    companions.forEach((c, i) => {
       // The same colors from its own history; until that is in, languages.
-      const own = slotsOf(companion.model, companionFacts, ramp);
-      companion.leaves.geometry.setAttribute('aSlot', new BufferAttribute(own.slot, 1));
-      companion.bark.geometry.setAttribute('aDead', new BufferAttribute(own.dead, 1));
-    }
+      const own = slotsOf(c.model, companionFacts[i] ?? null, ramp);
+      c.leaves.geometry.setAttribute('aSlot', new BufferAttribute(own.slot, 1));
+      c.bark.geometry.setAttribute('aDead', new BufferAttribute(own.dead, 1));
+    });
     applySlots();
     applyBirths(timelineBirths);
     applyHeat();
@@ -1169,16 +1173,18 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     const tree = scaled(model.bounds, mainScale);
     shown.bounds = groundOn ? union(tree, groundBounds) : tree;
     terrain.land.visible = terrain.cover.visible = groundOn;
-    if (companion) {
-      const own = scaled(companion.model.bounds, companion.bark.scale.x);
-      const other = groundOn ? union(own, companion.groundBounds) : own;
-      // Side by side across the default view, an island's width apart from trunk to trunk.
-      const reach = (b: TreeModel['bounds']) => Math.max(-b.min[0], b.max[0], -b.min[2], b.max[2]);
-      const apart = reach(shown.bounds) + reach(other) + COMPANION_GAP;
-      const along = apart * companion.side;
-      companion.group.position.set(SIDEWAYS[0] * along, 0, SIDEWAYS[1] * along);
-      companion.terrain.land.visible = companion.terrain.cover.visible = groundOn;
-      const { x, z } = companion.group.position;
+    // In a row across the default view, each an island's width apart from trunk to trunk.
+    const reachOf = (b: TreeModel['bounds']) => Math.max(-b.min[0], b.max[0], -b.min[2], b.max[2]);
+    let along = 0;
+    let last = reachOf(shown.bounds);
+    for (const c of companions) {
+      const own = scaled(c.model.bounds, c.bark.scale.x);
+      const other = groundOn ? union(own, c.groundBounds) : own;
+      along += last + reachOf(other) + COMPANION_GAP;
+      last = reachOf(other);
+      c.group.position.set(SIDEWAYS[0] * along, 0, SIDEWAYS[1] * along);
+      c.terrain.land.visible = c.terrain.cover.visible = groundOn;
+      const { x, z } = c.group.position;
       shown.bounds = union(shown.bounds, {
         min: [other.min[0] + x, other.min[1], other.min[2] + z],
         max: [other.max[0] + x, other.max[1], other.max[2] + z],
@@ -1257,13 +1263,14 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     requestRender();
   };
 
-  const releaseCompanion = () => {
-    if (!companion) return;
-    scene.remove(companion.group);
-    companion.bark.geometry.dispose();
-    companion.leaves.geometry.dispose();
-    companion.terrain.dispose();
-    companion = null;
+  const releaseCompanions = () => {
+    for (const c of companions) {
+      scene.remove(c.group);
+      c.bark.geometry.dispose();
+      c.leaves.geometry.dispose();
+      c.terrain.dispose();
+    }
+    companions = [];
   };
 
   const releaseTree = () => {
@@ -1413,11 +1420,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       applyColorBy();
     },
 
-    setCompanion(model, side = 'right', scale = { main: 1, companion: 1 }) {
-      releaseCompanion();
-      mainScale = model ? scale.main : 1;
+    setCompanions(models, scale) {
+      releaseCompanions();
+      mainScale = models.length ? (scale?.main ?? 1) : 1;
       if (shown) for (const mesh of [shown.bark, shown.leaves]) mesh.scale.setScalar(mainScale);
-      if (model) {
+      models.forEach((model, i) => {
         const bark = new Mesh(geometry(model.bark), barkMaterial);
         const leafGeometry = geometry(model.leaves).setAttribute(
           'aShade',
@@ -1444,6 +1451,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
             (id) => id + COMPANION_IDS,
           );
           mesh.geometry.setAttribute('aId', new BufferAttribute(ids, 1));
+          mesh.scale.setScalar(scale?.companions[i] ?? 1);
         }
         const ground = createGround();
         const groundBounds = ground.setTree(model, quality);
@@ -1451,17 +1459,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         const group = new Group();
         group.add(bark, leaves, ground.land, ground.cover);
         scene.add(group);
-        companion = {
-          model,
-          group,
-          bark,
-          leaves,
-          terrain: ground,
-          groundBounds,
-          side: side === 'left' ? -1 : 1,
-        };
-        for (const mesh of [bark, leaves]) mesh.scale.setScalar(scale.companion);
-      }
+        companions.push({ model, group, bark, leaves, terrain: ground, groundBounds });
+      });
       if (!shown) return;
       applyColorBy();
       placeScene();
@@ -1515,6 +1514,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       reaim(false);
     },
 
+    room() {
+      return roomOf();
+    },
+
     setInsets({ top, right, bottom, left }) {
       insets.goal = [top, right, bottom, left];
       if (!shown) {
@@ -1549,9 +1552,14 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       if (!shown) return null;
       const { width, height, x: left, y: top, w, h } = freeRegion();
       if (x < 0 || y < 0 || x >= width || y >= height) return null;
-      const hidden = [sky, baked, glow, terrain.cover, companion?.group, ...weather.objects].filter(
-        (o): o is NonNullable<typeof o> => !!o?.visible,
-      );
+      const hidden = [
+        sky,
+        baked,
+        glow,
+        terrain.cover,
+        ...companions.map((c) => c.group),
+        ...weather.objects,
+      ].filter((o): o is NonNullable<typeof o> => !!o?.visible);
       for (const mesh of hidden) mesh.visible = false;
       const shadowPending = renderer.shadowMap.needsUpdate;
       renderer.shadowMap.needsUpdate = false;
@@ -1670,7 +1678,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       controls.removeEventListener('change', requestRender);
       controls.dispose();
       releaseTree();
-      releaseCompanion();
+      releaseCompanions();
       birdMesh.geometry.dispose();
       for (const mesh of [sky, ground, contact, baked]) {
         mesh.geometry.dispose();

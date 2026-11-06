@@ -4,7 +4,7 @@ import { historySource } from '../timeline/source';
 import { needsHistory, type HistoryFacts, type Store } from './state';
 
 /**
- * Loads the history of the repo on show, and of the one compared beside it, once something
+ * Loads the history of the repo on show, and of each one compared beside it, once something
  * needs it, and lays it over the tree. It only reads what is stored (the history cache keeps it
  * for six hours): computing a missing history is the timeline's offer, so a repo without one
  * says so and keeps language colors.
@@ -16,21 +16,37 @@ export function watchHistory(store: Store): void {
     (state) => state.history?.repo,
     (history) => store.dispatch({ type: 'history', history: history as HistoryFacts }),
   );
-  const companion = watchOne(
-    store,
-    (state) => (state.compare ? state.companion : null),
-    (state) => state.companionHistory?.repo,
-    (history) => store.dispatch({ type: 'companion-history', history }),
-  );
+  /** One reader per compared repo, dropped with it. */
+  const others = new Map<Loaded, () => void>();
+  const companions = () => {
+    const state = store.get();
+    for (const companion of others.keys()) {
+      if (!state.companions.includes(companion)) others.delete(companion);
+    }
+    for (const companion of state.companions) {
+      if (!others.has(companion)) {
+        others.set(
+          companion,
+          watchOne(
+            store,
+            (now) => (now.companions.includes(companion) ? companion : null),
+            (now) => now.companionHistory.find((h) => h.repo === companion)?.repo,
+            (history) => store.dispatch({ type: 'companion-history', history }),
+          ),
+        );
+      }
+      others.get(companion)!();
+    }
+  };
   // After the change that asked has reached every listener, never in the middle of it.
   store.subscribe(() =>
     queueMicrotask(() => {
       main();
-      companion();
+      companions();
     }),
   );
   main();
-  companion();
+  companions();
 }
 
 function watchOne(

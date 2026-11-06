@@ -40,7 +40,7 @@
           aria-controls="suggest"
           aria-expanded="false"
         />
-        <button type="submit" class="go">Grow</button>
+        <button type="submit" class="go" id="repo-go">Grow</button>
         <p class="field-error" id="repo-error" role="alert"></p>
         <div class="suggest" id="suggest" hidden></div>
       </form>
@@ -175,9 +175,8 @@
       <p class="meta" id="repo-meta"></p>
       <a class="weather" id="weather" target="_blank" rel="noopener" hidden></a>
       <div id="status"></div>
+      <div class="cmp-rows" id="compare" role="group" aria-label="Compared repos" hidden></div>
     </section>
-
-    <div class="cmp-b" id="compare" role="group" aria-label="Repository B" hidden></div>
 
     <aside class="side" id="side" aria-label="Repository details">
       <button

@@ -1,10 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { quietSettings, ready, serveRepo } from './github';
-import { openRepoField } from './view';
 
 test.use({ reducedMotion: 'reduce' });
-// Each test grows two trees, one after the other, on a software renderer shared with other workers.
-test.describe.configure({ timeout: 60_000 });
+// Each test grows several trees, one after the other, on a software renderer shared with other workers.
+test.describe.configure({ timeout: 90_000 });
 
 let errors: string[];
 test.beforeEach(async ({ page }) => {
@@ -14,93 +13,118 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(() => expect(errors).toEqual([]));
 
-/** B's card and field, under A's. */
-const b = (page: Page) => page.getByRole('group', { name: 'Repository B' });
-const bName = (page: Page) => b(page).getByRole('heading', { level: 2 });
-const bField = (page: Page) => page.getByRole('textbox', { name: 'Repository B' });
-/** The compared repo has grown in on its island beside the one on show. */
-const besideReady = (page: Page, repo: string) =>
-  expect(page.locator('#compare')).toHaveAttribute('data-ready', repo, { timeout: 60_000 });
+const field = (page: Page) => page.getByLabel('GitHub repository');
+const go = (page: Page) => page.locator('#repo-go');
+const rows = (page: Page) => page.getByRole('group', { name: 'Compared repos' });
+const rowNames = (page: Page) => rows(page).getByRole('heading', { level: 2 });
+const add = (page: Page) => page.locator('#compare-add');
+/** Every compared repo has grown in on its island beside the one on show. */
+const besideReady = (page: Page, ...repos: string[]) =>
+  expect(page.locator('#compare')).toHaveAttribute('data-ready', repos.join(' '), {
+    timeout: 60_000,
+  });
 const panel = (page: Page) => page.locator('#compare-panel');
 const table = (page: Page, name: string) => page.getByRole('table', { name });
 
-/** On a phone Compare sits behind More actions. */
-async function openCompare(page: Page) {
-  if (await page.locator('#compare-open').isHidden()) {
-    await page.getByRole('button', { name: 'More actions' }).click();
-  }
+/** Starts adding a repo: the card's add row, or Compare under More actions on a phone. */
+async function startAdding(page: Page) {
+  if (await add(page).isVisible()) return add(page).click();
+  await page.getByRole('button', { name: 'More actions' }).click();
   await page.getByRole('button', { name: 'Compare trees' }).click();
-}
-
-/** On a phone B's field takes its card's place once B's mark is pressed. */
-async function openBField(page: Page) {
-  if (await bField(page).isHidden()) {
-    await page.getByRole('button', { name: 'Change repository B' }).click();
-  }
 }
 
 /** On a phone the side by side lives in the sheet. */
 async function showPanel(page: Page) {
-  if (await panel(page).isHidden()) await page.locator('#sheet-toggle').click();
+  const toggle = page.locator('#sheet-toggle');
+  if ((await panel(page).isHidden()) && (await toggle.isVisible())) await toggle.click();
+  await expect(panel(page)).toBeVisible();
 }
 
-test('Compare grows a second repo beside the one on show, and Stop takes it away', async ({
+test('the card adds a repo to compare through the search bar, and × takes it away', async ({
   page,
 }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
-  await openCompare(page);
+  await expect(go(page)).toHaveText('Grow');
 
+  // Adding turns Grow into Compare, and clicking out turns it back.
+  await startAdding(page);
+  await expect(field(page)).toBeFocused();
+  await expect(go(page)).toHaveText('Compare');
+  await expect(field(page)).toHaveAttribute('placeholder', 'Compare vitejs/vite with…');
+  await page.keyboard.press('Escape');
+  await expect(go(page)).toHaveText('Grow');
+
+  // The list offers only repos not already compared.
+  await startAdding(page);
+  await expect(page.locator('#suggest')).not.toContainText('vitejs/vite');
+  await page.locator('#suggest button', { hasText: 'mathiasbynens/dotfiles' }).click();
   await besideReady(page, 'mathiasbynens/dotfiles');
-  // A keeps its card; B gets one just like it, below.
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('vitejs/vite');
-  await expect(bName(page)).toHaveText('mathiasbynens/dotfiles');
-  await expect(b(page).locator('#compare-meta')).toContainText('36 files');
+  await expect(go(page)).toHaveText('Grow');
   expect(page.url()).toContain('vs=mathiasbynens/dotfiles');
-  // A name tag under each island.
-  await expect(page.locator('.island-tag')).toHaveText(['Avite', 'Bdotfiles']);
-  // Folder labels belong to one tree, so they go.
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('vitejs/vite');
+  await expect(rowNames(page)).toHaveText(['mathiasbynens/dotfiles']);
+  // A name tag under each island; folder labels belong to one tree, so they go.
+  await expect(page.locator('.island-tag:visible')).toHaveText(['Avite', 'Bdotfiles']);
   await expect(page.locator('#labels')).toBeHidden();
 
   await showPanel(page);
   await expect(page.locator('#compare-line')).toHaveText(/vite has \d+× the files of dotfiles/);
-  const files = table(page, 'Both trees side by side').getByRole('row', { name: /^Files/ });
+  const files = table(page, 'All trees side by side').getByRole('row', { name: /^Files/ });
   await expect(files.getByRole('cell')).toHaveText([/^\d{1,3},\d{3}$/, '36']);
-  // The side by side follows Color by: languages first.
   await expect(
     table(page, 'Languages side by side').getByRole('row', { name: /JSON/ }),
   ).toBeAttached();
+  if (await page.locator('#sheet-toggle').isVisible()) await page.locator('#sheet-toggle').click();
 
-  await page.getByRole('button', { name: 'Stop comparing' }).click();
-  await expect(b(page)).toBeHidden();
-  await expect(page.locator('.island-tag').first()).toBeHidden();
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Remove mathiasbynens/dotfiles from the comparison' })
+    .click();
+  await expect(rowNames(page)).toHaveCount(0);
+  await expect(page.locator('.island-tag:visible')).toHaveCount(0);
   expect(page.url()).not.toContain('vs=');
 });
 
-test('a link compares two repos, and each card has its own field', async ({ page }) => {
+test('a link compares several repos, a typed one adds on, and A hands over to B', async ({
+  page,
+}) => {
   await serveRepo(page, 'acme/widgets');
   await page.goto('./#/vitejs/vite?vs=mathiasbynens/dotfiles');
   await besideReady(page, 'mathiasbynens/dotfiles');
 
-  await openBField(page);
-  await bField(page).fill('vitejs/vite');
-  await bField(page).press('Enter');
-  await expect(page.locator('#compare-error')).toHaveText(/already A/);
-  await bField(page).fill('acme/widgets');
-  await bField(page).press('Enter');
-  await besideReady(page, 'acme/widgets');
-  expect(page.url()).toContain('vs=acme/widgets');
-  await expect(bName(page)).toHaveText('acme/widgets');
+  // A repo already in the comparison is refused; a new one joins as C.
+  await startAdding(page);
+  await field(page).fill('vitejs/vite');
+  await field(page).press('Enter');
+  await expect(page.locator('#repo-error')).toHaveText(/already in the comparison/);
+  await field(page).fill('acme/widgets');
+  await field(page).press('Enter');
+  await besideReady(page, 'mathiasbynens/dotfiles', 'acme/widgets');
+  expect(page.url()).toContain('vs=mathiasbynens/dotfiles&vs=acme/widgets');
+  await expect(rowNames(page)).toHaveText(['mathiasbynens/dotfiles', 'acme/widgets']);
+  await showPanel(page);
+  const files = table(page, 'All trees side by side').getByRole('row', { name: /^Files/ });
+  await expect(files.getByRole('cell')).toHaveCount(3);
+  if (await page.locator('#sheet-toggle').isVisible()) await page.locator('#sheet-toggle').click();
 
-  // A's own field loads another repo in A's place and keeps B.
-  await openRepoField(page);
-  const field = page.getByLabel('GitHub repository');
-  await field.fill('mathiasbynens/dotfiles');
-  await field.press('Enter');
+  // Taking A away puts B on show, and C stays beside it.
+  await page.getByRole('button', { name: 'Remove A from the comparison' }).click();
   await ready(page, 'mathiasbynens/dotfiles');
   await besideReady(page, 'acme/widgets');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('mathiasbynens/dotfiles');
+  await expect(rowNames(page)).toHaveText(['acme/widgets']);
+});
+
+test('the add row goes quiet once five repos are compared', async ({ page }) => {
+  for (const name of ['acme/one', 'acme/two', 'acme/three']) await serveRepo(page, name);
+  await page.goto(
+    './#/vitejs/vite?vs=mathiasbynens/dotfiles&vs=acme/one&vs=acme/two&vs=acme/three',
+  );
+  await besideReady(page, 'mathiasbynens/dotfiles', 'acme/one', 'acme/two', 'acme/three');
+  await expect(rowNames(page)).toHaveCount(4);
+  await expect(add(page)).toBeDisabled();
+  await expect(add(page)).toHaveText(/5 repos is the most/);
+  await expect(page.locator('.island-tag:visible')).toHaveCount(5);
 });
 
 test('the side by side follows Color by', async ({ page }) => {

@@ -1,6 +1,6 @@
 import type { LoadStep } from '../../load/load-in-worker';
 import { actionsUrl } from '../../repo/ci';
-import { parseRepoRef } from '../../repo/ref';
+import { parseRepoRef, type RepoRef } from '../../repo/ref';
 import { PALETTES } from '../../render/palette';
 import { githubUrl, type App } from '../app';
 import { byId, fill, h, icon, ICONS } from '../dom';
@@ -10,9 +10,13 @@ import { describeError, type ErrorAction } from '../errors';
 import { compact, count, plural } from '../format';
 import { readRecent } from '../recent';
 import { SAMPLES } from '../samples';
-import { ciFailed, ciOf, type AppState } from '../state';
+import { partnerChoices } from '../compare';
+import { ciFailed, ciOf, MAX_COMPARED, sameRef, type AppState } from '../state';
 import type { Loaded } from '../../load/load-in-worker';
 import { describeWeather, shortVerdict } from '../weather';
+
+const plainOf = (ref: { owner: string; repo: string }) =>
+  ({ owner: ref.owner, repo: ref.repo }) as RepoRef;
 
 const STEPS: { step: LoadStep; label: string }[] = [
   { step: 'fetch', label: 'Fetching' },
@@ -63,14 +67,61 @@ export function mountHeader(app: App): void {
     input.setAttribute('aria-expanded', 'false');
   };
 
+  /**
+   * The field grows a repo in place of the one on show, unless the repo card's "Compare with
+   * another repo" asked it to add one beside instead: then its button says Compare until it
+   * picks one or loses focus.
+   */
+  const go = byId<HTMLButtonElement>('repo-go');
+  const adding = () => form.hasAttribute('data-adding');
+  const setAdding = (on: boolean) => {
+    if (on === adding()) return;
+    form.toggleAttribute('data-adding', on);
+    go.textContent = on ? 'Compare' : 'Grow';
+    const repo = store.get().repo;
+    input.placeholder =
+      on && repo
+        ? `Compare ${repo.info.ref.owner}/${repo.info.ref.repo} with…`
+        : 'owner/repo or GitHub URL';
+  };
+  form.addEventListener('repo-add', () => {
+    setInvalid('');
+    setAdding(true);
+    openField();
+  });
+
+  /** Grows the repo, or in adding mode puts it beside the others; false when it can't be added. */
+  const take = (ref: RepoRef): boolean => {
+    if (!adding()) {
+      app.load(ref);
+      return true;
+    }
+    const { repo, compare } = store.get();
+    const plainRef = { owner: ref.owner, repo: ref.repo } as RepoRef;
+    if (
+      (repo && sameRef(plainRef, plainOf(repo.info.ref))) ||
+      compare.some((r) => sameRef(r, plainRef))
+    ) {
+      setInvalid('That one is already in the comparison. Pick another.');
+      return false;
+    }
+    if (compare.length + 1 >= MAX_COMPARED) {
+      setInvalid(`${MAX_COMPARED} repos is the most at once. Remove one to add another.`);
+      return false;
+    }
+    store.dispatch({ type: 'compare', refs: [...compare, plainRef] });
+    return true;
+  };
+
   const choose = (name: string) => {
     const ref = parseRepoRef(name);
     if ('kind' in ref) return;
+    if (!take(ref)) return;
     input.value = '';
     setInvalid('');
     closeSuggest();
+    setAdding(false);
     input.blur();
-    app.load(ref);
   };
 
   const openSuggest = () => {
@@ -83,15 +134,37 @@ export function mountHeader(app: App): void {
         h('span', {}, label),
         note && h('small', {}, note),
       );
-    suggest.replaceChildren(
-      ...(recent.length
-        ? [h('p', { class: 'h' }, 'Recent'), ...recent.map((r) => row(r, ICONS.history))]
-        : []),
-      h('p', { class: 'h' }, 'Bundled samples'),
-      ...SAMPLES.map((s) => row(`${s.owner}/${s.repo}`, ICONS.sample, `${compact(s.files)} files`)),
-    );
-    suggest.hidden = false;
-    input.setAttribute('aria-expanded', 'true');
+    const sampleRow = (ref: { owner: string; repo: string }) => {
+      const sample = SAMPLES.find((s) => sameRef(plainOf(s), plainOf(ref)))!;
+      return row(`${ref.owner}/${ref.repo}`, ICONS.sample, `${compact(sample.files)} files`);
+    };
+    if (adding()) {
+      // Only repos not already compared.
+      const { repo, compare } = store.get();
+      const taken = [...(repo ? [plainOf(repo.info.ref)] : []), ...compare];
+      const choices = partnerChoices(taken, recent);
+      suggest.replaceChildren(
+        ...(choices.recent.length
+          ? [
+              h('p', { class: 'h' }, 'Recent'),
+              ...choices.recent.map((r) => row(`${r.owner}/${r.repo}`, ICONS.history)),
+            ]
+          : []),
+        ...(choices.samples.length
+          ? [h('p', { class: 'h' }, 'Bundled samples'), ...choices.samples.map(sampleRow)]
+          : []),
+      );
+    } else {
+      suggest.replaceChildren(
+        ...(recent.length
+          ? [h('p', { class: 'h' }, 'Recent'), ...recent.map((r) => row(r, ICONS.history))]
+          : []),
+        h('p', { class: 'h' }, 'Bundled samples'),
+        ...SAMPLES.map(sampleRow),
+      );
+    }
+    suggest.hidden = !suggest.childElementCount;
+    input.setAttribute('aria-expanded', String(!suggest.hidden));
   };
 
   form.addEventListener('submit', (event) => {
@@ -105,10 +178,11 @@ export function mountHeader(app: App): void {
     const ref = parseRepoRef(text);
     if ('kind' in ref)
       return setInvalid('Use owner/repo, like vitejs/vite, or paste a GitHub URL.');
+    if (!take(ref)) return;
     input.value = '';
     closeSuggest();
+    setAdding(false);
     input.blur();
-    app.load(ref);
   });
   input.addEventListener('input', () => setInvalid(''));
   // The hint is about what was typed, so it goes when the field does.
@@ -124,6 +198,7 @@ export function mountHeader(app: App): void {
     if (event.key === 'Escape') {
       closeSuggest();
       setInvalid('');
+      setAdding(false);
       input.blur();
     }
   });
@@ -155,6 +230,7 @@ export function mountHeader(app: App): void {
     setTimeout(() => {
       if (form.contains(document.activeElement)) return;
       closeSuggest();
+      setAdding(false);
       setOpen(false);
     }, 400);
   };
@@ -170,6 +246,7 @@ export function mountHeader(app: App): void {
       if (!document.body.hasAttribute('data-repo-open') && suggest.hidden) return;
       if (form.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
       closeSuggest();
+      setAdding(false);
       setOpen(false);
     },
     true,
@@ -178,6 +255,9 @@ export function mountHeader(app: App): void {
     if (pressing) return;
     if (form.contains(event.relatedTarget as Node | null)) return;
     closeSuggest();
+    // Clicking out takes the field back to growing in place.
+    if (!input.value.trim()) setInvalid('');
+    setAdding(false);
     setOpen(false);
   });
 

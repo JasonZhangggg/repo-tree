@@ -128,12 +128,28 @@ test('a link compares several repos, a typed one adds on, and A hands over to B'
   await expect(table(page, 'All trees side by side').getByRole('row')).toHaveCount(3);
   if (await page.locator('#sheet-toggle').isVisible()) await page.locator('#sheet-toggle').click();
 
-  // Taking A away puts B on show, and C stays beside it.
+  // Each tree's seed, by line.
+  const seeds = () =>
+    rows(page)
+      .locator('.cmp-row')
+      .evaluateAll((els) =>
+        els.map((el) => el.querySelector<HTMLElement>('.cmp-seed')!.dataset.seed),
+      );
+  expect(await seeds()).toEqual(['0', '1', '2']);
+
+  // Taking A away puts B on show, and C stays beside it, each in its own color still.
   await page.getByRole('button', { name: 'Remove vitejs/vite from the comparison' }).click();
   await ready(page, 'mathiasbynens/dotfiles');
   await besideReady(page, 'acme/widgets');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('mathiasbynens/dotfiles');
   await rowNames(page).toEqual(['mathiasbynens/dotfiles', 'acme/widgets']);
+  expect(await seeds()).toEqual(['1', '2']);
+  await expect(page.locator('.island-tag:visible')).toHaveText(['dotfiles', 'widgets']);
+  expect(
+    await page
+      .locator('.island-tag:visible')
+      .evaluateAll((els) => els.map((el) => el.dataset.seed)),
+  ).toEqual(['1', '2']);
 });
 
 test('the add row goes quiet once five repos are compared', async ({ page }) => {
@@ -261,6 +277,14 @@ test("hovering another tree's branch names it, and a click pins it with the grov
       .poll(() => debug().then((d) => d.pin), { timeout: 1_500 })
       .toBe(`vitejs/vite:${found.path}`);
   }).toPass({ timeout: 30_000 });
+  // The panel shows the pinned folder, as it does one on the tree on show, and the tip goes.
+  const pinned = page.getByRole('article', { name: `Pinned folder vitejs/vite/${found!.path}` });
+  await expect(pinned).toBeVisible();
+  await expect(pinned.getByRole('link', { name: 'Open on GitHub' })).toHaveAttribute(
+    'href',
+    new RegExp(`github\\.com/vitejs/vite/tree/main/${found!.path}$`),
+  );
+  await expect(page.locator('#tip')).toBeHidden();
   // Both trees stay, and the camera keeps the whole grove in view.
   expect(page.url()).toContain('vs=vitejs');
   await expect(page.locator('.island-tag:visible')).toHaveCount(2);
@@ -339,4 +363,41 @@ test('the timeline replays every tree in the grove on one calendar', async ({ pa
     .click();
   await expect(files).not.toHaveAttribute('title', /across/);
   await expect(page.locator('#scrubber')).toBeVisible();
+});
+
+test('on a phone the open sheet folds the card to its head, so the grove stays in view', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, 'the desktop keeps its side panel beside the card');
+  await page.goto('./#/vitejs/vite?vs=mathiasbynens/dotfiles');
+  await besideReady(page, 'mathiasbynens/dotfiles');
+  const list = rows(page).locator('.cmp-list-rows');
+  await expect(list).toBeVisible();
+  await page.locator('#sheet-toggle').click();
+  await expect(list).toBeHidden();
+  await expect(rows(page)).toContainText('Side by side · 2 trees');
+  // The grove keeps the room between the card's head and the sheet, once the camera settles.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const head = document.getElementById('compare')!.getBoundingClientRect();
+          const sheet = document.getElementById('side')!.getBoundingClientRect();
+          const tags = [...document.querySelectorAll<HTMLElement>('.island-tag')].filter(
+            (el) => !el.hidden,
+          );
+          return (
+            tags.length === 2 &&
+            tags.every((el) => {
+              const r = el.getBoundingClientRect();
+              return r.top > head.bottom && r.bottom < sheet.top;
+            })
+          );
+        }),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+  await page.locator('#sheet-toggle').click();
+  await expect(list).toBeVisible();
 });

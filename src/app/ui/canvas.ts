@@ -103,13 +103,14 @@ export function mountCanvas(app: App): {
       const { owner, repo: name } = repo.info.ref;
       const held = app.companionPin();
       const pinned = held?.companion === picked.companion && held.folder === picked.folder;
+      // Once pinned, its card names it, and the tag would sit on its label.
+      if (pinned) {
+        tip.hidden = true;
+        return;
+      }
       tip.replaceChildren(
         h('code', {}, `${owner}/${name}${path ? `/${path}` : ''}/`),
-        h(
-          'span',
-          {},
-          `${plural(repo.index.folders.files[picked.folder]!, 'file')}${pinned ? '' : ' · click to pin'}`,
-        ),
+        h('span', {}, `${plural(repo.index.folders.files[picked.folder]!, 'file')} · click to pin`),
       );
       return placeTip();
     }
@@ -125,7 +126,12 @@ export function mountCanvas(app: App): {
     const selection = store.get().selection;
     const pin = selectionOf(repo, picked);
     const pinned = selection?.folder === pin.folder && selection.file === pin.file;
-    const hint = pinned ? '' : ' · click to pin';
+    // Once pinned, its card names it, and the tag would sit on its label.
+    if (pinned) {
+      tip.hidden = true;
+      return;
+    }
+    const hint = ' · click to pin';
     if (rock === undefined) {
       const path = repo.tree.folders.path[folder]!;
       tip.replaceChildren(
@@ -221,6 +227,12 @@ export function mountCanvas(app: App): {
     if (!down || Math.hypot(event.clientX - down.x, event.clientY - down.y) > TAP_SLOP) return;
     down = null;
     tip.hidden = true;
+    // On a touch screen a load error covers the top of the view, and a tap away puts it away
+    // rather than pinning what lies under the finger.
+    if (event.pointerType !== 'mouse' && store.get().load.phase === 'error') {
+      store.dispatch({ type: 'dismiss-error' });
+      return;
+    }
     // On touch screens labels let gestures through to the tree, so a tap on one lands here.
     const pill = pillAt(event.clientX, event.clientY);
     if (pill) return app.select({ folder: pill.folder }, true);

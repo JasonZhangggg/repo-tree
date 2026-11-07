@@ -106,6 +106,31 @@ describe('fetchSnapshot', () => {
     expect(snapshot).toMatchObject({ branch: 'feat/a b' });
   });
 
+  test('a link to a folder finds the branch it starts with', async () => {
+    const calls = fakeFetch((url) =>
+      url.endsWith('/git/trees/main?recursive=1')
+        ? json(TREE)
+        : json({ message: 'Not Found' }, 404),
+    );
+
+    const snapshot = await fetchSnapshot(ref('https://github.com/octo/demo/tree/main/src/lib'));
+
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://api.github.com/repos/octo/demo/git/trees/main/src/lib?recursive=1',
+      'https://api.github.com/repos/octo/demo/git/trees/main/src?recursive=1',
+      'https://api.github.com/repos/octo/demo/git/trees/main?recursive=1',
+    ]);
+    expect(snapshot).toMatchObject({ branch: 'main', sha: 'f00d' });
+  });
+
+  test('a link to no branch at all still says not found', async () => {
+    fakeFetch(() => json({ message: 'Not Found' }, 404));
+
+    expect(await fetchSnapshot(ref('https://github.com/octo/demo/tree/nope/src'))).toEqual({
+      kind: 'not-found',
+    });
+  });
+
   test('reads a tree GitHub cut short a folder at a time, down to where listings fit', async () => {
     const trees: Record<string, unknown> = {
       // The whole tree, cut short.

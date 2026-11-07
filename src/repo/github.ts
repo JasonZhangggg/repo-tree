@@ -93,9 +93,25 @@ export async function fetchSnapshot(
       if (!hasDefaultBranch(repo)) return NETWORK;
       branch = repo.default_branch;
     }
+    const treeOf = (name: string) =>
+      get(`/git/trees/${name.split('/').map(encodeURIComponent).join('/')}?recursive=1`);
+    let res = await treeOf(branch);
+    // A pasted link to a folder (`tree/main/src/lib`) names the branch and then the folder,
+    // and only GitHub knows where one ends: try the shorter names until one is a branch.
+    const missing = (r: Response) => r.status === 404 || r.status === 422;
+    for (
+      let cut = branch, tries = 0;
+      missing(res) && cut.includes('/') && tries < MAX_CUTS;
+      tries++
+    ) {
+      cut = cut.slice(0, cut.lastIndexOf('/'));
+      const next = await treeOf(cut);
+      if (missing(next)) continue;
+      res = next;
+      if (next.ok) branch = cut;
+      break;
+    }
     onBranch?.(branch);
-    const path = branch.split('/').map(encodeURIComponent).join('/');
-    const res = await get(`/git/trees/${path}?recursive=1`);
     if (!res.ok) return httpError(res, !!token);
     const body: unknown = await res.json();
     if (!isRecord(body) || body.truncated !== true || typeof body.sha !== 'string') {
@@ -168,6 +184,9 @@ function httpError(res: Response, sentToken: boolean): LoadError {
   if (sentToken && (status === 401 || status === 403)) return { kind: 'unauthorized' };
   return NETWORK;
 }
+
+/** How many shorter branch names a pasted folder link tries, so a typo costs few reads. */
+const MAX_CUTS = 6;
 
 /** Reads left unspent when filling in a cut-short tree (signed out, GitHub allows 60 an hour). */
 const RATE_RESERVE = 15;

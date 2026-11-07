@@ -132,7 +132,7 @@ export function createLoader(store: Store, { signInExpired }: { signInExpired?: 
               store.dispatch({ type: 'step', id, step });
             },
             branch(name) {
-              if (branch === undefined) runsFor(name);
+              if (name !== branch) runsFor(name);
             },
           },
           abort.signal,
@@ -153,7 +153,6 @@ export function createLoader(store: Store, { signInExpired }: { signInExpired?: 
         }
         const folderIds = new Map(result.tree.folders.path.map((path, i) => [path, i]));
         repo = { ...result, folderIds, sample: sample?.id };
-        if (branch === undefined) runsFor(result.info.branch);
       } catch (error) {
         if (abort.signal.aborted) return;
         console.error(error);
@@ -163,7 +162,13 @@ export function createLoader(store: Store, { signInExpired }: { signInExpired?: 
     memory.delete(key);
     memory.set(key, repo);
     if (memory.size > KEEP) memory.delete(memory.keys().next().value!);
-    const folder = select === undefined ? undefined : repo.folderIds.get(select);
+    // A link to a folder named it after the branch (`tree/main/src`): pin it.
+    const within =
+      ref.ref && ref.ref !== repo.info.branch && ref.ref.startsWith(`${repo.info.branch}/`)
+        ? ref.ref.slice(repo.info.branch.length + 1)
+        : undefined;
+    const path = select ?? within;
+    const folder = path === undefined ? undefined : repo.folderIds.get(path);
     const { colorBy, palette } = store.get().settings;
     const { legend } = leafCategories(repo.tree, colorBy, PALETTES[palette]);
     store.dispatch({

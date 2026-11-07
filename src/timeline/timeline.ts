@@ -4,10 +4,10 @@ import type { History } from '../repo/history';
 import { GONE_CAP } from '../../server/src/shape';
 
 /**
- * A repo's life on one axis, `progress`, from 0 at the first commit to 1 at head. Progress
- * follows time partly linearly and mostly by activity, so a quiet year passes quickly and a busy
- * one gets room. The scrubber's position `s` (0 to 1) runs a little past head so the last
- * sprouts finish growing: the cursor is `s * (1 + SPAN)`.
+ * A repo's life on one axis, `progress`, from 0 at the first commit to 1 at head. Progress runs
+ * evenly in time, so every year takes the same room on the scrubber and its year ticks fall
+ * evenly. The scrubber's position `s` (0 to 1) runs a little past head so the last sprouts
+ * finish growing: the cursor is `s * (1 + SPAN)`.
  */
 export type Timeline = {
   /** First commit and head, ms. */
@@ -37,8 +37,6 @@ export type Ease = { at: Float64Array; p: Float64Array };
  * along its length, its children after it, within this span.
  */
 export const SPAN = 0.015;
-/** Share of the axis spread evenly over time; the rest follows births and deletions. */
-export const LINEAR = 0.3;
 
 /** Whether a file born at `born` and deleted at `gone` (if ever) exists at `t`. */
 export const aliveAt = (t: number, born: number, gone?: number): boolean =>
@@ -118,20 +116,10 @@ export function buildTimeline(
   const skip = new Set(hidden);
   const shown = (path: string) => !path.split('/').some((part) => skip.has(part));
   const gone = history.gone.filter((g) => shown(g.path));
-  const weights = new Float64Array(at.length);
-  const tally = (ms: number) => {
-    if (ms <= start) return;
-    weights[Math.min(at.length - 1, upTo(at, ms - 1))]! += 1;
-  };
   const bornOf = new Map<string, number>();
   history.files.path.forEach((path, i) => bornOf.set(path, history.files.born[i]!));
   const fileMs = index.files.paths.map((path) => bornOf.get(path) ?? end);
-  for (const ms of fileMs) tally(ms);
-  for (const g of gone) {
-    tally(g.born);
-    tally(g.gone);
-  }
-  const ease = easeOf(at, weights);
+  const ease = easeOf(at);
 
   /** Progress of a time, spread over its snapshot interval by `key` when it is a snapshot time. */
   const spread = (ms: number, key: number) => {
@@ -221,18 +209,14 @@ function knotTimes(history: History): Float64Array {
   return Float64Array.from(times);
 }
 
-/** Progress at each knot: LINEAR of it by elapsed time, the rest by the activity up to it. */
-export function easeOf(at: Float64Array, weights: Float64Array): Ease {
+/**
+ * Progress at each knot, by elapsed time: a busy year takes no more room than a quiet one, so the
+ * scrubber reads like a calendar. (Weighing activity let a burst of files near head, or the files
+ * the history could not date, squeeze a decade into a corner of the bar.)
+ */
+export function easeOf(at: Float64Array): Ease {
   const span = at[at.length - 1]! - at[0]!;
-  const total = weights.reduce((sum, w) => sum + w, 0);
-  const linear = total > 0 ? LINEAR : 1;
-  const p = new Float64Array(at.length);
-  let cumulative = 0;
-  for (let i = 0; i < at.length; i++) {
-    cumulative += weights[i]!;
-    p[i] =
-      linear * ((at[i]! - at[0]!) / span) + (total > 0 ? (1 - linear) * (cumulative / total) : 0);
-  }
+  const p = Float64Array.from(at, (t) => (t - at[0]!) / span);
   p[at.length - 1] = 1;
   return { at, p };
 }
@@ -272,7 +256,7 @@ export function sharedTimelines(timelines: readonly Timeline[]): Timeline[] {
   if (timelines.length < 2) return [...timelines];
   const first = Math.min(...timelines.map((t) => t.start));
   const last = Math.max(...timelines.map((t) => t.end));
-  const ease = easeOf(Float64Array.of(first, last), new Float64Array(2));
+  const ease = easeOf(Float64Array.of(first, last));
   return timelines.map((t) => {
     const move = (p: number) =>
       p >= 1 ? progressOf(ease, t.end) : progressOf(ease, dateOf(t.ease, p));

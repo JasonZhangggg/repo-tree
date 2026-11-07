@@ -767,7 +767,7 @@ h1,
 :is(h1, .title .name) button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   max-width: 100%;
   margin: 0;
   padding: 1px 4px;
@@ -784,9 +784,15 @@ h1,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The owner shortens before the repo's own name; the repo shortens only once the owner is gone. */
+:is(h1, .title .name) button .name-owner {
+  flex-shrink: 1000;
+  min-width: 2.4ch;
+}
 :is(h1, .title .name) button svg {
   width: 16px;
   height: 16px;
+  margin-left: 4px;
   flex: none;
   color: var(--muted);
   stroke-width: 2;
@@ -1034,10 +1040,46 @@ h1,
   animation: rise 0.22s var(--ease);
 }
 .status.loading {
-  /* Held back a beat so a quick load never flashes it, but folded shut while it waits, so the
-     card never holds an empty box. */
+  /* A spinner and the name in one quiet row under a hairline, not a box of its own. Held back
+     a beat so a quick load never flashes it, but folded shut while it waits. */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 0 0 4px;
+  background: none;
+  border-radius: 0;
+  box-shadow: 0 -1px 0 var(--line);
+  color: var(--muted);
+  font-size: 13px;
   animation: unfold 0.26s 0.15s var(--ease) backwards;
   overflow: hidden;
+}
+.status.loading .loading-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status.loading .icon-btn {
+  flex: none;
+  width: 28px;
+  height: 28px;
+}
+.spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--wash);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 @keyframes unfold {
   from {
@@ -1134,74 +1176,6 @@ h1,
 .btn svg {
   width: 14px;
   height: 14px;
-}
-.steps {
-  display: flex;
-  flex-wrap: wrap;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  gap: 4px 6px;
-  align-items: center;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-.steps li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.steps li + li::before {
-  content: '';
-  width: 14px;
-  height: 1px;
-  background: var(--line);
-}
-.steps i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--ink) 15%, transparent);
-}
-.steps [data-state='done'] i {
-  background: var(--ink);
-}
-.steps [data-state='now'] {
-  color: var(--ink);
-  font-weight: 600;
-}
-.steps [data-state='now'] i {
-  background: var(--accent);
-}
-.progress {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--wash);
-  overflow: hidden;
-}
-.progress i {
-  display: block;
-  height: 100%;
-  width: calc(var(--done) * 100%);
-  /* A light sweeps along the bar, so a slow fetch never looks stuck. */
-  background: linear-gradient(
-      90deg,
-      transparent 0 30%,
-      color-mix(in srgb, #fff 55%, transparent) 50%,
-      transparent 70% 100%
-    )
-    0 0 / 200% 100% var(--accent);
-  border-radius: 2px;
-  transition: width 0.4s var(--ease);
-  animation: sweep 1.3s linear infinite;
-}
-@keyframes sweep {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: -100% 0;
-  }
 }
 /* The header shows once the script has decided between the field and a repo's name, so the
    empty field never flashes up on a link to a repo. */
@@ -2636,9 +2610,10 @@ body:has(.scrubber:not([hidden])) .toast {
   margin-top: 4px;
 }
 .compute-actions .btn {
-  height: 38px;
+  height: 40px;
   padding: 0 16px;
   font-size: 14px;
+  white-space: nowrap;
 }
 @media (max-width: 760px) {
   .compute {
@@ -2646,9 +2621,11 @@ body:has(.scrubber:not([hidden])) .toast {
     bottom: max(12px, env(safe-area-inset-bottom, 0px));
     translate: -50% 0;
   }
+  /* Side by side and each on one line; a label too long for that takes the row to itself. */
   .compute-actions .btn {
-    flex: 1;
+    flex: 1 1 auto;
     justify-content: center;
+    padding: 0 14px;
   }
 }
 
@@ -2707,8 +2684,8 @@ body:has(.scrubber:not([hidden])) .toast {
     background: none;
     color: var(--muted);
   }
-  /* The More menu holds Open on GitHub on a phone. */
-  .meta .gh {
+  /* The More menu holds Reload and Open on GitHub on a phone, so the repo row stays one line. */
+  .meta :is(.gh, .icon-btn) {
     display: none;
   }
   .repo-switch svg {
@@ -2720,17 +2697,22 @@ body:has(.scrubber:not([hidden])) .toast {
     stroke-linecap: round;
     stroke-linejoin: round;
   }
-  .title {
+  /* One line: the name gives way first (its owner before the repo), so reload and the CI chip
+     never drop to a row of their own. Load progress takes the row under it. */
+  .title,
+  .title[data-loading] {
     top: calc(env(safe-area-inset-top, 0px) + 12px);
     left: max(12px, env(safe-area-inset-left, 0px));
     right: max(12px, env(safe-area-inset-right, 0px));
     width: auto;
     min-width: 0;
     max-width: none;
-    display: flex;
-    flex-wrap: wrap;
+    grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      'switch name . meta weather'
+      'status status status status status';
     align-items: center;
-    gap: 8px 10px;
+    gap: 0 8px;
     padding: 6px 8px;
     border-radius: 14px;
   }
@@ -2739,12 +2721,11 @@ body:has(.scrubber:not([hidden])) .toast {
     font-size: 16px;
     min-width: 0;
   }
+  /* Its own width at least (a branch link, the file count), so the name gives way first. */
   .meta {
     margin: 0;
-    flex: 1;
     flex-wrap: nowrap;
-    min-width: 0;
-    overflow: hidden;
+    min-width: max-content;
     white-space: nowrap;
     font-size: 12.5px;
   }
@@ -2754,7 +2735,6 @@ body:has(.scrubber:not([hidden])) .toast {
   /* Icon and a few words, so it reads as CI status rather than a light-mode toggle. */
   .weather,
   .title > .weather {
-    order: 2;
     flex: none;
     margin: 0;
     padding: 0 10px 0 8px;
@@ -2781,7 +2761,7 @@ body:has(.scrubber:not([hidden])) .toast {
     min-height: 36px;
     align-items: center;
   }
-  /* The row's buttons never clip: the branch shortens first, and the file count goes when narrow. */
+  /* The branch shortens first, and the file count goes when narrow. */
   .meta .branch {
     min-width: 0;
   }
@@ -2793,34 +2773,16 @@ body:has(.scrubber:not([hidden])) .toast {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .meta .icon-btn {
-    flex: none;
-    margin-left: auto;
-    order: 1;
-    width: 36px;
-    height: 36px;
-  }
-  /* The load status and notices take their own row under the name and the weather chip. */
   #status {
-    order: 3;
-    flex-basis: 100%;
-    margin-bottom: 6px;
+    margin-bottom: 2px;
   }
   .status {
     width: 100%;
     gap: 8px;
     padding: 9px 10px;
   }
-  /* Progress sits in the repo card itself, under a hairline, not in a box of its own. */
   .status.loading {
-    gap: 7px;
-    padding: 8px 4px 2px;
-    background: none;
-    border-radius: 0;
-    box-shadow: 0 -1px 0 var(--line);
-  }
-  .status.loading .btn {
-    height: 32px;
+    gap: 8px;
   }
   .status strong {
     font-size: 13.5px;
@@ -3196,7 +3158,7 @@ body:has(.scrubber:not([hidden])) .toast {
 }
 @media (max-width: 380px) {
   .title {
-    gap: 8px 6px;
+    gap: 0 6px;
   }
   .meta .branch svg {
     display: none;
@@ -3909,9 +3871,11 @@ body[data-compare] #overview {
   margin: 0 auto;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 2px;
   max-width: calc(100% - 2 * var(--edge));
   padding: 4px 4px 4px 12px;
+  font-size: 12.5px;
   border-radius: 999px;
   background: var(--card);
   color: var(--ink);

@@ -47,8 +47,8 @@ test('a signed-out visitor is offered to compute a missing history, and may decl
   await page.locator('#timeline').click();
   await expect(dialog(page)).toBeVisible();
   await expect(dialog(page)).toContainText('No timeline yet for acme/widgets');
-  await expect(dialog(page)).toContainText('your own GitHub requests, under 1 MB to download');
-  await expect(dialog(page)).toContainText('everyone who opens acme/widgets gets it at once');
+  await expect(dialog(page)).toContainText('work it out from GitHub (under 1 MB)');
+  await expect(dialog(page)).toContainText('share it so everyone who opens acme/widgets gets it');
   await page.getByRole('button', { name: 'Not now' }).click();
   await expect(dialog(page)).toBeHidden();
   await expect(page.getByRole('group', { name: 'Timeline' })).toBeHidden();
@@ -130,7 +130,7 @@ test('a signed-in visitor is offered to bring an out-of-date history up to date'
   await page.locator('#timeline').click();
   await expect(dialog(page)).toContainText('The timeline of acme/widgets is out of date');
   await expect(dialog(page)).toContainText('the branch has moved since');
-  await expect(dialog(page)).toContainText('add the commits since then');
+  await expect(dialog(page)).toContainText('add the new commits');
   await page.getByRole('button', { name: 'Refresh history' }).click();
   await expect(page.getByRole('group', { name: 'Timeline' })).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('#toast')).toContainText(
@@ -325,9 +325,9 @@ test.describe('on a phone', () => {
     await open(page, 'acme/gadgets');
     await page.locator('#timeline').click();
     await expect(dialog(page)).toBeVisible();
-    await expect(dialog(page)).toContainText('This looks like a phone or a small device.');
-    await expect(dialog(page)).toContainText('drain the battery');
-    await expect(page.getByRole('button', { name: 'Sign in and compute anyway' })).toBeVisible();
+    await expect(dialog(page)).toContainText('On a phone this can be slow');
+    await expect(dialog(page)).toContainText(/about \d+ MB of memory/);
+    await expect(page.getByRole('button', { name: 'Sign in and compute' })).toBeVisible();
     await page.getByRole('button', { name: 'Not now' }).click();
     await expect(dialog(page)).toBeHidden();
   });

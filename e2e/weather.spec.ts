@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { quietSettings, ready, serveRepo, serveRuns } from './github';
-import { openRepoField, settle } from './view';
+import { chooseAction, openRepoField, settle } from './view';
 
 test.use({ reducedMotion: 'reduce' });
 
@@ -163,7 +163,7 @@ test('a sample reloaded live keeps its bundled weather when GitHub refuses its r
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   await expect(chip(page)).toHaveAttribute('aria-label', 'CI passing, 20 of 20 recent runs');
-  await page.getByRole('button', { name: 'Reload from GitHub' }).click();
+  await chooseAction(page, 'Reload from GitHub');
   await expect(page.locator('#repo-meta [title^="Bundled with the app"]')).toHaveCount(0);
   await ready(page, 'vitejs/vite');
   await expect(chip(page)).toHaveAttribute('aria-label', 'CI passing, 20 of 20 recent runs');

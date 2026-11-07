@@ -1,4 +1,3 @@
-import type { LoadStep } from '../../load/load-in-worker';
 import { actionsUrl } from '../../repo/ci';
 import { parseRepoRef, type RepoRef } from '../../repo/ref';
 import { PALETTES } from '../../render/palette';
@@ -24,12 +23,6 @@ import { describeWeather, shortVerdict } from '../weather';
 
 const plainOf = (ref: { owner: string; repo: string }) =>
   ({ owner: ref.owner, repo: ref.repo }) as RepoRef;
-
-const STEPS: { step: LoadStep; label: string }[] = [
-  { step: 'fetch', label: 'Fetching' },
-  { step: 'build', label: 'Sorting' },
-  { step: 'grow', label: 'Growing' },
-];
 
 export function mountHeader(app: App): void {
   const { store } = app;
@@ -354,40 +347,27 @@ export function mountHeader(app: App): void {
       notices.replaceChildren();
       if (loadingId !== load.id) {
         loadingId = load.id;
+        // A spinner and the name, not a step-by-step bar: a load is usually over in a moment.
         status.replaceChildren(
           h(
             'div',
             { class: 'status loading' },
+            h('span', { class: 'spinner', 'aria-hidden': 'true' }),
+            h('span', { class: 'loading-name' }, `Loading ${load.ref.owner}/${load.ref.repo}…`),
             h(
-              'div',
-              { class: 'status-head' },
-              h(
-                'div',
-                {},
-                h('strong', {}, `Growing ${load.ref.owner}/${load.ref.repo}`),
-                h(
-                  'ol',
-                  { class: 'steps', 'aria-label': 'Progress' },
-                  ...STEPS.map((s) => h('li', { 'data-step': s.step }, h('i'), s.label)),
-                ),
-              ),
-              h(
-                'button',
-                { type: 'button', class: 'btn', onclick: () => app.cancelLoad() },
-                'Cancel',
-              ),
+              'button',
+              {
+                type: 'button',
+                class: 'icon-btn',
+                'aria-label': 'Cancel',
+                title: 'Stop loading',
+                onclick: () => app.cancelLoad(),
+              },
+              icon(...ICONS.close),
             ),
-            h('div', { class: 'progress', 'aria-hidden': 'true' }, h('i')),
           ),
         );
       }
-      const at = STEPS.findIndex((s) => s.step === load.step);
-      status.querySelectorAll<HTMLElement>('.steps li').forEach((li, i) => {
-        li.dataset.state = i < at ? 'done' : i === at ? 'now' : 'todo';
-      });
-      status
-        .querySelector<HTMLElement>('.progress')!
-        .style.setProperty('--done', String((at + 0.6) / STEPS.length));
       return;
     }
     loadingId = null;
@@ -483,8 +463,10 @@ export function mountHeader(app: App): void {
     const shownRef = repo?.info.ref ?? (load.phase === 'idle' ? null : load.ref);
     if (!shownRef) return;
     title.dataset.repo = `${shownRef.owner}/${shownRef.repo}`;
+    // Two parts, so a narrow card shortens the owner before the repo's own name.
     link.replaceChildren(
-      h('span', {}, `${shownRef.owner}/${shownRef.repo}`),
+      h('span', { class: 'name-owner' }, shownRef.owner),
+      h('span', { class: 'name-repo' }, `/${shownRef.repo}`),
       icon(...ICONS.chevron),
     );
     link.title = 'Change repository';
@@ -522,6 +504,16 @@ export function mountHeader(app: App): void {
       renderStatus(state);
     }
   };
+  // The phone's More menu reloads the repo on show, as the card's own button does on a desktop.
+  const reloadItem = byId<HTMLButtonElement>('reload-repo');
+  reloadItem.addEventListener('click', () => {
+    const { repo } = store.get();
+    if (repo) app.load(repo.info.ref, { fresh: true });
+  });
+  store.subscribe((state) => {
+    reloadItem.disabled = !state.repo;
+  });
+  reloadItem.disabled = !store.get().repo;
   store.subscribe(render);
   placeAlerts(alerts);
   document.body.toggleAttribute('data-shell', true);

@@ -1130,9 +1130,9 @@ const JOURNEYS = {
       await ready(page, 'vitejs/vite');
       await openTimeline('acme/widgets');
       await expect(dialog).toContainText('No timeline yet for acme/widgets');
-      await expect(dialog).toContainText('your own GitHub requests, under 1 MB to download');
-      await expect(dialog).toContainText('everyone who opens acme/widgets gets it at once');
-      if (phone) await expect(dialog).toContainText('This looks like a phone or a small device.');
+      await expect(dialog).toContainText('work it out from GitHub (under 1 MB)');
+      await expect(dialog).toContainText('share it so everyone who opens acme/widgets gets it');
+      if (phone) await expect(dialog).toContainText('On a phone this can be slow');
     });
     await step('decline', async () => {
       await page.getByRole('button', { name: 'Not now' }).click();
@@ -1141,9 +1141,9 @@ const JOURNEYS = {
     });
     await step('big-repo', async () => {
       await openTimeline('acme/huge');
-      await expect(dialog).toContainText('This is a big repo.');
+      await expect(dialog).toContainText('A big repo:');
       await expect(dialog).toContainText(/about \d+ MB to download/);
-      await expect(page.getByRole('button', { name: 'Sign in and compute anyway' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Sign in and compute' })).toBeVisible();
     });
     await step('progress', async () => {
       await page.getByRole('button', { name: 'Not now' }).click();

@@ -14,7 +14,6 @@ import {
   dateOf,
   easeOf,
   filesAt,
-  LINEAR,
   positionAt,
   progressOf,
   sharedTimelines,
@@ -44,8 +43,7 @@ describe('aliveAt', () => {
 describe('easing dates onto the scrubber', () => {
   const start = Date.UTC(2010, 0, 1);
   const at = Float64Array.from([0, 1, 2, 3, 4, 5], (y) => start + y * YEAR);
-  // Nothing happens in the first three years, then a burst, then a little.
-  const ease = easeOf(at, Float64Array.from([0, 0, 0, 0, 90, 10]));
+  const ease = easeOf(at);
 
   test('runs from 0 at the first commit to 1 at head, never backwards', () => {
     expect(progressOf(ease, start)).toBe(0);
@@ -60,23 +58,15 @@ describe('easing dates onto the scrubber', () => {
     }
   });
 
-  test('quiet years pass quickly but never vanish, busy ones get the room', () => {
-    const quiet = progressOf(ease, at[3]!);
-    expect(quiet).toBeCloseTo((LINEAR * 3) / 5);
-    expect(quiet).toBeLessThan(3 / 5);
-    const burst = progressOf(ease, at[4]!) - progressOf(ease, at[3]!);
-    expect(burst).toBeCloseTo(LINEAR / 5 + (1 - LINEAR) * 0.9);
+  test('every year takes the same room, like a calendar', () => {
+    for (let y = 0; y <= 5; y++) expect(progressOf(ease, at[y]!)).toBeCloseTo(y / 5);
+    expect(progressOf(ease, start + 2.5 * YEAR)).toBeCloseTo(0.5);
   });
 
   test('a date comes back from its progress', () => {
     for (const ms of [start, start + 0.3 * YEAR, start + 3.5 * YEAR, at[5]! - 1000]) {
       expect(dateOf(ease, progressOf(ease, ms))).toBeCloseTo(ms, -1);
     }
-  });
-
-  test('a history with no activity runs evenly over time', () => {
-    const even = easeOf(at, new Float64Array(6));
-    expect(progressOf(even, at[2]!)).toBeCloseTo(0.4);
   });
 });
 
@@ -98,6 +88,13 @@ describe.each<SampleId>(['mathiasbynens-dotfiles', 'vitejs-vite', 'torvalds-linu
     test('spans the first commit to head', () => {
       expect(timeline.start).toBe(history.snapshots[0]!.at);
       expect(timeline.end).toBe(history.snapshots.at(-1)!.at);
+    });
+
+    test('the scrubber runs evenly in time: the middle of its life is halfway', () => {
+      const { start, end } = timeline;
+      for (const f of [0.1, 0.25, 0.5, 0.75, 0.9]) {
+        expect(progressOf(timeline.ease, start + f * (end - start))).toBeCloseTo(f, 6);
+      }
     });
 
     test('a branch never appears after anything that grows on it', () => {

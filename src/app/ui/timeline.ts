@@ -19,7 +19,7 @@ import { byId, h } from '../dom';
 import { count } from '../format';
 import { companionsOf, type AppState, type Repo } from '../state';
 
-/** A whole life plays in this long; the easing gives busy years the room. */
+/** A whole life plays in this long, evenly in time. */
 const PLAY_MS = 20_000;
 const STEPS = 1000;
 /** Year labels closer than this many pixels to the last one shown are left as bare ticks. */

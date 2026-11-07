@@ -187,7 +187,7 @@ test('a sample reloaded live from GitHub keeps its timeline', async ({ page }) =
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   await expect(page.locator('#repo-meta [title^="Bundled with the app"]')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Reload from GitHub' }).click();
+  await chooseAction(page, 'Reload from GitHub');
   // The live tree has no "snapshot" tag; with no history shared, the bundled one stands in.
   await expect(page.locator('#repo-meta [title^="Bundled with the app"]')).toHaveCount(0);
   await ready(page, 'vitejs/vite');

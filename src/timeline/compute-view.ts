@@ -38,41 +38,41 @@ export function describeStep(
   const download = megabytes(estimate.downloadMB);
   switch (step.kind) {
     case 'offer': {
+      // Short on purpose: what it costs, that it is shared, and on a phone or a big repo, a
+      // one-line warning. The details live in the feature docs, not the dialog.
       const { refresh } = step;
       const lines: StepView['lines'] = [
         {
           text: refresh
-            ? `It was worked out on ${DATE.format(refresh.since)}, and the branch has moved since. Your browser can add the commits since then from GitHub with your own GitHub requests, ${download} to download, and share it again for everyone who opens ${name}.`
-            : `Your browser can work out its history from GitHub with your own GitHub requests, ${download} to download. Once it is done, the timeline is shared, so everyone who opens ${name} gets it at once.`,
+            ? `Last worked out ${DATE.format(refresh.since)}; the branch has moved since. Your browser can add the new commits (${download}) and share it again for everyone.`
+            : `Your browser can work it out from GitHub (${download}), then share it so everyone who opens ${name} gets it.`,
         },
       ];
       if (warn) {
+        const memory = megabytes(estimate.memoryMB);
         lines.push({
           kind: 'warn',
-          text:
-            `${estimate.big ? 'This is a big repo.' : 'This looks like a phone or a small device.'} ` +
-            `It downloads ${download} and the tab may use ${megabytes(estimate.memoryMB)} of memory while it runs${estimate.big ? ', for a minute or more' : ''}.` +
-            (phone ? ' On a phone it can be slow, use mobile data and drain the battery.' : ''),
+          text: estimate.big
+            ? `A big repo: ${download} to download and ${memory} of memory, for a minute or more.`
+            : `${phone ? 'On a phone' : 'On a small device'} this can be slow: ${download} to download and ${memory} of memory.`,
         });
       }
       if (step.note) lines.push({ kind: 'note', text: step.note });
-      lines.push({
-        kind: 'fine',
-        text: signedIn
-          ? 'You are signed in with GitHub in this tab.'
-          : 'Sign-in asks GitHub for no permissions, so only public data is read. Your token stays in this tab and goes only to GitHub and the history server.',
-      });
-      const verb = refresh ? 'refresh' : 'compute';
-      const go = warn
-        ? signedIn
+      if (!signedIn)
+        lines.push({
+          kind: 'fine',
+          text: 'Sign-in asks GitHub for no permissions, and your token stays in this tab.',
+        });
+      const go = signedIn
+        ? warn
           ? `${refresh ? 'Refresh' : 'Compute'} anyway`
-          : `Sign in and ${verb} anyway`
-        : signedIn
-          ? refresh
+          : refresh
             ? 'Refresh history'
             : 'Compute history'
-          : refresh
-            ? 'Sign in and refresh'
+        : refresh
+          ? 'Sign in and refresh'
+          : warn
+            ? 'Sign in and compute'
             : 'Sign in with GitHub';
       return {
         title: refresh ? `The timeline of ${name} is out of date` : `No timeline yet for ${name}`,
@@ -97,7 +97,7 @@ export function describeStep(
           },
           {
             kind: 'fine',
-            text: 'This runs in your browser with your GitHub requests. Cancel stops it; trying again picks up where it stopped.',
+            text: 'Cancel stops it; trying again picks up where it stopped.',
           },
         ],
         buttons: [{ label: 'Cancel', act: 'cancel' }],

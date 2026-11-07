@@ -4,7 +4,7 @@ import '@fontsource/jetbrains-mono/600.css';
 import './app/app.css';
 import { createTreeView } from './render/tree-view';
 import { parseRepoRef, type RepoRef } from './repo/ref';
-import { nameOf, type App } from './app/app';
+import { nameOf, type App, type CompanionPin } from './app/app';
 import { birdsOf } from './app/birds';
 import { debug } from './app/debug';
 import { byId } from './app/dom';
@@ -102,6 +102,8 @@ watchHistory(store);
 let hovered: number | null = null;
 /** The compared tree the hovered folder is on, by its index in companionsOf, if not the one on show. */
 let hoveredCompanion: number | undefined;
+/** A folder pinned on a compared tree, kept while the grove stands as it is. */
+let companionPin: CompanionPin | null = null;
 /** Whether the camera glided to the pin on show, so clearing it glides back. */
 let framedPin = false;
 let hoveredCategory: string | null = null;
@@ -115,7 +117,11 @@ const app: App = {
   cancelLoad: () => loader.cancel(),
   select(selection, frame = false) {
     const was = store.get().selection;
+    const held = companionPin;
+    companionPin = null;
     store.dispatch({ type: 'select', selection });
+    // Letting go of a compared tree's pin changes no state the store hears of.
+    if (held && store.get().selection === was) applyHighlight();
     if (selection && frame) {
       view.frameFolder(selection.folder);
       framedPin = true;
@@ -138,7 +144,12 @@ const app: App = {
     hoveredCategory = label;
     applyHighlight();
   },
-  showAlone: (ref, select) => grove.showAlone(ref, select),
+  pinCompanion(pin) {
+    app.select(null);
+    companionPin = pin;
+    applyHighlight();
+  },
+  companionPin: () => companionPin,
   openSettings: (focus) => settings.open(focus),
   signIn: () => void signin.signIn(),
   refreshRuns: () => loader.refreshRuns(),
@@ -160,13 +171,19 @@ let searchStepping = () => false;
 function applyHighlight() {
   const { repo, selection, highlight } = store.get();
   const category = hoveredCategory ?? highlight;
-  const folder = category === null ? (selection?.folder ?? hovered) : null;
+  // A pin on a compared tree holds as a pin on the tree on show does.
+  const pin = selection ?? companionPin;
+  const folder = category === null ? (pin?.folder ?? hovered) : null;
   // Stepping through search matches keeps them all lit: the pin glides there but fades nothing.
   const faded = searchStepping() ? hovered : folder;
-  // A folder hovered on a compared tree lights there, unless a pin holds the tree on show.
-  const other = selection ? undefined : hoveredCompanion;
+  // A folder pinned or hovered on a compared tree lights there.
+  const other = selection ? undefined : companionPin ? companionPin.companion : hoveredCompanion;
   const tree = other === undefined ? repo : companionsOf(store.get())[other];
   const range = tree?.tree.folders.range;
+  const held = companionPin && companionsOf(store.get())[companionPin.companion];
+  debug.companionPin = held
+    ? `${held.info.ref.owner}/${held.info.ref.repo}:${held.tree.folders.path[companionPin!.folder]}`
+    : null;
   view.setHighlight(
     category !== null
       ? { category }
@@ -259,6 +276,11 @@ store.subscribe((state, prev) => {
   const [now, then] = [others(state), others(prev)];
   const moved = now.length !== then.length || now.some((c, i) => c !== then[i]);
   if (moved || state.repo !== prev.repo) {
+    // A compared tree's pin goes with the grove it was made in.
+    if (companionPin) {
+      companionPin = null;
+      applyHighlight();
+    }
     view.setLanguageRank(rankOf(state));
     // Their heights show their sizes against each other.
     const scales =
@@ -545,7 +567,7 @@ addEventListener('keydown', (event) => {
     if (search.close() || settings.close() || compute.close() || typing) return;
     if (search.stop()) return;
     const { selection, highlight, load } = store.get();
-    if (selection) app.select(null);
+    if (selection || companionPin) app.select(null);
     else if (highlight !== null) app.highlight(null);
     else if (load.phase === 'loading') loader.cancel();
     else if (load.phase === 'error') store.dispatch({ type: 'dismiss-error' });
@@ -589,7 +611,7 @@ const timeline = mountTimeline(
   compute,
 );
 const settings = mountSettings(app);
-const grove = mountCompare(app);
+mountCompare(app);
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 mountQuick(app);
 const pinTray = mountPinTray(app, () => {

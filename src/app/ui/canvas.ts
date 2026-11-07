@@ -7,14 +7,7 @@ import { pickLabels, relaxLabels, type LabelPick } from '../labels';
 import { birdsOf } from '../birds';
 import { mountCiCard } from './ci-card';
 import { mountPrCard } from './pr-card';
-import {
-  companionsOf,
-  plainRef,
-  weatherOf,
-  type AppState,
-  type Repo,
-  type Selection,
-} from '../state';
+import { companionsOf, weatherOf, type AppState, type Repo, type Selection } from '../state';
 import { describeWeather } from '../weather';
 import type { Picked } from '../../render/tree-view';
 import type { Loaded } from '../../load/load-in-worker';
@@ -104,16 +97,18 @@ export function mountCanvas(app: App): {
       tip.hidden = true;
       return;
     }
-    // A compared tree's branch names its repo too, and a click shows that tree.
+    // A compared tree's branch names its repo too, and a click pins it there.
     if (picked.companion !== undefined) {
       const path = repo.tree.folders.path[picked.folder]!;
       const { owner, repo: name } = repo.info.ref;
+      const held = app.companionPin();
+      const pinned = held?.companion === picked.companion && held.folder === picked.folder;
       tip.replaceChildren(
         h('code', {}, `${owner}/${name}${path ? `/${path}` : ''}/`),
         h(
           'span',
           {},
-          `${plural(repo.index.folders.files[picked.folder]!, 'file')} · click to show`,
+          `${plural(repo.index.folders.files[picked.folder]!, 'file')}${pinned ? '' : ' · click to pin'}`,
         ),
       );
       return placeTip();
@@ -236,10 +231,10 @@ export function mountCanvas(app: App): {
     if (picked === null && view.skyAt(x, y) && ci.open()) return;
     // A bird says which pull request it stands for, and keeps the pin as it was.
     if (picked?.bird !== undefined && pr.open(picked.bird)) return;
-    // A compared tree's branch shows that tree alone, with the folder pinned.
+    // A compared tree's branch pins there, the grove kept in view: only the card's lines show
+    // one tree alone.
     if (picked?.companion !== undefined) {
-      const other = treeOf(picked);
-      if (other) app.showAlone(plainRef(other), other.tree.folders.path[picked.folder]);
+      app.pinCompanion({ companion: picked.companion, folder: picked.folder });
       return;
     }
     const repo = store.get().repo;
@@ -250,14 +245,15 @@ export function mountCanvas(app: App): {
   });
 
   // A double click glides to the branch under it (the first click pinned it), or back out to
-  // the whole tree from empty sky.
+  // the whole tree from empty sky. A grove stays in view: its double click pins and nothing more.
   container.addEventListener('dblclick', (event) => {
     const repo = store.get().repo;
     if (!repo) return;
     const rect = container.getBoundingClientRect();
     const picked = view.pickAt(event.clientX - rect.left, event.clientY - rect.top);
     if (picked?.bird !== undefined || picked?.companion !== undefined) return;
-    if (picked && picked.folder !== 0) app.select(selectionOf(repo, picked), true);
+    const comparing = store.get().compare.length > 0;
+    if (picked && picked.folder !== 0) app.select(selectionOf(repo, picked), !comparing);
     else if (!picked && !view.skyAt(event.clientX - rect.left, event.clientY - rect.top)) {
       view.frameFolder(0);
     }

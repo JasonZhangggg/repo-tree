@@ -75,8 +75,6 @@ const MODE_TITLE: Record<ColorBy, string> = {
 export function mountCompare(app: App): {
   open(): void;
   close(): boolean;
-  /** Shows a tree of the grove alone, with a folder (by path) pinned; as its line does. */
-  showAlone(ref: RepoRef, select?: string): void;
 } {
   const { store, view } = app;
   const root = byId('compare');
@@ -134,8 +132,8 @@ export function mountCompare(app: App): {
    * back; dropped once a comparison starts again or a repo outside it is on show.
    */
   let grove: { main: RepoRef; compare: RepoRef[] } | null = null;
-  /** Shows tree i of the grove (0 is the one on show) alone, pinning a folder by path. */
-  function focus(i: number, select?: string) {
+  /** Shows tree i of the grove (0 is the one on show) alone. */
+  function focus(i: number) {
     const { repo, compare } = store.get();
     if (!repo || !compare.length) return;
     const main = plain(repo.info.ref);
@@ -144,7 +142,7 @@ export function mountCompare(app: App): {
     const was = { main, compare: [...compare] };
     store.dispatch({ type: 'compare', refs: [] });
     grove = was;
-    if (i > 0) app.load(target, { select });
+    if (i > 0) app.load(target);
     else render(store.get());
   }
   function regroup() {
@@ -779,12 +777,7 @@ export function mountCompare(app: App): {
   openButton.addEventListener('click', () => (store.get().compare.length ? close() : open()));
 
   sync(store.get(), null);
-  const showAlone = (ref: RepoRef, select?: string) => {
-    const i = store.get().compare.findIndex((r) => sameRef(r, ref));
-    if (i >= 0) focus(i + 1, select);
-  };
-
-  return { open, close, showAlone };
+  return { open, close };
 }
 
 /**

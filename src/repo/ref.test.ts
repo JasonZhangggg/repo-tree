@@ -5,6 +5,8 @@ describe('parseRepoRef accepts', () => {
   test.each([
     ['vitejs/vite', { owner: 'vitejs', repo: 'vite' }],
     ['  vitejs/vite \n', { owner: 'vitejs', repo: 'vite' }],
+    ['expressjs / express', { owner: 'expressjs', repo: 'express' }],
+    ['vitejs /vite', { owner: 'vitejs', repo: 'vite' }],
     ['https://github.com/vitejs/vite', { owner: 'vitejs', repo: 'vite' }],
     ['https://github.com/vitejs/vite/', { owner: 'vitejs', repo: 'vite' }],
     ['https://github.com/vitejs/vite.git', { owner: 'vitejs', repo: 'vite' }],

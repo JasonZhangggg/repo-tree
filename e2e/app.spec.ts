@@ -1132,3 +1132,20 @@ test('the pin tray keeps every pinned folder, glides back to one, and rides in t
   await expect(tray, 'only the pin on show is left').toBeHidden();
   await expect(page).not.toHaveURL(/pin=/);
 });
+
+test("another repo's link does not carry the last repo's pins", async ({ page }) => {
+  await serveRepo(page, 'acme/widgets');
+  await page.goto('./#/vitejs/vite?pin=playground&pin=docs');
+  await ready(page, 'vitejs/vite');
+  await expect(page).toHaveURL(/pin=playground&pin=docs/);
+
+  await enterRepo(page, 'acme/widgets');
+  await ready(page, 'acme/widgets');
+  await expect(page).toHaveURL(/#\/acme\/widgets/);
+  await expect(page).not.toHaveURL(/pin=/);
+
+  // Back to vite brings its tray back into the link.
+  await page.goBack();
+  await ready(page, 'vitejs/vite');
+  await expect(page).toHaveURL(/pin=playground&pin=docs/);
+});

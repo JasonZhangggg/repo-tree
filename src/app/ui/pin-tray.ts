@@ -61,7 +61,10 @@ export function mountPinTray(
 
   const pathOf = ({ repo, selection }: AppState) =>
     repo && selection && selection.folder !== 0 ? repo.tree.folders.path[selection.folder]! : '';
-  const pinsFor = (state: AppState) => addPin(pins, pathOf(state));
+  /** The tray's paths for a state's repo, read from storage while the tray still holds another's. */
+  const kept = ({ repo }: AppState) =>
+    !repo || repo === shownRepo ? pins : load(repo).filter((p) => repo.folderIds.has(p));
+  const pinsFor = (state: AppState) => addPin(kept(state), pathOf(state));
 
   const matches = (ref: RepoRef, repo: Repo) =>
     ref.owner.toLowerCase() === repo.info.ref.owner.toLowerCase() &&
@@ -131,6 +134,8 @@ export function mountPinTray(
         pending = null;
       }
       save(state.repo, pins);
+      // The link was written before this tray caught up with the new repo, so write it again.
+      onChange();
     }
     if (state.selection !== prev.selection && shownRepo) {
       const next = pinsFor(state);

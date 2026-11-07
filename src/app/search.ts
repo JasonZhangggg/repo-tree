@@ -5,6 +5,8 @@ export type SearchHit = {
   path: string;
   /** Positions in `path` that matched the query, for highlighting. */
   marks: number[];
+  /** How well it matched, higher first: comparable across searches, so trees' hits can merge. */
+  score: number;
 };
 
 const TIER = 10_000;
@@ -35,7 +37,7 @@ export function createSearch(folders: readonly string[], files: readonly string[
       best.splice(i, 0, { at, score });
       if (best.length > limit) best.pop();
     }
-    return best.map(({ at }) => {
+    return best.map(({ at, score }) => {
       const isFolder = at < folderCount;
       const path = isFolder ? folders[at]! : files[at - folderCount]!;
       return {
@@ -43,6 +45,7 @@ export function createSearch(folders: readonly string[], files: readonly string[
         id: isFolder ? at : at - folderCount,
         path,
         marks: marksOf(lower[at]!, q),
+        score,
       };
     });
   };

@@ -2012,6 +2012,22 @@ body:not([data-shell]) :is(.bar, .title) {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+/* While comparing, each hit names the tree it lies on. */
+.results li:has(.hit-repo) {
+  grid-template-columns: 18px auto 1fr auto;
+}
+.results .hit-repo {
+  max-width: 9em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .search-empty {
   margin: 0;
   padding: 18px 16px;

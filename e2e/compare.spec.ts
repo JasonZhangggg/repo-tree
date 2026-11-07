@@ -195,7 +195,7 @@ test("a tree's tag or line shows it alone, and the card brings the grove back", 
   expect(page.url()).not.toContain('vs=');
 });
 
-test("hovering another tree's branch names it, and a click shows that tree with it pinned", async ({
+test("hovering another tree's branch names it, and a click pins it with the grove kept in view", async ({
   page,
   isMobile,
 }) => {
@@ -205,9 +205,21 @@ test("hovering another tree's branch names it, and a click shows that tree with 
   const debug = () =>
     page.evaluate(() => {
       const d = (
-        window as unknown as { __repoTree: { hovered: string | null; hoveredTree: string | null } }
+        window as unknown as {
+          __repoTree: {
+            hovered: string | null;
+            hoveredTree: string | null;
+            companionPin: string | null;
+            view: { atHome(): boolean };
+          };
+        }
       ).__repoTree;
-      return { path: d.hovered, tree: d.hoveredTree };
+      return {
+        path: d.hovered,
+        tree: d.hoveredTree,
+        pin: d.companionPin,
+        home: d.view.atHome(),
+      };
     });
 
   // A spot on one of vite's branches above its tag, from the view's own pick; tried again while
@@ -231,7 +243,9 @@ test("hovering another tree's branch names it, and a click shows that tree with 
       }
       return null;
     });
-  let found: { path: string | null; tree: string | null } | null = null;
+  // A click pins the folder on vite where it stands. Tried again while the camera still glides
+  // as the panels settle, so the pointer may slip onto the trunk between hover and click.
+  let found: Awaited<ReturnType<typeof debug>> | null = null;
   await expect(async () => {
     const at = await spot();
     expect(at, "a branch of vite's tree above its tag").not.toBeNull();
@@ -239,17 +253,30 @@ test("hovering another tree's branch names it, and a click shows that tree with 
     await expect.poll(() => debug().then((d) => d.tree), { timeout: 1_500 }).toBe('vitejs/vite');
     found = await debug();
     expect(found.path, 'a branch, not the trunk').toBeTruthy();
+    await expect(page.locator('#tip')).toContainText('click to pin');
+    await expect(page.locator('#tip code')).toContainText('vitejs/vite/');
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect
+      .poll(() => debug().then((d) => d.pin), { timeout: 1_500 })
+      .toBe(`vitejs/vite:${found.path}`);
   }).toPass({ timeout: 30_000 });
-  await expect(page.locator('#tip')).toContainText('click to show');
-  await expect(page.locator('#tip code')).toContainText('vitejs/vite/');
-
-  // A click shows vite alone, the hovered folder pinned, with the way back to both.
-  await page.mouse.down();
-  await page.mouse.up();
-  await ready(page, 'vitejs/vite');
-  expect(page.url()).not.toContain('vs=');
-  await expect.poll(() => decodeURIComponent(page.url())).toContain(`sel=${found!.path}`);
-  await expect(page.locator('#compare-back')).toHaveText(/Back to all 2 trees/);
+  // Both trees stay, and the camera keeps the whole grove in view.
+  expect(page.url()).toContain('vs=vitejs');
+  await expect(page.locator('.island-tag:visible')).toHaveCount(2);
+  await page.waitForTimeout(1_000);
+  expect((await debug()).home, 'the camera frames the whole grove').toBe(true);
+  // Escape lets go, as it does a pin on the tree on show.
+  await page.keyboard.press('Escape');
+  await expect.poll(() => debug().then((d) => d.pin)).toBeNull();
+  // So does a click on empty ground.
+  await expect(async () => {
+    const at = await spot();
+    await page.mouse.click(at!.x, at!.y);
+    await expect.poll(() => debug().then((d) => d.pin), { timeout: 1_500 }).not.toBeNull();
+  }).toPass({ timeout: 30_000 });
+  await page.mouse.click(5, (await page.viewportSize())!.height / 2);
+  await expect.poll(() => debug().then((d) => d.pin)).toBeNull();
 });
 
 test('the timeline replays every tree in the grove on one calendar', async ({ page }) => {

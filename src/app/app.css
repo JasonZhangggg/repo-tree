@@ -3386,6 +3386,13 @@ body[data-compare] .title {
 .cmp-rows[hidden] {
   display: none;
 }
+/* On a phone the open sheet lists every tree side by side, so the card folds to its head and the
+   grove keeps the room between them. */
+@media (max-width: 760px) {
+  body:has(.side[data-open]) .cmp-rows :is(.cmp-list-rows, .cmp-add, .cmp-back) {
+    display: none;
+  }
+}
 .cmp-head {
   display: none;
   align-items: center;

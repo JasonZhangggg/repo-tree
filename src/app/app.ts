@@ -29,6 +29,8 @@ export type App = {
   pinCompanion(pin: CompanionPin | null): void;
   /** The folder pinned on a compared tree, if any. */
   companionPin(): CompanionPin | null;
+  /** Calls back whenever the compared tree's pin is set or let go. */
+  onCompanionPin(listener: () => void): void;
   /** Highlights the leaves of one legend entry, by label, or clears the highlight. */
   highlight(label: string | null): void;
   /** Previews a legend entry's highlight while the pointer is over it. */

@@ -1133,6 +1133,43 @@ test('the pin tray keeps every pinned folder, glides back to one, and rides in t
   await expect(page).not.toHaveURL(/pin=/);
 });
 
+test('a pasted link to a folder grows its branch and pins the folder', async ({ page }) => {
+  await serveRepo(page, 'acme/widgets');
+  // GitHub knows no branch named main/.vim or main/.vim/colors.
+  await page.route('https://api.github.com/repos/acme/widgets/git/trees/main/**', (route) =>
+    route.fulfill({
+      status: 404,
+      headers: { 'access-control-allow-origin': '*' },
+      json: { message: 'Not Found' },
+    }),
+  );
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+
+  await enterRepo(page, 'https://github.com/acme/widgets/tree/main/.vim/colors');
+  await ready(page, 'acme/widgets');
+  await expectPinned(page, 'widgets/.vim/colors');
+  await expect(page).toHaveURL(/#\/acme\/widgets\?branch=main&.*sel=\.vim\/colors$/);
+});
+
+test('on a phone a tap away puts a load error away, and pins nothing', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, 'a desktop click on the tree pins, with the error in its corner');
+  await failRepo(page, 404);
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await enterRepo(page, 'acme/missing');
+  const alert = page.locator('#notices');
+  await expect(alert).toContainText(/Can.t find acme\/missing/);
+  const view = page.viewportSize()!;
+  await page.touchscreen.tap(view.width / 2, view.height * 0.5);
+  await expect(alert).not.toContainText(/Can.t find/);
+  await expect(page.locator('#sheet-clear')).toBeHidden();
+  expect(page.url()).not.toMatch(/sel=/);
+});
+
 test("another repo's link does not carry the last repo's pins", async ({ page }) => {
   await serveRepo(page, 'acme/widgets');
   await page.goto('./#/vitejs/vite?pin=playground&pin=docs');

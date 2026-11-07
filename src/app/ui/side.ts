@@ -6,7 +6,8 @@ import { githubUrl, nameOf, type App } from '../app';
 import { byId, fill, h, icon, ICONS } from '../dom';
 import { bytes, count, percent, plural } from '../format';
 import { NO_OWNER, type Owners } from '../../timeline/owners';
-import { factsOf, type AppState, type Repo } from '../state';
+import { companionsOf, factsOf, type AppState, type Repo } from '../state';
+import type { Loaded } from '../../load/load-in-worker';
 import { colorByPicker } from './color-by';
 
 const FOLDER_ROWS = 10;
@@ -62,14 +63,14 @@ function ownerNote(state: AppState): string | null {
 }
 
 /** Children of a folder, most files first. */
-export function childrenOf(repo: Repo, folder: number): number[] {
+export function childrenOf(repo: Loaded, folder: number): number[] {
   const { parent, files } = repo.index.folders;
   const kids: number[] = [];
   for (let f = folder + 1; f < parent.length; f++) if (parent[f] === folder) kids.push(f);
   return kids.sort((a, b) => files[b]! - files[a]!);
 }
 
-function langColors(repo: Repo, palette: PaletteId): Map<string, string> {
+function langColors(repo: Loaded, palette: PaletteId): Map<string, string> {
   const p = PALETTES[palette];
   const { slotOf } = leafMapping(
     repo.tree.langs.map((l) => ({ label: l.lang, files: l.files })),
@@ -516,8 +517,12 @@ export function mountSide(app: App): void {
 
   const renderDetail = (state: AppState) => {
     const { repo, selection, highlight } = state;
-    sheetClear.hidden = !selection && highlight === null;
-    sheetClear.setAttribute('aria-label', selection ? 'Clear selection' : 'Clear highlight');
+    // A folder pinned on a compared tree shows here as one on the tree on show does.
+    const held = selection ? null : app.companionPin();
+    const other = held ? companionsOf(state)[held.companion] : undefined;
+    const pinned = !!selection || !!other;
+    sheetClear.hidden = !pinned && highlight === null;
+    sheetClear.setAttribute('aria-label', pinned ? 'Clear selection' : 'Clear highlight');
     const entry = view.legend().find((e) => e.label === highlight);
     if (repo && entry) {
       detail.hidden = true;
@@ -525,14 +530,14 @@ export function mountSide(app: App): void {
       sheetStat.textContent = `${plural(entry.files, 'file')} highlighted`;
       return;
     }
-    if (repo && !selection && state.compare.length) {
+    if (repo && !pinned && state.compare.length) {
       // While comparing, the sheet holds the two trees side by side (compare.ts).
       detail.hidden = true;
       sheetTitle.textContent = 'Compare';
       sheetStat.textContent = [repo.info.ref, ...state.compare].map((r) => r.repo).join(', ');
       return;
     }
-    if (!repo || !selection) {
+    if (!repo || !pinned) {
       detail.hidden = true;
       sheetTitle.textContent = 'Folders and leaf colors';
       sheetStat.textContent = repo
@@ -540,18 +545,24 @@ export function mountSide(app: App): void {
         : '';
       return;
     }
-    const { folder, file } = selection;
-    const { path } = repo.tree.folders;
-    const { parent, files, bytes: size, langs } = repo.index.folders;
-    const repoName = repo.info.ref.repo;
+    const tree: Loaded = other ?? repo;
+    const { folder, file } = selection ?? { folder: held!.folder, file: undefined };
+    /** Picks a folder of the same tree: a crumb or a subfolder. */
+    const pickHere = other
+      ? (f: number) => app.pinCompanion({ companion: held!.companion, folder: f })
+      : pick;
+    const clear = () => (other ? app.pinCompanion(null) : app.select(null));
+    const { path } = tree.tree.folders;
+    const { parent, files, bytes: size, langs } = tree.index.folders;
+    const repoName = tree.info.ref.repo;
     const ancestors: number[] = [];
     for (let a = parent[folder]!; a >= 0; a = parent[a]!) ancestors.unshift(a);
     const label = (f: number) => (f === 0 ? repoName : nameOf(path[f]!));
     const sep = () => h('em', {}, '/');
-    const subs = childrenOf(repo, folder);
-    const colors = langColors(repo, state.settings.palette);
+    const subs = childrenOf(tree, folder);
+    const colors = langColors(tree, state.settings.palette);
     const rest = slotColors(PALETTES[state.settings.palette]).at(-1)!;
-    const branch = repo.info.branch;
+    const branch = tree.info.branch;
 
     const crumbs = h(
       'nav',
@@ -559,7 +570,7 @@ export function mountSide(app: App): void {
       ...ancestors.flatMap((a) => [
         h(
           'button',
-          { type: 'button', onclick: () => pick(a), title: `Select ${path[a] || repoName}` },
+          { type: 'button', onclick: () => pickHere(a), title: `Select ${path[a] || repoName}` },
           label(a),
         ),
         sep(),
@@ -574,17 +585,17 @@ export function mountSide(app: App): void {
 
     let fileCard: HTMLElement | null = null;
     if (file !== undefined) {
-      const filePath = repo.index.files.paths[file]!;
+      const filePath = tree.index.files.paths[file]!;
       fileCard = h(
         'div',
         { class: 'file-card' },
         h('code', {}, nameOf(filePath)),
-        h('span', {}, `${langOf(filePath)} · ${bytes(repo.index.files.size[file]!)}`),
+        h('span', {}, `${langOf(filePath)} · ${bytes(tree.index.files.size[file]!)}`),
         h(
           'a',
           {
             class: 'btn',
-            href: githubUrl(repo.info.ref, branch, filePath, 'blob'),
+            href: githubUrl(tree.info.ref, branch, filePath, 'blob'),
             target: '_blank',
             rel: 'noopener',
           },
@@ -602,7 +613,7 @@ export function mountSide(app: App): void {
           type: 'button',
           class: 'close',
           'aria-label': 'Clear selection',
-          onclick: () => app.select(null),
+          onclick: clear,
         },
         icon(...ICONS.close),
       ),
@@ -626,7 +637,7 @@ export function mountSide(app: App): void {
             'ul',
             { class: 'langs', 'aria-label': 'Top languages' },
             ...topLangs.map(({ lang, n }) => {
-              const name = repo.index.langs[lang]!;
+              const name = tree.index.langs[lang]!;
               const c = colors.get(name) ?? rest;
               return h(
                 'li',
@@ -643,7 +654,7 @@ export function mountSide(app: App): void {
             }),
           )
         : null,
-      ...ownerCard(state, folder),
+      ...(other ? [] : ownerCard(state, folder)),
       subs.length ? h('h3', { class: 'h' }, 'Largest subfolders') : null,
       subs.length
         ? h(
@@ -655,7 +666,7 @@ export function mountSide(app: App): void {
                 {},
                 h(
                   'button',
-                  { type: 'button', onclick: () => pick(s) },
+                  { type: 'button', onclick: () => pickHere(s) },
                   h('span', { class: 'fn' }, `${nameOf(path[s]!)}/`),
                   h(
                     'span',
@@ -677,14 +688,14 @@ export function mountSide(app: App): void {
           'a',
           {
             class: 'btn dark',
-            href: githubUrl(repo.info.ref, branch, path[folder]),
+            href: githubUrl(tree.info.ref, branch, path[folder]),
             target: '_blank',
             rel: 'noopener',
           },
           'Open on GitHub',
           icon(...ICONS.external),
         ),
-        folder === 0
+        folder === 0 || other
           ? null
           : h(
               'button',
@@ -698,21 +709,24 @@ export function mountSide(app: App): void {
             ),
       ),
     );
-    detail.setAttribute('aria-label', `Pinned folder ${path[folder] || repoName}`);
+    const where = other ? `${tree.info.ref.owner}/${tree.info.ref.repo}/` : '';
+    detail.setAttribute('aria-label', `Pinned folder ${where}${path[folder] || repoName}`);
     detail.hidden = false;
     if (file !== undefined) {
       // A pinned file (a rock, or a busy file) names itself in the sheet's peek, not its folder.
-      const filePath = repo.index.files.paths[file]!;
+      const filePath = tree.index.files.paths[file]!;
       sheetTitle.textContent = nameOf(filePath);
       sheetStat.textContent = [
         langOf(filePath),
-        bytes(repo.index.files.size[file]!),
+        bytes(tree.index.files.size[file]!),
         `in ${folder === 0 ? repoName : path[folder]}/`,
       ].join(' · ');
       return;
     }
     sheetTitle.textContent = `${label(folder)}/`;
     sheetStat.textContent = [
+      // While comparing, say first which tree it is on.
+      state.compare.length ? `on ${tree.info.ref.repo}` : null,
       plural(files[folder]!, 'file'),
       ancestors.length > 1 ? `in ${path[parent[folder]!]}/` : null,
     ]
@@ -748,5 +762,6 @@ export function mountSide(app: App): void {
     if (repoChanged && !state.selection) side.scrollTop = 0;
   };
   store.subscribe(render);
+  app.onCompanionPin(() => renderDetail(store.get()));
   render(store.get());
 }

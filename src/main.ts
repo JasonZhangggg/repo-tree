@@ -104,6 +104,13 @@ let hovered: number | null = null;
 let hoveredCompanion: number | undefined;
 /** A folder pinned on a compared tree, kept while the grove stands as it is. */
 let companionPin: CompanionPin | null = null;
+/** The panels that show the compared tree's pin, told when it changes. */
+const companionPinListeners: (() => void)[] = [];
+function setCompanionPin(pin: CompanionPin | null) {
+  if (pin === companionPin) return;
+  companionPin = pin;
+  for (const listener of companionPinListeners) listener();
+}
 /** Whether the camera glided to the pin on show, so clearing it glides back. */
 let framedPin = false;
 let hoveredCategory: string | null = null;
@@ -118,7 +125,7 @@ const app: App = {
   select(selection, frame = false) {
     const was = store.get().selection;
     const held = companionPin;
-    companionPin = null;
+    setCompanionPin(null);
     store.dispatch({ type: 'select', selection });
     // Letting go of a compared tree's pin changes no state the store hears of.
     if (held && store.get().selection === was) applyHighlight();
@@ -146,10 +153,11 @@ const app: App = {
   },
   pinCompanion(pin) {
     app.select(null);
-    companionPin = pin;
+    setCompanionPin(pin);
     applyHighlight();
   },
   companionPin: () => companionPin,
+  onCompanionPin: (listener) => void companionPinListeners.push(listener),
   openSettings: (focus) => settings.open(focus),
   signIn: () => void signin.signIn(),
   refreshRuns: () => loader.refreshRuns(),
@@ -278,7 +286,7 @@ store.subscribe((state, prev) => {
   if (moved || state.repo !== prev.repo) {
     // A compared tree's pin goes with the grove it was made in.
     if (companionPin) {
-      companionPin = null;
+      setCompanionPin(null);
       applyHighlight();
     }
     view.setLanguageRank(rankOf(state));
@@ -514,13 +522,16 @@ const panels = [
  * On a desktop the repo card and the side panel grow with the repo's name and lists. Framing
  * reserves the card's whole column (its widest, as the CSS caps it with --col) and the side
  * panel's whole column, so repos frame into the same region and their islands show at one size.
- * The controls reserve their whole band across the bottom: Reset view shows and hides with the
- * framing, and if its width moved the framing, showing it would hide it again, on repeat.
+ * While comparing, the card reserves only itself. The controls reserve their whole band across
+ * the bottom: Reset view shows and hides with the framing, and if its width moved the framing,
+ * showing it would hide it again, on repeat.
  */
 function reserved(panel: HTMLElement, rect: Rect, origin: DOMRect): Rect {
   if (panel === controls) return { ...rect, left: 0, right: origin.width };
   if (phone.matches) return rect;
-  if (panel === title) {
+  // While comparing the card is the grove's list, one width whatever the repos, so the grove,
+  // wide as it is, takes the room beside it rather than the widest a repo's card could be.
+  if (panel === title && !document.body.hasAttribute('data-compare')) {
     const col = Math.min(520, origin.width * 0.42);
     return { ...rect, right: Math.max(rect.right, rect.left + col) };
   }

@@ -139,9 +139,9 @@ export function mountCompare(app: App): {
     const main = plain(repo.info.ref);
     const target = i === 0 ? main : compare[i - 1];
     if (!target) return;
-    const was = { main, compare: [...compare] };
+    // Set before the comparison ends, so the trees keep their seeds while one shows alone.
+    grove = { main, compare: [...compare] };
     store.dispatch({ type: 'compare', refs: [] });
-    grove = was;
     if (i > 0) app.load(target);
     else render(store.get());
   }
@@ -161,6 +161,38 @@ export function mountCompare(app: App): {
   const loading = new Map<string, AbortController>();
   const failed = new Map<string, string>();
   const keyOf = (ref: { owner: string; repo: string }) => nameOf(ref).toLowerCase();
+
+  /**
+   * Each tree's seed, by repo: a tree keeps its color while the comparison lasts, so taking one
+   * out (even the one on show, whose place the next takes) leaves the others as they were, and a
+   * newcomer takes the first seed no tree in the grove wears.
+   */
+  const seeds = new Map<string, number>();
+  const seedOf = (ref: { owner: string; repo: string }) => seeds.get(keyOf(ref)) ?? 0;
+  const assignSeeds = (state: AppState) => {
+    const { repo, compare } = state;
+    const refs = grove
+      ? [grove.main, ...grove.compare]
+      : repo && compare.length
+        ? [plain(repo.info.ref), ...compare]
+        : [];
+    if (!refs.length) return seeds.clear();
+    const keys = refs.map(keyOf);
+    const worn = new Set<number>();
+    // Trees already in keep theirs; a tree that left keeps its seed in mind in case it is back.
+    for (const key of keys) {
+      const had = seeds.get(key);
+      if (had !== undefined && !worn.has(had)) worn.add(had);
+      else seeds.delete(key);
+    }
+    for (const key of keys) {
+      if (seeds.has(key)) continue;
+      let next = 0;
+      while (worn.has(next)) next++;
+      worn.add(next);
+      seeds.set(key, next);
+    }
+  };
 
   /** Grows a compared repo: the one on show as it is, else from memory, else in a worker. */
   async function grow(ref: RepoRef, fresh = false) {
@@ -293,7 +325,7 @@ export function mountCompare(app: App): {
         'aria-label': `Show only ${nameOf(ref)}`,
         disabled: !grown,
       },
-      seed(i),
+      seed(seedOf(ref)),
       h(
         'span',
         { class: 'cmp-name' },
@@ -327,6 +359,7 @@ export function mountCompare(app: App): {
   };
 
   const render = (state: AppState) => {
+    assignSeeds(state);
     const on = state.compare.length > 0;
     const { repo } = state;
     fill(
@@ -352,8 +385,8 @@ export function mountCompare(app: App): {
       const at = repo ? all.findIndex((r) => sameRef(r, plain(repo.info.ref))) : -1;
       fill(
         backSeeds,
-        ...all.map((_, i) => {
-          const s = seed(i);
+        ...all.map((ref, i) => {
+          const s = seed(seedOf(ref));
           if (i !== at) s.dataset.off = '';
           return s;
         }),
@@ -461,11 +494,7 @@ export function mountCompare(app: App): {
     const others = companionsOf(state);
     if (!repo || !others.length) return fill(panel);
     const trees = [repo, ...others];
-    // Seeds follow compare's order, so a tree still growing leaves its seed unused.
-    const seeds = [
-      0,
-      ...others.map((c) => state.compare.findIndex((r) => sameRef(r, plain(c.info.ref))) + 1),
-    ];
+    const seeds = trees.map((l) => seedOf(l.info.ref));
     const stats = trees.map(treeStats);
     const names = trees.map((l) => l.info.ref.repo.toLowerCase());
     const short = (l: Loaded) =>
@@ -733,6 +762,9 @@ export function mountCompare(app: App): {
         ? nameOf(ref)
         : ref.repo;
     tags.forEach((tag, i) => {
+      const s = String(refs[i] ? seedOf(refs[i]!) : i);
+      tag.el.dataset.seed = s;
+      tag.el.querySelector<HTMLElement>('.cmp-seed')!.dataset.seed = s;
       tag.name.textContent = refs[i] ? short(refs[i]!) : '';
       tag.el.title = refs[i] ? `Show only ${nameOf(refs[i]!)}` : '';
     });
@@ -746,14 +778,15 @@ export function mountCompare(app: App): {
     const on = others.length > 0 && growth > 0.2;
     tagLayer.hidden = !on;
     if (!on) return;
-    const seeds = [
+    // A tag stands at its tree's place in the card, so a tree still growing leaves its tag unused.
+    const slots = [
       0,
       ...others.map((c) => state.compare.findIndex((r) => sameRef(r, plain(c.info.ref))) + 1),
     ];
     const feet = [islands.main, ...islands.companions];
     tags.forEach((tag) => (tag.el.hidden = true));
     feet.forEach((foot, i) => {
-      const tag = tags[seeds[i]!];
+      const tag = tags[slots[i]!];
       if (!tag || !foot) return;
       tag.el.hidden = !foot.visible;
       if (foot.visible) tag.el.style.transform = `translate(${foot.x}px, ${foot.y}px)`;

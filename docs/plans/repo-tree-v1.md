@@ -308,6 +308,7 @@ interface TreeView {
   pickAt(x: number, y: number): { folder: number; rock?: number; bird?: number; companion?: number } | null; // folder, rock or bird under a CSS pixel of the container; a rock's folder is 0, a bird's its perch; a compared tree's branch carries `companion` (its setCompanions index) and that tree's own folder id. Companion k's node ids lie at 4,000,000 + k·2,000,000 in the pick pass; their islands do not pick
   skyAt(x: number, y: number): boolean; // whether a CSS pixel of the container lands on the sun or a cloud (each a disc at least 22 px across)
   skyTargetAt(x: number, y: number): 'sun' | number | null; // which: the sun (or moon), a cloud by its index, or nothing
+  setMatches(files: Uint8Array | null, others?: readonly (Uint8Array | null)[]): void; // lights the leaves of the marked files (RepoIndex.files ids) and fades the rest; `others` marks each compared tree's files (setCompanions order), a tree with none fading whole
   setHover(hover: { folder: number; rock?: number; bird?: number } | { sky: 'sun' | number } | null): void; // fades everything but what the mouse is over when a click opens it (uFocus: a rock's or bird's pick id, or -2 for the sky): the tree (unless setHighlight holds a range, so a bird's perch folder stays), the ground but that rock, the other birds, and the sun and every cloud but that one, toward uFade as setHighlight does, while the hovered rock, bird, cloud or sun shifts a little toward a warm light (HOVER_TINT); a folder alone changes nothing here
   setBirds(birds: readonly { folder: number; color: string }[] | null): void; // low-poly birds (render/birds.ts, one mesh, ids after the rocks') standing on top of the crown (perchOnCrown): the crown's top is read on a grid of cells 0.9 bird lengths wide, and each bird takes the free cell nearest its folder's anchor whose highest leaf is its folder's (else the nearest free cell), standing on that leaf, its cell and the cells around it left to no other bird; unless motion is reduced each pecks, glances, ruffles its wings, flicks its tail, hops, and every half minute or so flies a short hop out from the crown and back (birdShader, from uBirdTime and its aPhase), riding the breeze with its perch; the pick pass reads it at rest; grown in over the last of the tree's growth, hidden while the timeline is open; setTree clears them
   birdsOnScreen(): { x: number; y: number }[]; // each bird in CSS px of the container, in setBirds order
@@ -417,7 +418,8 @@ function folderOwner(row: History['owners'][number]): FolderOwner; function hist
 function ownerCategories(tops: { folder: string; files: number }[], owners: Owners): { categories: { label: string; files: number }[] /* one per distinct owner */; categoryOf: number[] /* per top */ };
 
 // app/search.ts  (pure)
-type SearchHit = { kind: 'folder' | 'file'; id: number; path: string; marks: number[] };
+type SearchHit = { kind: 'folder' | 'file'; id: number; path: string; marks: number[]; score: number /* higher matches better, comparable across searches */ };
+// app/ui/search-dialog.ts: while comparing, the "/" search runs over every tree of the grove and lists each tree's best in turn (its 1st, then each 2nd, …), at most 20, each hit naming its repo; matches light on every tree (setMatches' others); a pick pins in place (pinCompanion on a compared tree) and the camera keeps the grove.
 function createSearch(folders: readonly string[], files: readonly string[]): (query: string, limit?: number) => SearchHit[];
 ```
 

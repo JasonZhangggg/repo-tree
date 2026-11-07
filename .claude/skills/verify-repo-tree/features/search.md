@@ -10,6 +10,7 @@ A user finds a folder or file by name or path, chooses a hit, and the tree pins 
 - `search-file` pins the file's folder and shows the file card with `Open file on GitHub`.
 - `search-empty` shows `No folder or file matches “<query>”.` for a query with no hits.
 - `search-keys` moves through hits with the arrow keys and closes with Escape.
+- `search-grove` while comparing searches every tree: each hit carries a pill naming its repo (`.hit-repo`), each tree's best match comes in turn, the matches light on every tree, and a pick pins in place without the camera leaving the grove. The stepping pill sits below the grove's card where they would meet (on a phone).
 
 ## How to get to it (user POV)
 

@@ -279,6 +279,46 @@ test("hovering another tree's branch names it, and a click pins it with the grov
   await expect.poll(() => debug().then((d) => d.pin)).toBeNull();
 });
 
+test("search looks through every tree, names each hit's repo, and pins without leaving the grove", async ({
+  page,
+}) => {
+  await page.goto('./#/vitejs/vite?vs=mathiasbynens/dotfiles');
+  await besideReady(page, 'mathiasbynens/dotfiles');
+  await page.locator('#search-open').click();
+  await page.getByRole('combobox', { name: 'Search folders and files' }).fill('readme');
+  const results = page.locator('#results li');
+  // Each tree's best match comes in turn, so the small repo is not crowded out by the big one.
+  await expect(results.locator('.hit-repo')).toContainText(['vite', 'dotfiles']);
+  const pinOf = () =>
+    page.evaluate(
+      () =>
+        (window as unknown as { __repoTree: { companionPin: string | null } }).__repoTree
+          .companionPin,
+    );
+  await results
+    .filter({ has: page.locator('.hit-repo', { hasText: 'dotfiles' }) })
+    .first()
+    .click();
+  await expect.poll(pinOf).toMatch(/^mathiasbynens\/dotfiles:/);
+  // The grove stays: both trees, the camera on all of them, and the matches still stepping.
+  expect(page.url()).toContain('vs=mathiasbynens');
+  await expect(page.locator('.island-tag:visible')).toHaveCount(2);
+  await expect(page.locator('#search-steps')).toBeVisible();
+  await page.waitForTimeout(1_000);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as { __repoTree: { view: { atHome(): boolean } } }
+      ).__repoTree.view.atHome(),
+    ),
+  ).toBe(true);
+  // The pill keeps clear of the grove's card.
+  const card = (await page.locator('#title').boundingBox())!;
+  const pill = (await page.locator('#search-steps').boundingBox())!;
+  const across = pill.x < card.x + card.width && card.x < pill.x + pill.width;
+  if (across) expect(pill.y).toBeGreaterThanOrEqual(card.y + card.height);
+});
+
 test('the timeline replays every tree in the grove on one calendar', async ({ page }) => {
   await page.goto('./#/vitejs/vite?vs=mathiasbynens/dotfiles&t=2016');
   await besideReady(page, 'mathiasbynens/dotfiles');

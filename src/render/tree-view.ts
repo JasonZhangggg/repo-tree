@@ -222,9 +222,11 @@ export interface TreeView {
   setHover(hover: Hover | null): void;
   /**
    * Lights the leaves of the files marked in `files` (by RepoIndex.files id, nonzero to light)
-   * and fades the rest of the crown and the bark, as a legend highlight does; or none.
+   * and fades the rest of the crown and the bark, as a legend highlight does; or none. While
+   * comparing, `others` marks each compared tree's own files the same way (setCompanions order);
+   * a tree with none there fades whole while matches show.
    */
-  setMatches(files: Uint8Array | null): void;
+  setMatches(files: Uint8Array | null, others?: readonly (Uint8Array | null)[]): void;
   /**
    * Keeps a rock lit while the rest fades, untinted, once a click pinned its file, as a pinned
    * folder's leaves stay; or none. What the mouse is over still takes over while it is there.
@@ -747,22 +749,33 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   let matches: Uint8Array | null = null;
-  /** Writes each leaf's `aMatch`: 1 where its sprig stands for any matched file. */
-  const applyMatches = () => {
-    treeUniforms.uMatch.value = matches && shown ? 1 : 0;
-    if (!shown) return;
-    const { leaves, sprigs } = shown.model;
+  /** Each compared tree's matches, in setCompanions order. */
+  let companionMatches: readonly (Uint8Array | null)[] = [];
+  /** Each leaf's `aMatch` for a tree: 1 where its sprig stands for any matched file. */
+  const litOf = ({ leaves, sprigs }: TreeModel, files: Uint8Array | null) => {
     const lit = new Float32Array(leaves.nodeId.length);
-    if (matches) {
-      for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
-        for (let k = sprigs.file[s]!; k < sprigs.file[s + 1]!; k++) {
-          if (!matches[sprigs.files[k]!]) continue;
-          lit.fill(1, sprigs.vertex[s]!, sprigs.vertex[s + 1]!);
-          break;
-        }
+    if (!files) return lit;
+    for (let s = 0; s + 1 < sprigs.vertex.length; s++) {
+      for (let k = sprigs.file[s]!; k < sprigs.file[s + 1]!; k++) {
+        if (!files[sprigs.files[k]!]) continue;
+        lit.fill(1, sprigs.vertex[s]!, sprigs.vertex[s + 1]!);
+        break;
       }
     }
-    shown.leaves.geometry.setAttribute('aMatch', new BufferAttribute(lit, 1));
+    return lit;
+  };
+  const applyMatches = () => {
+    const on = !!matches || companionMatches.some((m) => !!m);
+    treeUniforms.uMatch.value = on && shown ? 1 : 0;
+    if (!shown) return;
+    shown.leaves.geometry.setAttribute(
+      'aMatch',
+      new BufferAttribute(litOf(shown.model, matches), 1),
+    );
+    companions.forEach((c, i) => {
+      const lit = litOf(c.model, companionMatches[i] ?? null);
+      c.leaves.geometry.setAttribute('aMatch', new BufferAttribute(lit, 1));
+    });
     requestRender();
   };
 
@@ -1486,6 +1499,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       applyBirths(null);
       // Matches name the last tree's files: the caller lights this tree's again.
       matches = null;
+      companionMatches = [];
       applyMatches();
       // Perches name the last tree's folders: the caller gives this tree's.
       birdPerches = null;
@@ -1616,6 +1630,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         companions.push({ model, group, bark, leaves, terrain: ground, groundBounds });
       });
       applyCompanionBirths();
+      // Matches name the last grove's files: the caller lights this one's again.
+      companionMatches = [];
+      applyMatches();
       if (!shown) return;
       applyColorBy();
       placeScene();
@@ -1707,8 +1724,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       applyFocus();
     },
 
-    setMatches(files) {
+    setMatches(files, others = []) {
       matches = files;
+      companionMatches = others;
       applyMatches();
     },
 

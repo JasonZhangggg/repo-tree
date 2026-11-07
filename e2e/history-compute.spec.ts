@@ -78,9 +78,10 @@ test('signs in, computes in the browser, shares it, and opens the timeline', asy
   expect(res.status).toBe(200);
   const manifest = JSON.parse(res.headers.get('x-history-manifest')!);
   expect(manifest).toMatchObject({ repo: 'acme/widgets', branch: 'main', by: 'visitor' });
-  // The token went to GitHub (the fake) and the Worker, nowhere else.
+  // The token went to GitHub (the fake) and the Worker, nowhere else, and stays signed in here.
   expect(new Set(authorized)).toEqual(new Set([FAKE, WORKER]));
-  expect(await page.evaluate(() => localStorage.getItem('repo-tree:github-signin'))).toBeNull();
+  expect(page.url()).not.toContain('gho_');
+  expect(await page.evaluate(() => localStorage.getItem('repo-tree:github-signin'))).toBeTruthy();
 
   // The run says where its time went, the upload included, on one console line.
   const line = logged.find((l) => l.startsWith('history acme/widgets: '));
@@ -120,7 +121,7 @@ test('a signed-in visitor is offered to bring an out-of-date history up to date'
     body: JSON.stringify({ repo: 'acme/widgets', sha: null }),
   });
   await page.addInitScript((token) => {
-    sessionStorage.setItem('repo-tree:github-signin', token);
+    localStorage.setItem('repo-tree:github-signin', token);
     // The debug flag: the run's breakdown shows in a toast too.
     localStorage.setItem('repo-tree:debug', '1');
     const now = Date.now;

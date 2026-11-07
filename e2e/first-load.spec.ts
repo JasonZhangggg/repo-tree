@@ -51,7 +51,7 @@ const failWith =
   };
 
 const signedIn = (page: Page) =>
-  page.addInitScript(() => sessionStorage.setItem('repo-tree:github-signin', 'gho_expired'));
+  page.addInitScript(() => localStorage.setItem('repo-tree:github-signin', 'gho_expired'));
 
 test('a sign-in that expired since the last visit loads the link signed out', async ({ page }) => {
   await signedIn(page);
@@ -65,7 +65,7 @@ test('a sign-in that expired since the last visit loads the link signed out', as
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.locator('#toast')).toContainText('sign-in expired');
   expect(reads).toEqual(['Bearer gho_expired', undefined]);
-  expect(await page.evaluate(() => sessionStorage.getItem('repo-tree:github-signin'))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem('repo-tree:github-signin'))).toBeNull();
 });
 
 for (const [why, fail] of [
@@ -91,4 +91,40 @@ test('a refusal with no token sent never blames a token', async ({ page }) => {
 
   await expect(page.getByRole('alert')).toContainText('Can’t reach GitHub');
   await expect(page.getByRole('alert')).not.toContainText('token');
+});
+
+test('a sign-in carries over to a new tab, and signing out there signs out here', async ({
+  page,
+  context,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await page.evaluate(() => localStorage.setItem('repo-tree:github-signin', 'gho_kept'));
+
+  const other = await context.newPage();
+  await other.goto('./');
+  await ready(other, 'vitejs/vite');
+  await expect(other.locator('#signin')).toHaveAttribute('data-signed-in', 'true');
+
+  await other.evaluate(() => localStorage.removeItem('repo-tree:github-signin'));
+  await expect(page.locator('#signin')).toHaveAttribute('data-signed-in', 'false');
+});
+
+test('a sign-in kept the old way, in the tab, is moved over on the next visit', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('moved')) {
+      localStorage.setItem('moved', '1');
+      sessionStorage.setItem('repo-tree:github-signin', 'gho_tab');
+    }
+  });
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+
+  await expect(page.locator('#signin')).toHaveAttribute('data-signed-in', 'true');
+  expect(await page.evaluate(() => localStorage.getItem('repo-tree:github-signin'))).toBe(
+    'gho_tab',
+  );
+  expect(await page.evaluate(() => sessionStorage.getItem('repo-tree:github-signin'))).toBeNull();
 });

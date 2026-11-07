@@ -11,7 +11,8 @@ const INVALID: ParseError = { kind: 'invalid-ref' };
 export function parseRepoRef(input: string): RepoRef | ParseError {
   const text = input.trim();
   const prefix = URL_PREFIX.exec(text);
-  if (!prefix) return toRef(text.split('/'));
+  // Spaces around the slash (`owner / repo`) are a typing slip, not part of either name.
+  if (!prefix) return toRef(text.split('/').map((part) => part.trim()));
 
   const path = text.slice(prefix[0].length).split(/[?#]/)[0] ?? '';
   const [owner = '', repo = '', view, ...rest] = path.split('/').filter(Boolean);

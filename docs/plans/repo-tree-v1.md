@@ -203,11 +203,11 @@ function loadSampleHistory(id: string, base?: string): Promise<History | null>; 
 function parseHistory(body: unknown): History | null; // version and column alignment checked
 
 // repo/auth.ts  (sign in with GitHub through the history server's OAuth App; no scopes)
-function signIn(base?: string): Promise<string | null>; // popup to <base>/v1/auth/login (state HMAC-signed, no KV); the callback posts the token to this origin; kept in sessionStorage 'repo-tree:github-signin' (this tab only)
+function signIn(base?: string): Promise<string | null>; // popup to <base>/v1/auth/login (state HMAC-signed, no KV); the callback posts the token to this origin; kept in localStorage 'repo-tree:github-signin' (this browser, every tab, until signOut or a 401; a token from the old per-tab sessionStorage key is moved over once)
 function signedInToken(): string | null;
 function signOut(): void;
 function githubToken(manual: string | undefined): string | undefined; // the Settings token, else the signed-in one: every read of GitHub's API (tree, Actions runs, history) sends it
-function onAuthChange(listener: () => void): void; // this tab signed in or out
+function onAuthChange(listener: () => void): void; // this tab or another tab of this browser signed in or out
 // The sign-in token goes only in the Authorization header of requests to GitHub's API and the history Worker, never in a link.
 // app/ui/signin.ts: the GitHub button beside Settings (its own rounded box at the top right on a phone), hidden without HISTORY_URL; signed in or out it opens the account menu: requests left this hour over a meter (fetchRateLimit with the token in use), Sign in with GitHub or Sign out, and a link to the questions page's GitHub section (Login Q&A: FAQ_URL, public/faq.html#github, static). Settings holds no sign-in; its GitHub token field stays, for private repos.
 // app/errors.ts: describeError(error, ref, { hasToken, signedIn?, canSignIn? }); ErrorAction adds 'signin', offered for a rate limit when the build can sign in, and for a refused sign-in token (which is then forgotten).

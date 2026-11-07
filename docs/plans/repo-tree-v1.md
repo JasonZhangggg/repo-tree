@@ -37,7 +37,7 @@ type FileEntry = { path: string; size: number };
 type LoadError =
   | { kind: 'not-found' } | { kind: 'rate-limited'; resetAt: number } | { kind: 'unauthorized' }
   | { kind: 'network' } | { kind: 'empty' };
-function fetchSnapshot(ref: RepoRef, token?: string, signal?: AbortSignal, onBranch?: (branch: string) => void): Promise<Snapshot | LoadError>; // rejects only on abort; onBranch as soon as the branch is known
+function fetchSnapshot(ref: RepoRef, token?: string, signal?: AbortSignal, onBranch?: (branch: string) => void, retryMs?: readonly number[] /* default RETRY_MS = [1000, 3000] */): Promise<Snapshot | LoadError>; // rejects only on abort; onBranch as soon as the branch is known; a read that fails in passing (a dropped connection, a 5xx, a secondary limit's retry-after up to 10 s) is tried again after each of retryMs; 'unauthorized' only when a token was sent
 function loadSample(id: string, base?: string): Promise<Snapshot | LoadError>; // <base>samples/<id>.json.gz; a worker passes the page's base
 
 // repo/rate-limit.ts  (boundary: network)

@@ -21,25 +21,74 @@ export type LoadError =
 const API = 'https://api.github.com';
 const NETWORK: LoadError = { kind: 'network' };
 
+/**
+ * Waits before each new try of a read that failed in passing: a dropped connection, a 5xx, or
+ * GitHub's secondary rate limit. A page opened cold sends many reads at once, and one of them
+ * failing so used to leave an empty page and an error that a second try would not have shown.
+ */
+export const RETRY_MS = [1000, 3000];
+/** The longest `retry-after` waited out before reporting a rate limit instead. */
+const RETRY_AFTER_MAX_MS = 10_000;
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    });
+  });
+
+/** How long to wait before trying a response's read again, or undefined when it should not be. */
+function retryDelay(res: Response, fallback: number): number | undefined {
+  if (res.status >= 500) return fallback;
+  if (res.status !== 403 && res.status !== 429) return undefined;
+  // The primary limit is used up until its reset, so trying again sooner only fails again.
+  if (res.headers.get('x-ratelimit-remaining') === '0') return undefined;
+  const after = Number(res.headers.get('retry-after'));
+  if (Number.isFinite(after) && after > 0) {
+    return after * 1000 <= RETRY_AFTER_MAX_MS ? after * 1000 : undefined;
+  }
+  return undefined;
+}
+
+/** `retryMs`: the waits before each new try of a read that failed in passing (tests pass zeros). */
 export async function fetchSnapshot(
   ref: RepoRef,
   token?: string,
   signal?: AbortSignal,
   onBranch?: (branch: string) => void,
+  retryMs: readonly number[] = RETRY_MS,
 ): Promise<Snapshot | LoadError> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
   };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const get = (path: string) =>
-    fetch(`${API}/repos/${ref.owner}/${ref.repo}${path}`, { headers, signal });
+  const url = (path: string) => `${API}/repos/${ref.owner}/${ref.repo}${path}`;
+  /** One read, tried again after each of `retryMs` while it fails in passing. */
+  const get = async (path: string): Promise<Response> => {
+    for (let attempt = 0; ; attempt++) {
+      const wait = retryMs[attempt];
+      let res: Response;
+      try {
+        res = await fetch(url(path), { headers, signal });
+      } catch (error) {
+        if (signal?.aborted || wait === undefined) throw error;
+        await sleep(wait, signal);
+        continue;
+      }
+      const delay = wait === undefined ? undefined : retryDelay(res, wait);
+      if (delay === undefined) return res;
+      await sleep(delay, signal);
+    }
+  };
 
   try {
     let branch = ref.ref;
     if (branch === undefined) {
       const res = await get('');
-      if (!res.ok) return httpError(res);
+      if (!res.ok) return httpError(res, !!token);
       const repo: unknown = await res.json();
       if (!hasDefaultBranch(repo)) return NETWORK;
       branch = repo.default_branch;
@@ -63,7 +112,7 @@ export async function fetchSnapshot(
       break;
     }
     onBranch?.(branch);
-    if (!res.ok) return httpError(res);
+    if (!res.ok) return httpError(res, !!token);
     const body: unknown = await res.json();
     if (!isRecord(body) || body.truncated !== true || typeof body.sha !== 'string') {
       return toSnapshot(ref, branch, body);
@@ -76,7 +125,11 @@ export async function fetchSnapshot(
       // Leave some of an hour's budget for everything else the app reads.
       if (remaining < RATE_RESERVE) return undefined;
       try {
-        const next = await get(`/git/trees/${sha}${recursive ? '?recursive=1' : ''}`);
+        // Once: a folder that fails is read again by the next visit, and the tree shows without it.
+        const next = await fetch(url(`/git/trees/${sha}${recursive ? '?recursive=1' : ''}`), {
+          headers,
+          signal,
+        });
         remaining = Number(next.headers.get('x-ratelimit-remaining') ?? remaining);
         return next.ok ? listingOf(await next.json()) : undefined;
       } catch (error) {
@@ -115,14 +168,20 @@ export async function loadSample(
   }
 }
 
-function httpError(res: Response): LoadError {
+/** `sentToken`: whether the read carried a token, the only thing GitHub can reject as bad. */
+function httpError(res: Response, sentToken: boolean): LoadError {
   const { status, headers } = res;
   if (status === 404) return { kind: 'not-found' };
   if (status === 409) return { kind: 'empty' };
   if ((status === 403 || status === 429) && headers.get('x-ratelimit-remaining') === '0') {
     return { kind: 'rate-limited', resetAt: Number(headers.get('x-ratelimit-reset')) * 1000 };
   }
-  if (status === 401 || status === 403) return { kind: 'unauthorized' };
+  const after = Number(headers.get('retry-after'));
+  if ((status === 403 || status === 429) && Number.isFinite(after) && after > 0) {
+    // The secondary limit, still on after the waits: it lifts after `retry-after` seconds.
+    return { kind: 'rate-limited', resetAt: Date.now() + after * 1000 };
+  }
+  if (sentToken && (status === 401 || status === 403)) return { kind: 'unauthorized' };
   return NETWORK;
 }
 

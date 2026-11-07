@@ -49,6 +49,7 @@ function github(tree: unknown = TREE) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('fetchSnapshot', () => {
@@ -267,15 +268,88 @@ describe('fetchSnapshot', () => {
     ['a body that is not JSON', new Response('<html>', { status: 200 }), { kind: 'network' }],
     ['JSON of the wrong shape', json({ tree: 'nope' }), { kind: 'network' }],
   ])('maps %s', async (_, response, expected) => {
-    fakeFetch(() => response);
+    fakeFetch(() => response.clone());
 
-    expect(await fetchSnapshot(ref('octo/demo'))).toEqual(expected);
+    expect(await fetchSnapshot(ref('octo/demo'), 'ghp_x', undefined, undefined, [])).toEqual(
+      expected,
+    );
   });
 
   test('maps a failed request to network', async () => {
     fakeFetch(() => Promise.reject(new TypeError('Failed to fetch')));
 
-    expect(await fetchSnapshot(ref('octo/demo'))).toEqual({ kind: 'network' });
+    expect(await fetchSnapshot(ref('octo/demo'), undefined, undefined, undefined, [])).toEqual({
+      kind: 'network',
+    });
+  });
+
+  test.each([
+    ['a dropped connection', () => Promise.reject(new TypeError('Failed to fetch'))],
+    ['a server error', () => json({ message: 'Server Error' }, 502)],
+    [
+      'the secondary rate limit',
+      () =>
+        json({ message: 'You have exceeded a secondary rate limit' }, 403, { 'retry-after': '1' }),
+    ],
+  ])(
+    'tries a read again after %s, so one hiccup on opening does not fail the load',
+    async (_, fail) => {
+      let failures = 1;
+      const calls = fakeFetch((url) => {
+        if (url.includes('/git/trees/') && failures-- > 0) return fail();
+        return url.includes('/git/trees/') ? json(TREE) : json(REPO);
+      });
+
+      const snapshot = await fetchSnapshot(
+        ref('octo/demo'),
+        undefined,
+        undefined,
+        undefined,
+        [0, 0],
+      );
+
+      expect(snapshot).toHaveProperty('files.length', 2);
+      expect(calls.filter((c) => c.url.includes('/git/trees/'))).toHaveLength(2);
+    },
+  );
+
+  test('stops trying after its waits and reports what GitHub said', async () => {
+    const calls = fakeFetch(() => json({ message: 'Server Error' }, 503));
+
+    expect(await fetchSnapshot(ref('octo/demo'), undefined, undefined, undefined, [0, 0])).toEqual({
+      kind: 'network',
+    });
+    expect(calls).toHaveLength(3);
+  });
+
+  test('does not try again a used-up rate limit or a missing repo', async () => {
+    const limited = fakeFetch(() =>
+      json({}, 403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1762200000' }),
+    );
+    await fetchSnapshot(ref('octo/demo'), undefined, undefined, undefined, [0, 0]);
+    expect(limited).toHaveLength(1);
+
+    const missing = fakeFetch(() => json({ message: 'Not Found' }, 404));
+    await fetchSnapshot(ref('octo/demo'), undefined, undefined, undefined, [0, 0]);
+    expect(missing).toHaveLength(1);
+  });
+
+  test('never blames a token it did not send', async () => {
+    fakeFetch(() => json({ message: 'Forbidden' }, 403, { 'x-ratelimit-remaining': '42' }));
+
+    const signedOut = await fetchSnapshot(ref('octo/demo'), undefined, undefined, undefined, []);
+
+    expect(signedOut).toEqual({ kind: 'network' });
+  });
+
+  test('reports a secondary rate limit that outlasts its waits as a rate limit', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    fakeFetch(() => json({}, 403, { 'retry-after': '60' }));
+
+    expect(await fetchSnapshot(ref('octo/demo'), undefined, undefined, undefined, [0])).toEqual({
+      kind: 'rate-limited',
+      resetAt: 1_060_000,
+    });
   });
 
   test('rejects with the abort instead of reporting a load error', async () => {

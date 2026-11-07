@@ -1,5 +1,5 @@
 import { AGES, CHANGES } from '../timeline/facts';
-import { githubToken } from '../repo/auth';
+import { githubToken, signedInToken, signOut } from '../repo/auth';
 import { cachedPulls, cachePulls, cachedRuns, cacheRuns } from '../load/cache';
 import { loadInWorker, type LoadSource } from '../load/load-in-worker';
 import { ciKey, fetchRuns, loadSampleRuns, type CiRun } from '../repo/ci';
@@ -23,8 +23,10 @@ const KEEP = 4;
  * Each load also reads the repo's recent Actions runs for its weather, beside the tree and as
  * soon as the branch is known, so the tree never waits on them, and its open pull requests for
  * its birds the same way.
+ * A sign-in GitHub refuses has expired (it is kept across a reload): the load signs out and reads
+ * again without it, as a public repo needs none, and `signInExpired` is told.
  */
-export function createLoader(store: Store) {
+export function createLoader(store: Store, { signInExpired }: { signInExpired?: () => void } = {}) {
   const memory = new Map<string, Repo>();
   let inFlight: AbortController | null = null;
   let lastId = 0;
@@ -135,7 +137,20 @@ export function createLoader(store: Store) {
           },
           abort.signal,
         );
-        if ('kind' in result) return store.dispatch({ type: 'failed', id, error: result });
+        if ('kind' in result) {
+          if (abort.signal.aborted) return;
+          const expired =
+            result.kind === 'unauthorized' &&
+            !state.settings.token &&
+            token !== undefined &&
+            token === signedInToken();
+          if (expired) {
+            signOut();
+            signInExpired?.();
+            return load(ref, { fresh, select, highlight, timeline });
+          }
+          return store.dispatch({ type: 'failed', id, error: result });
+        }
         const folderIds = new Map(result.tree.folders.path.map((path, i) => [path, i]));
         repo = { ...result, folderIds, sample: sample?.id };
       } catch (error) {

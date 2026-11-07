@@ -97,7 +97,10 @@ motion.addEventListener('change', () => {
 });
 debug.view = view;
 
-const loader = createLoader(store);
+const loader = createLoader(store, {
+  signInExpired: () =>
+    app.toast('Your GitHub sign-in expired, so you’re signed out. Sign in again any time.'),
+});
 watchHistory(store);
 let hovered: number | null = null;
 /** The compared tree the hovered folder is on, by its index in companionsOf, if not the one on show. */

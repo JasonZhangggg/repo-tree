@@ -1,14 +1,23 @@
 import type { App } from '../app';
 import { byId, h, icon, ICONS } from '../dom';
 import { bytes, count, plural } from '../format';
+import type { Loaded } from '../../load/load-in-worker';
 import { createSearch, type SearchHit } from '../search';
-import type { Repo } from '../state';
+import { companionsOf, type AppState } from '../state';
+
+/** A hit on one tree of what is on show: 0 the repo on show, k + 1 compared tree k. */
+type Hit = SearchHit & { tree: number };
+/** The trees a search looks through: the repo on show, then the compared ones in their order. */
+const treesOf = (state: AppState): Loaded[] =>
+  state.repo ? [state.repo, ...companionsOf(state)] : [];
+/** Most hits listed, across every tree. */
+const LIMIT = 20;
 
 /**
  * Every file a hit stands for, by RepoIndex.files id: a file hit itself, a folder hit all the
  * files under it. Folders are in preorder, so a parent's mark is set before its children read it.
  */
-export function matchedFiles(repo: Repo, hits: readonly SearchHit[]): Uint8Array {
+export function matchedFiles(repo: Loaded, hits: readonly SearchHit[]): Uint8Array {
   const { folders, files } = repo.index;
   const folderLit = new Uint8Array(folders.files.length);
   const lit = new Uint8Array(files.paths.length);
@@ -24,9 +33,10 @@ export function matchedFiles(repo: Repo, hits: readonly SearchHit[]): Uint8Array
 }
 
 /**
- * The "/" palette: fuzzy search over every folder and file of the shown repo. Its matches light
- * up on the tree while it is open; picking one keeps them lit and shows a bar that steps through
- * them, gliding to each, until it is closed.
+ * The "/" palette: fuzzy search over every folder and file of the shown repo, and while comparing
+ * of every tree in the grove, each hit naming its repo. Its matches light up on the trees while
+ * it is open; picking one keeps them lit and shows a bar that steps through them, pinning each
+ * (gliding to it on a lone tree; a grove stays in view), until it is closed.
  */
 export function mountSearch(app: App): {
   open(): void;
@@ -121,21 +131,50 @@ export function mountSearch(app: App): {
     ),
   );
   document.body.append(steps);
+  /**
+   * The pill sits under the header, and under the repo card where they would meet: a grove's
+   * card on a phone runs the screen's width and grows with each tree.
+   */
+  const title = byId('title');
+  const place = () => {
+    if (steps.hidden) return;
+    steps.style.top = '';
+    const card = title.getBoundingClientRect();
+    const pill = steps.getBoundingClientRect();
+    const across = pill.left < card.right && card.left < pill.right;
+    const below = card.height > 0 && across && pill.top < card.bottom + 8;
+    if (below) steps.style.top = `${card.bottom + 8 + window.scrollY}px`;
+  };
+  new ResizeObserver(place).observe(title);
+  addEventListener('resize', place);
   /** The matches being stepped through, and which one is pinned. */
-  let stepper: { hits: SearchHit[]; at: number } | null = null;
+  let stepper: { hits: Hit[]; at: number } | null = null;
 
-  let search: ((query: string) => SearchHit[]) | null = null;
-  let searchedRepo: Repo | null = null;
-  let hits: SearchHit[] = [];
+  const searches = new WeakMap<Loaded, (query: string, limit?: number) => SearchHit[]>();
+  let hits: Hit[] = [];
   let active = 0;
   let returnFocus: HTMLElement | null = null;
 
-  const searchFor = (repo: Repo) => {
-    if (searchedRepo !== repo) {
+  const searchFor = (repo: Loaded) => {
+    let search = searches.get(repo);
+    if (!search) {
       search = createSearch(repo.tree.folders.path, repo.index.files.paths);
-      searchedRepo = repo;
+      searches.set(repo, search);
     }
-    return search!;
+    return search;
+  };
+
+  /** Lights each tree's share of the hits, or puts every tree back. */
+  const light = (shown: readonly Hit[] | null) => {
+    const trees = treesOf(store.get());
+    if (!shown?.length || !trees.length) return view.setMatches(null);
+    const [main, ...others] = trees.map((repo, t) =>
+      matchedFiles(
+        repo,
+        shown.filter((hit) => hit.tree === t),
+      ),
+    );
+    view.setMatches(main!, others);
   };
 
   const highlight = (path: string, marks: number[]) => {
@@ -162,14 +201,24 @@ export function mountSearch(app: App): {
   };
 
   const run = () => {
-    const repo = store.get().repo;
-    if (!repo) return;
+    const trees = treesOf(store.get());
+    if (!trees.length) return;
     const query = input.value;
-    hits = query.trim() ? searchFor(repo)(query) : [];
-    const { folders, files } = repo.index;
+    // Each tree's best in turn, then each one's second best, and so on, so a big repo's many
+    // equal matches never crowd a small one's out of the list.
+    hits = query.trim()
+      ? trees
+          .flatMap((repo, tree) =>
+            searchFor(repo)(query, LIMIT).map((hit, rank) => ({ ...hit, tree, rank })),
+          )
+          .sort((a, b) => a.rank - b.rank || b.score - a.score || a.tree - b.tree)
+          .slice(0, LIMIT)
+      : [];
+    const grove = trees.length > 1;
     list.replaceChildren(
-      ...hits.map((hit, i) =>
-        h(
+      ...hits.map((hit, i) => {
+        const { folders, files } = trees[hit.tree]!.index;
+        return h(
           'li',
           {
             id: `hit-${i}`,
@@ -179,6 +228,8 @@ export function mountSearch(app: App): {
             onclick: () => choose(i),
           },
           icon(...(hit.kind === 'folder' ? ICONS.folder : ICONS.file)),
+          // While comparing, each hit says which tree it lies on.
+          grove ? h('span', { class: 'hit-repo' }, trees[hit.tree]!.info.ref.repo) : null,
           highlight(hit.kind === 'folder' ? `${hit.path}/` : hit.path, hit.marks),
           h(
             'small',
@@ -187,27 +238,36 @@ export function mountSearch(app: App): {
               ? plural(folders.files[hit.id]!, 'file')
               : bytes(files.size[hit.id]!),
           ),
-        ),
-      ),
+        );
+      }),
     );
     empty.hidden = hits.length > 0;
+    const sum = (of: (repo: Loaded) => number) => trees.reduce((n, repo) => n + of(repo), 0);
     empty.textContent = query.trim()
       ? `No folder or file matches “${query.trim()}”.`
-      : `Search ${count(files.paths.length)} files and ${count(folders.files.length - 1)} folders by name or path.`;
+      : `Search ${count(sum((r) => r.index.files.paths.length))} files and ${count(
+          sum((r) => r.index.folders.files.length - 1),
+        )} folders by name or path${grove ? `, across ${trees.length} trees` : ''}.`;
     setActive(0);
-    // The tree shows what the list does, behind the dialog.
-    view.setMatches(hits.length ? matchedFiles(repo, hits) : null);
+    // The trees show what the list does, behind the dialog.
+    light(hits);
   };
 
-  const pin = (hit: SearchHit) => {
-    const repo = store.get().repo;
+  /** Pins a hit: on a lone tree the camera glides to it; a grove stays in view. */
+  const pin = (hit: Hit) => {
+    const state = store.get();
+    const repo = treesOf(state)[hit.tree];
     if (!repo) return;
-    if (hit.kind === 'folder') app.select({ folder: hit.id }, true);
-    else app.select({ folder: repo.index.files.folder[hit.id]!, file: hit.id }, true);
+    const folder = hit.kind === 'folder' ? hit.id : repo.index.files.folder[hit.id]!;
+    if (hit.tree > 0) return app.pinCompanion({ companion: hit.tree - 1, folder });
+    const glide = state.compare.length === 0;
+    if (hit.kind === 'folder') app.select({ folder }, glide);
+    else app.select({ folder, file: hit.id }, glide);
   };
 
   const showStep = () => {
     if (!stepper) return;
+    place();
     const { hits: all, at } = stepper;
     stepAt.textContent = `${at + 1} of ${all.length}`;
     for (const b of steps.querySelectorAll<HTMLButtonElement>('.steps-btn')) {
@@ -217,8 +277,7 @@ export function mountSearch(app: App): {
 
   const choose = (i: number) => {
     const hit = hits[i];
-    const repo = store.get().repo;
-    if (!hit || !repo) return;
+    if (!hit || !store.get().repo) return;
     stepper = { hits, at: i };
     stepQuery.textContent = `“${input.value.trim()}”`;
     steps.hidden = false;
@@ -245,9 +304,12 @@ export function mountSearch(app: App): {
     return true;
   }
 
-  // Another repo ends the stepping: its matches name the last one's files.
+  // Another repo, or another grove, ends the stepping: its matches name the last trees' files.
   store.subscribe((state, prev) => {
-    if (state.repo === prev.repo) return;
+    const before = treesOf(prev);
+    const now = treesOf(state);
+    if (now.length === before.length && now.every((repo, i) => repo === before[i])) return;
+    if (stepper && state.repo === prev.repo) view.setMatches(null);
     stepper = null;
     steps.hidden = true;
   });
@@ -280,8 +342,7 @@ export function mountSearch(app: App): {
   function close(): boolean {
     if (dialog.hidden) return false;
     // Closing without a pick puts back the matches being stepped through, or none.
-    const repo = store.get().repo;
-    view.setMatches(stepper && repo ? matchedFiles(repo, stepper.hits) : null);
+    light(stepper?.hits ?? null);
     input.blur();
     dialog.hidden = true;
     scrim.hidden = true;

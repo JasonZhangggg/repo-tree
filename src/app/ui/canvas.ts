@@ -13,6 +13,10 @@ import type { Picked } from '../../render/tree-view';
 import type { Loaded } from '../../load/load-in-worker';
 
 const TAP_SLOP = 6;
+/** A fingertip wobbles more than a mouse: a touch that moves this little is still a tap. */
+const TOUCH_SLOP = 10;
+/** How near a bird's perch a finger may land and still mean that bird (CSS px). */
+const BIRD_REACH = 28;
 /** Folder labels show for the repo on show, and for no tree while several are compared. */
 const labelsOn = (state: AppState) => state.settings.labels && state.compare.length === 0;
 /** Panels over the canvas that labels keep off. */
@@ -219,6 +223,20 @@ export function mountCanvas(app: App): {
     pointer = null;
     probe();
   });
+  /**
+   * The bird on show nearest a point, within a fingertip's reach of where it perches. A bird the
+   * crown hides does not count: its own spot has to pick as that bird.
+   */
+  const birdNear = (x: number, y: number): number | null => {
+    const state = store.get();
+    if (state.timeline !== null || !birdsOf(state)?.length) return null;
+    const near = view
+      .birdsOnScreen()
+      .map((spot, i) => ({ i, spot, d: Math.hypot(spot.x - x, spot.y - y) }))
+      .filter(({ d }) => d <= BIRD_REACH)
+      .sort((a, b) => a.d - b.d);
+    return near.find(({ i, spot }) => view.pickAt(spot.x, spot.y)?.bird === i)?.i ?? null;
+  };
   // A pinch is never a tap, even where its last finger lifts without moving.
   const pressed = new Set<number>();
   container.addEventListener('pointerdown', (event) => {
@@ -231,7 +249,8 @@ export function mountCanvas(app: App): {
   });
   container.addEventListener('pointerup', (event) => {
     pressed.delete(event.pointerId);
-    if (!down || Math.hypot(event.clientX - down.x, event.clientY - down.y) > TAP_SLOP) return;
+    const slop = event.pointerType === 'mouse' ? TAP_SLOP : TOUCH_SLOP;
+    if (!down || Math.hypot(event.clientX - down.x, event.clientY - down.y) > slop) return;
     down = null;
     tip.hidden = true;
     // On a touch screen a load error covers the top of the view, and a tap away puts it away
@@ -245,6 +264,9 @@ export function mountCanvas(app: App): {
     if (pill) return app.select({ folder: pill.folder }, true);
     const rect = container.getBoundingClientRect();
     const [x, y] = [event.clientX - rect.left, event.clientY - rect.top];
+    // A bird is a few pixels across, so a finger landing near one means it.
+    const near = event.pointerType === 'mouse' ? null : birdNear(x, y);
+    if (near !== null && pr.open(near)) return;
     const picked = view.pickAt(x, y);
     // A tap on the sky says what it stands for, and keeps the pin as it was.
     if (picked === null && view.skyAt(x, y) && ci.open()) return;

@@ -17,7 +17,7 @@ Open pull requests into the branch on show perch as small low-poly birds on the 
 ## How to get to it (user POV)
 
 - Load any repo or sample whose branch has open PRs, and look at (or spin) the crown.
-- Hover or click a bird; on a phone, tap it.
+- Hover or click a bird; on a phone, tap it or near it: a tap within 28 px of a bird in plain sight counts (e2e `on a phone a tap beside a bird still opens its PR`).
 - Choose `Settings`, then the `Show PRs` switch.
 
 ## Driving it with drive.mjs

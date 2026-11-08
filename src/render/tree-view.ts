@@ -27,7 +27,6 @@ import {
   WebGLRenderer,
   WebGLRenderTarget,
 } from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MeshData, Quality, TreeModel, Vec3 } from '../grow/grow';
 import type { Sky } from '../repo/ci';
 import {
@@ -50,6 +49,7 @@ import { DIFF, diffLeaves } from './diff';
 import { groveSpots } from './grove';
 import { birdGeometry, BIRD_SIZE, perchOnCrown, type Perched } from './birds';
 import { createGround } from './ground';
+import { MomentumControls } from './momentum-controls';
 import {
   DEAD_BLEACH,
   leafMapping,
@@ -134,6 +134,8 @@ export type ViewStats = {
   distance: number;
   /** The point the camera orbits, in world space. */
   target: [number, number, number];
+  /** The camera's bearing round that point, in radians, as OrbitControls reads it. */
+  azimuth: number;
   calls: number;
   triangles: number;
   geometries: number;
@@ -548,9 +550,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   const pickPixel = new Uint8Array(4);
 
   let renderer: WebGLRenderer;
-  const controls = new OrbitControls(camera, container);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
+  // A drag turns the tree 1:1 and a release throws it; zoom and tilt give at their limits.
+  const controls = new MomentumControls(camera, container);
+  controls.momentum = !reducedMotion;
   controls.enablePan = false;
   // A pinch or the wheel zooms toward what is under the fingers or the pointer, not the middle;
   // reaim keeps the point the camera turns about within reach of the tree (controls.cursor).
@@ -695,6 +697,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     controls.cursor.set(...([0, 1, 2].map((i) => reach.min[i]! + half[i]!) as Vec3));
     controls.maxTargetRadius = Math.hypot(...half);
     if (!aim) return;
+    controls.stop();
     controls.minDistance = whole.minDistance;
     controls.maxDistance = whole.maxDistance;
     const goal =
@@ -1876,6 +1879,8 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
 
     setReducedMotion(on) {
       reducedMotion = on;
+      controls.momentum = !on;
+      if (on) controls.stop();
       birdUniforms.uBirdMotion.value = on ? 0 : 1;
       treeUniforms.uWind.value = on ? 0 : 1;
       requestRender();
@@ -1926,6 +1931,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
         renders,
         distance: camera.position.distanceTo(controls.target),
         target: controls.target.toArray(),
+        azimuth: controls.getAzimuthalAngle(),
         calls: render.calls,
         triangles: render.triangles,
         geometries: memory.geometries,

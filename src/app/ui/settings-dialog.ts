@@ -5,6 +5,14 @@ import { byId, h, icon, ICONS } from '../dom';
 import { COLOR_BYS, PALETTE_IDS, QUALITIES, type Settings } from '../settings';
 import type { AppState } from '../state';
 import { COLOR_BY_HINT, COLOR_BY_ICON, COLOR_BY_LABEL } from './color-by';
+import { springTo, type Run } from './spring';
+import {
+  project,
+  pushSample,
+  releaseVelocity,
+  rubberband,
+  type Sample,
+} from '../../render/momentum';
 
 const QUALITY_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High' };
 const FOLDER_NAME = /^[^/\\]{1,100}$/;
@@ -472,6 +480,8 @@ export function mountSettings(app: App): {
 
 /** A drag this far down, in px or share of the drawer's height, or a flick this fast, closes it. */
 const CLOSE_AT = { px: 96, share: 0.3, flick: 0.5 };
+/** How far the drawer gives when dragged up past where it rests (px). */
+const DRAWER_GIVE = 36;
 
 /**
  * On a phone the Settings drawer follows a finger dragged down from its tab or its title, and on
@@ -480,74 +490,85 @@ const CLOSE_AT = { px: 96, share: 0.3, flick: 0.5 };
 function dragDown(dialog: HTMLElement, close: () => boolean): void {
   const phone = matchMedia('(max-width: 760px)');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
-  let press: { id: number; y0: number; last: { y: number; t: number }[]; moved: boolean } | null =
-    null;
+  let press: { id: number; y0: number; samples: Sample[]; moved: boolean } | null = null;
   let swallowClick = false;
+  /** The spring a release hands the drawer to, until it rests in place or below the screen. */
+  let run: Run | null = null;
 
   const reset = () => {
+    run = null;
     dialog.style.removeProperty('transform');
-    dialog.style.removeProperty('transition');
+    void dialog.offsetHeight;
     dialog.removeAttribute('data-dragging');
   };
-  const slide = (to: string, then: () => void) => {
-    if (reduce.matches) return then();
-    dialog.style.transition = 'transform 0.24s var(--ease-drawer)';
-    dialog.style.transform = to;
-    let done = false;
-    const end = () => {
-      if (done) return;
-      done = true;
-      dialog.removeEventListener('transitionend', end);
-      then();
-    };
-    dialog.addEventListener('transitionend', end);
-    setTimeout(end, 320);
-  };
+  // Dragged up past where it rests the drawer gives a little; down it follows the finger.
+  const offsetOf = (dy: number) => (dy < 0 ? rubberband(dy, DRAWER_GIVE) : dy);
+  const show = (y: number) => (dialog.style.transform = `translateY(${y}px)`);
 
   dialog.addEventListener('pointerdown', (event) => {
     if (!phone.matches || press || !event.isPrimary || event.button > 0) return;
     if (!(event.target as Element).closest('.settings-grip, #settings-title')) return;
     swallowClick = false;
-    press = { id: event.pointerId, y0: event.clientY, last: [], moved: false };
+    // A drawer still springing back is caught where it is.
+    if (run) {
+      const y = run.stop();
+      run = null;
+      dialog.setPointerCapture(event.pointerId);
+      press = { id: event.pointerId, y0: event.clientY - y, samples: [], moved: true };
+      return;
+    }
+    press = { id: event.pointerId, y0: event.clientY, samples: [], moved: false };
   });
   dialog.addEventListener('pointermove', (event) => {
     const p = press;
     if (!p || event.pointerId !== p.id) return;
-    const dy = Math.max(0, event.clientY - p.y0);
+    const dy = event.clientY - p.y0;
     if (!p.moved) {
-      if (dy < 6) return;
+      if (Math.abs(dy) < 6) return;
       p.moved = true;
       dialog.setAttribute('data-dragging', '');
-      dialog.style.transition = 'none';
       dialog.setPointerCapture(p.id);
     }
-    p.last.push({ y: event.clientY, t: event.timeStamp });
-    if (p.last.length > 6) p.last.shift();
-    dialog.style.transform = `translateY(${dy}px)`;
+    // A slow frame folds several moves into one event; each still says how fast the finger went.
+    for (const e of event.getCoalescedEvents?.() ?? [event]) {
+      pushSample(p.samples, { at: e.clientY, t: e.timeStamp });
+    }
+    show(offsetOf(dy));
   });
+  /**
+   * A release throws the drawer: shut when flung down or when its throw would carry it far
+   * enough, else back up. A spring carries it on at the finger's speed either way.
+   */
   const release = (event: PointerEvent) => {
     const p = press;
     if (!p || event.pointerId !== p.id) return;
     press = null;
     if (!p.moved) return;
     swallowClick = true;
-    const dy = Math.max(0, event.clientY - p.y0);
-    const recent = p.last.filter((s) => event.timeStamp - s.t < 100);
-    const first = recent[0];
-    const velocity =
-      first && event.timeStamp > first.t
-        ? (event.clientY - first.y) / (event.timeStamp - first.t)
-        : 0;
+    pushSample(p.samples, { at: event.clientY, t: event.timeStamp });
+    const y = offsetOf(event.clientY - p.y0);
+    const velocity = releaseVelocity(p.samples, event.timeStamp);
+    const landing = y + project(velocity, 0.995);
+    const height = dialog.offsetHeight;
     const shut =
       event.type !== 'pointercancel' &&
-      (velocity > CLOSE_AT.flick ||
-        dy > Math.min(CLOSE_AT.px, dialog.offsetHeight * CLOSE_AT.share));
-    if (shut)
-      slide('translateY(100%)', () => {
-        close();
+      (velocity > CLOSE_AT.flick || landing > Math.min(CLOSE_AT.px, height * CLOSE_AT.share));
+    if (reduce.matches) {
+      if (shut) close();
+      reset();
+      return;
+    }
+    run = springTo(
+      y,
+      shut ? height : 0,
+      velocity * 1000,
+      show,
+      () => {
+        if (shut) close();
         reset();
-      });
-    else slide('translateY(0)', reset);
+      },
+      { response: 0.34 },
+    );
   };
   dialog.addEventListener('pointerup', release);
   dialog.addEventListener('pointercancel', release);

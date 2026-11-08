@@ -104,10 +104,24 @@ test('a drag held still before letting go stays where it was put', async ({ page
   expect(turned(released, (await stats(page)).azimuth)).toBeLessThan(0.01);
 });
 
+/**
+ * Turns the wheel toward the tree `notches` times in one go, at the middle of the view. Each
+ * `mouse.wheel` waits for a frame, and on a small machine's software GL forty of those outlast
+ * the test.
+ */
+async function wheel(page: Page, notches: number) {
+  await page.locator('#view canvas').evaluate((canvas, notches) => {
+    const box = canvas.getBoundingClientRect();
+    const at = { clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 };
+    for (let i = 0; i < notches; i++)
+      canvas.dispatchEvent(
+        new WheelEvent('wheel', { ...at, deltaY: -120, bubbles: true, cancelable: true }),
+      );
+  }, notches);
+}
+
 test('zooming past the nearest view gives a little and springs back', async ({ page }) => {
-  const box = (await page.locator('#view').boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  for (let i = 0; i < 40; i++) await page.mouse.wheel(0, -120);
+  await wheel(page, 40);
   await still(page);
   const nearest = (await stats(page)).distance;
   // The nearest distance the camera reaches, read every frame: the give can come and go
@@ -124,7 +138,7 @@ test('zooming past the nearest view gives a little and springs back', async ({ p
     };
     read();
   });
-  for (let i = 0; i < 12; i++) await page.mouse.wheel(0, -120);
+  await wheel(page, 12);
   await still(page);
   const closest = await page.evaluate(() => (window as unknown as { closest: number }).closest);
   expect(closest, 'gives past the nearest').toBeLessThan(nearest * 0.97);

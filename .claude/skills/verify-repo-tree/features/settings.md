@@ -12,7 +12,7 @@ A user changes how the tree looks and loads from the Settings popover (a drawer 
 - `settings-hidden` hides folders by exact name at any depth and regrows the tree.
 - `settings-token` saves a GitHub token in this browser and sends it only to `api.github.com`.
 - `settings-persist` restores every setting after a reload.
-- `settings-drawer` on a phone opens Settings as a drawer flush with the bottom and sides, with a tab on top (`.settings-grip`, named `Close settings`): a tap on it closes the drawer, and a drag down from it or the title closes it past 96 px or a flick, else springs back. Sign-in is not in Settings; the account button holds it. e2e: `Settings opens as a drawer from the bottom, with a tab to drag or tap it closed`.
+- `settings-drawer` on a phone opens Settings as a drawer flush with the bottom and sides, with a tab on top (`.settings-grip`, hidden from screen readers) beside the same `Close settings` X a desktop has: a tap on it closes the drawer, and a drag down from it or the title closes it past 96 px or a flick, else springs back. Sign-in is not in Settings; the account button holds it. e2e: `Settings opens as a drawer from the bottom, with a tab to drag or tap it closed`.
 
 ## How to get to it (user POV)
 

@@ -103,3 +103,12 @@ export const ICONS = {
   ],
   clear: ['M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17Z', 'M8.5 12h7'],
 };
+
+/** A dialog's close button: an X in its top right corner, the one way to dismiss it besides Esc. */
+export function closeButton(label: string, onclick: () => void): HTMLButtonElement {
+  return h(
+    'button',
+    { type: 'button', class: 'close', 'aria-label': label, onclick },
+    icon(...ICONS.close),
+  );
+}

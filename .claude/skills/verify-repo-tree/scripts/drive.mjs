@@ -765,7 +765,7 @@ const JOURNEYS = {
       );
     });
     await step('off', async () => {
-      await page.locator('#pr-card').getByRole('button', { name: 'Not now' }).click();
+      await page.locator('#pr-card').getByRole('button', { name: 'Close', exact: true }).click();
       await page.getByRole('button', { name: 'Settings' }).click();
       await page.getByRole('switch', { name: /^Show PRs/ }).click();
       await expect.poll(async () => (await birdsOnScreen()).length).toBe(0);
@@ -1135,7 +1135,7 @@ const JOURNEYS = {
       if (phone) await expect(dialog).toContainText('On a phone this can be slow');
     });
     await step('decline', async () => {
-      await page.getByRole('button', { name: 'Not now' }).click();
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
       await expect(dialog).toBeHidden();
       await expect(scrubber).toBeHidden();
     });
@@ -1146,7 +1146,7 @@ const JOURNEYS = {
       await expect(page.getByRole('button', { name: 'Sign in and compute' })).toBeVisible();
     });
     await step('progress', async () => {
-      await page.getByRole('button', { name: 'Not now' }).click();
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
       await openTimeline('acme/widgets');
       const popup = page.waitForEvent('popup');
       await dialog.getByRole('button', { name: /^Sign in/ }).click();

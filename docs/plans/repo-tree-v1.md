@@ -375,7 +375,7 @@ type HistorySource = { load(signal: AbortSignal): Promise<HistoryLoad>;
   outdated: ((history: History, token: string, signal: AbortSignal) => Promise<boolean>) | null /* computedAt over STALE_AFTER_MS (1 day) ago and GitHub's branch head differs */ };
 function historySource(repo: { sample?: string; info: { ref: RepoRef; branch: string } }, options?: { base?: string; server?: string; api?: string /* VITE_GITHUB_API */; spawn? }): HistorySource | null; // sample file, else the history server when VITE_HISTORY_URL is set, else null (timeline unavailable). compute: engine in a Worker, then upload, then cache
 // timeline/estimate.ts: estimateCompute(headEntries) → { downloadMB, memoryMB, big /* ≥ 25 MB */ }; estimateRefresh(headEntries) (about three head trees: Linux ~6 MB); constrainedDevice() = deviceMemory ≤ 4 or a coarse pointer.
-// timeline/compute-view.ts (pure): Step = offer{refresh?: {since}} | computing{progress} | sharing | failed{error}; describeStep(step, ctx) → title, progress, lines, buttons. app/ui/history-compute.ts renders it.
+// timeline/compute-view.ts (pure): Step = offer{refresh?: {since}} | computing{progress} | sharing | failed{error}; describeStep(step, ctx) → title, progress, lines, buttons, closable (the corner X; off while computing or sharing). app/ui/history-compute.ts renders it.
 
 // timeline/timeline.ts  (pure; consumes only History, TreeModel and RepoIndex)
 type Ease = { at: Float64Array /* snapshot times */; p: Float64Array /* progress 0..1, evenly by time, so every year takes the same room */ };

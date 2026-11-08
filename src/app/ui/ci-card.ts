@@ -1,7 +1,7 @@
 import { actionsUrl } from '../../repo/ci';
 import { PALETTES } from '../../render/palette';
 import type { App } from '../app';
-import { byId, h, icon, ICONS } from '../dom';
+import { byId, closeButton, h, icon, ICONS } from '../dom';
 import { weatherOf } from '../state';
 import { describeWeather } from '../weather';
 
@@ -43,11 +43,7 @@ export function mountCiCard(app: App): { open(): boolean } {
     const snow = PALETTES[state.settings.palette].precip === 'snow';
     const glyph = snow && (sky === 'rain' || sky === 'storm') ? 'snow' : sky;
     const name = `${ref.owner}/${ref.repo}`;
-    const done = h(
-      'button',
-      { type: 'button', class: 'btn', onclick: close },
-      health ? 'Not now' : 'OK',
-    );
+    const done = closeButton('Close', close);
     card.dataset.sky = sky;
     card.replaceChildren(
       h(
@@ -64,11 +60,11 @@ export function mountCiCard(app: App): { open(): boolean } {
           : `A preview from the link (${detail}), not ${name}’s CI.`,
       ),
       health ? h('p', { class: 'compute-fine' }, 'Opens GitHub in a new tab.') : '',
-      h(
-        'div',
-        { class: 'actions' },
-        health
-          ? h(
+      health
+        ? h(
+            'div',
+            { class: 'actions' },
+            h(
               'a',
               {
                 class: 'btn dark',
@@ -78,10 +74,10 @@ export function mountCiCard(app: App): { open(): boolean } {
                 onclick: close,
               },
               'Open GitHub Actions',
-            )
-          : '',
-        done,
-      ),
+            ),
+          )
+        : '',
+      done,
     );
     opener = document.activeElement;
     card.hidden = scrim.hidden = false;

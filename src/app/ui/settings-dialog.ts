@@ -232,13 +232,15 @@ export function mountSettings(app: App): {
         })();
 
     dialog.replaceChildren(
-      // A phone's drawer tab: tap it to close, or drag it (or the title) down.
+      // A phone's drawer tab: tap it to close, or drag it (or the title) down. A pointer
+      // affordance only: the X beside the title is the close button for keys and readers.
       h(
         'button',
         {
           type: 'button',
           class: 'settings-grip',
-          'aria-label': 'Close settings',
+          'aria-hidden': 'true',
+          tabindex: -1,
           onclick: () => close(),
         },
         h('span', { class: 'grip' }),

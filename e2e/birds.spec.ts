@@ -65,7 +65,8 @@ test('open PRs perch as birds; one says which PR it is and links to it', async (
     'href',
     `https://github.com/vitejs/vite/pull/${pull.number}`,
   );
-  await card.getByRole('button', { name: 'Not now' }).click();
+  await expect(card.getByRole('button', { name: 'Not now' })).toHaveCount(0);
+  await card.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(card).toBeHidden();
 });
 

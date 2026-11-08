@@ -315,7 +315,7 @@ test('a tap on the sun says what the sky stands for before leaving for CI', asyn
   // The chip opens the same card rather than leaving at once.
   await chip(page).click();
   await expect(card).toBeVisible();
-  await card.getByRole('button', { name: 'Not now' }).click();
+  await card.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(card).toBeHidden();
 });
 

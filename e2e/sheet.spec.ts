@@ -125,7 +125,9 @@ test('Settings opens as a drawer from the bottom, with a tab to drag or tap it c
   expect(box.width).toBe(width);
   const tab = page.locator('.settings-grip');
   await expect(tab).toBeVisible();
-  await expect(tab).toHaveAccessibleName('Close settings');
+  // The tab is for a finger; keys and screen readers use the X, as on a desktop.
+  await expect(tab).toHaveAttribute('aria-hidden', 'true');
+  await expect(settings.getByRole('button', { name: 'Close settings' })).toBeVisible();
   const grip = (await tab.locator('.grip').boundingBox())!;
   expect(Math.abs(grip.x + grip.width / 2 - width / 2)).toBeLessThan(2);
   expect(grip.y - box.y).toBeLessThan(20);

@@ -590,7 +590,7 @@ addEventListener('keydown', (event) => {
   if (typing || event.metaKey || event.ctrlKey || event.altKey || !byId('search').hidden) return;
   if (event.key === '/') {
     event.preventDefault();
-    search.open();
+    search.open({ instant: true });
   } else if (event.key === ' ' && !target.matches('button, a, [role="radio"]')) {
     event.preventDefault();
     toggleSpin();

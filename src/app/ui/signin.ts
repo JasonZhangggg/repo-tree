@@ -179,9 +179,9 @@ export function mountSignIn(
 
   /** Signs in, then reads again what the old limit may have cost: the tree, or its weather. */
   async function signInNow() {
+    close();
     const token = await sign();
     if (!token) return;
-    app.toast('Signed in with GitHub');
     const { load } = app.store.get();
     if (load.phase === 'error') app.load(load.ref);
     else refreshRuns();

@@ -2725,6 +2725,78 @@ body:has(.scrubber:not([hidden])) .toast {
   font-size: 14px;
   white-space: nowrap;
 }
+/* Sign-in: what it grants and what it doesn't, then which account signed in. */
+.consent {
+  --yes: #2f7a4a;
+}
+:root[data-theme='dark'] .consent {
+  --yes: #7cc796;
+}
+.consent-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 34px;
+}
+.consent-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--wash);
+  color: var(--ink);
+  flex: none;
+  overflow: hidden;
+}
+.consent-mark svg {
+  width: 20px;
+  height: 20px;
+}
+.consent-mark.consent-done {
+  color: var(--yes);
+  background: color-mix(in srgb, var(--yes) 14%, transparent);
+}
+.consent-mark img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+.consent h2 {
+  overflow-wrap: anywhere;
+}
+.consent-list {
+  margin: -4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.consent-list li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.consent-list svg {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  flex: none;
+}
+.consent-can svg {
+  color: var(--yes);
+}
+.consent-cannot svg {
+  color: var(--muted);
+}
+.consent .compute-fine a {
+  color: inherit;
+}
 @media (max-width: 760px) {
   .compute {
     top: auto;

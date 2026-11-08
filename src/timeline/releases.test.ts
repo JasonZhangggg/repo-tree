@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { parseTags, type Release } from '../repo/releases';
-import { placeMarks, releaseCandidates, releaseOn, versionOf } from './releases';
+import { FLAT_MARKS, placeMarks, releaseCandidates, releaseOn, versionOf } from './releases';
 
 const day = (iso: string) => Date.parse(iso);
 const bundled = (id: string) =>
@@ -149,5 +149,48 @@ describe('releaseOn', () => {
     );
     expect(releaseOn(marks, day('2021-02-16'))?.tag).toBe('v2.0.0');
     expect(releaseOn(marks, day('2021-02-17'))).toBeNull();
+  });
+});
+
+describe('a repo that releases every merge', () => {
+  const linear = (ms: number) => ms / 10_000;
+  const merges = Array.from({ length: 7000 }, (_, i) => i + 1);
+
+  test('a minor on every merge has no majors to show: a few evenly spaced, unlabeled', () => {
+    const releases = merges.map((i) => ({ tag: `v1.${i}.0`, at: i }));
+    const marks = placeMarks([{ releases, position: linear }], 900, 18);
+    expect(marks).toHaveLength(FLAT_MARKS);
+    expect(marks.some((m) => m.labeled)).toBe(false);
+    const gaps = marks.slice(1).map((m, i) => m.s - marks[i]!.s);
+    expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThan(0.01);
+  });
+
+  test('a patch on every merge keeps its majors and minors as usual', () => {
+    const releases = merges.map((i) => ({
+      tag: `v${1 + Math.floor(i / 1600)}.${Math.floor((i % 1600) / 180)}.${i % 180}`,
+      at: i,
+    }));
+    const marks = placeMarks([{ releases, position: linear }], 900, 18);
+    expect(marks.filter((m) => m.labeled).map((m) => m.short)).toEqual([
+      'v2.0',
+      'v3.0',
+      'v4.0',
+      'v5.0',
+    ]);
+    expect(marks.length).toBeGreaterThan(FLAT_MARKS);
+  });
+
+  test('beside a tree with majors, a flat tree’s marks never take a label or a major’s place', () => {
+    const flat = merges.map((i) => ({ tag: `v1.${i}.0`, at: i }));
+    const clear = [{ tag: 'v2.0.0', at: 3500 }];
+    const marks = placeMarks(
+      [
+        { releases: flat, position: linear },
+        { releases: clear, position: linear },
+      ],
+      900,
+      18,
+    );
+    expect(marks.filter((m) => m.labeled).map((m) => m.tag)).toEqual(['v2.0.0']);
   });
 });

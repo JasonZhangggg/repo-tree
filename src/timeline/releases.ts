@@ -74,10 +74,20 @@ export function releaseCandidates(releases: readonly Release[]): (Release & Vers
 }
 
 /**
+ * More releases of a tree's top rank than this, and its ranks tell nothing apart: a repo that
+ * bumps the minor on every merge, or tags by date. Linux has 5 majors and vite 7.
+ */
+export const CLEAR_TOP = 24;
+/** A tree whose ranks tell nothing apart is marked with at most this many, evenly spaced. */
+export const FLAT_MARKS = 8;
+
+/**
  * Lays releases along a track `width` px wide. Majors go first, then minors, then patches, each
  * newest first, and a release is kept only `gap` px or more from every one kept before it, so
  * the track never crowds and a long history keeps its majors and fills in around them. The
- * most standing-out rank on show is labeled where its label, `charWidth` px a character, leaves room.
+ * most standing-out rank on show is labeled where its label, `charWidth` px a character, leaves
+ * room. A tree with more than CLEAR_TOP releases of its top rank has no majors to show, so it
+ * gets FLAT_MARKS evenly spaced ones instead, unlabeled, behind any other tree's.
  */
 export function placeMarks(
   trees: readonly { releases: readonly Release[]; position: (ms: number) => number | null }[],
@@ -86,11 +96,20 @@ export function placeMarks(
   charWidth = 6,
 ): Mark[] {
   const all: Mark[] = [];
+  const flat = new Set<Mark>();
   trees.forEach(({ releases, position }, tree) => {
+    const mine: Mark[] = [];
     for (const r of releaseCandidates(releases)) {
       const s = position(r.at);
       if (s === null) continue;
-      all.push({ tag: r.tag, short: r.short, at: r.at, s, rank: r.rank, tree, labeled: false });
+      mine.push({ tag: r.tag, short: r.short, at: r.at, s, rank: r.rank, tree, labeled: false });
+    }
+    const top = Math.min(...mine.map((m) => m.rank));
+    if (mine.filter((m) => m.rank === top).length <= CLEAR_TOP) return all.push(...mine);
+    for (const mark of evenly(mine, FLAT_MARKS)) {
+      mark.rank = 2;
+      flat.add(mark);
+      all.push(mark);
     }
   });
   all.sort((a, b) => a.rank - b.rank || b.at - a.at || a.tree - b.tree);
@@ -99,10 +118,10 @@ export function placeMarks(
     const x = mark.s * width;
     if (kept.every((k) => Math.abs(k.s * width - x) >= gap)) kept.push(mark);
   }
-  const top = Math.min(...kept.map((k) => k.rank));
+  const top = Math.min(...kept.filter((k) => !flat.has(k)).map((k) => k.rank));
   const taken: [number, number][] = [];
   for (const mark of kept) {
-    if (mark.rank !== top) continue;
+    if (mark.rank !== top || flat.has(mark)) continue;
     const half = (mark.short.length * charWidth) / 2 + 4;
     const x = mark.s * width;
     // A label reaching past either end of the track would be cut off.
@@ -112,6 +131,22 @@ export function placeMarks(
     mark.labeled = true;
   }
   return kept.sort((a, b) => a.s - b.s || a.tree - b.tree);
+}
+
+/** Up to `n` marks spread evenly over the span the marks cover: the one nearest each step. */
+function evenly(marks: Mark[], n: number): Mark[] {
+  if (marks.length <= n) return marks;
+  const sorted = [...marks].sort((a, b) => a.s - b.s);
+  const from = sorted[0]!.s;
+  const span = sorted[sorted.length - 1]!.s - from;
+  const picked = new Set<Mark>();
+  for (let i = 0; i < n; i++) {
+    const target = from + (span * (i + 0.5)) / n;
+    let best = sorted[0]!;
+    for (const m of sorted) if (Math.abs(m.s - target) < Math.abs(best.s - target)) best = m;
+    picked.add(best);
+  }
+  return [...picked];
 }
 
 /** The release a scrubber date sits on: one dated the same UTC day, as a link's `t=` keeps. */

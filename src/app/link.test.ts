@@ -20,6 +20,14 @@ describe('share links', () => {
     expect(parseLink('#/vitejs/vite?vs=nope')).toEqual({ ref: ref('vitejs/vite') });
   });
 
+  test('reads and writes embed=1, and ignores any other value', () => {
+    const link = { ref: ref('vitejs/vite'), palette: 'winter' as const, embed: true };
+    expect(formatLink(link)).toBe('#/vitejs/vite?palette=winter&embed=1');
+    expect(parseLink(formatLink(link))).toEqual(link);
+    expect(parseLink('#/vitejs/vite?embed=yes')).toEqual({ ref: ref('vitejs/vite') });
+    expect(formatLink({ ref: ref('vitejs/vite'), embed: false })).toBe('#/vitejs/vite');
+  });
+
   test('reads a weather preview and drops an unknown one', () => {
     expect(parseLink('#/vitejs/vite?wx=storm')).toEqual({ ref: ref('vitejs/vite'), wx: 'storm' });
     expect(parseLink('#/vitejs/vite?wx=hail')).toEqual({ ref: ref('vitejs/vite') });
@@ -86,4 +94,10 @@ describe('share links', () => {
     expect(parseLink('#/just-owner')).toBeNull();
     expect(parseLink('#/a/b/c')).toBeNull();
   });
+});
+
+test('a diff= names a branch shown against the one on show, and survives a round trip', () => {
+  const link = parseLink('#/vitejs/vite?branch=main&diff=feat/rolldown-bundler')!;
+  expect(link.diff).toBe('feat/rolldown-bundler');
+  expect(formatLink(link)).toBe('#/vitejs/vite?branch=main&diff=feat/rolldown-bundler');
 });

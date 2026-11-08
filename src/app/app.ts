@@ -31,6 +31,12 @@ export type App = {
   companionPin(): CompanionPin | null;
   /** Calls back whenever the compared tree's pin is set or let go. */
   onCompanionPin(listener: () => void): void;
+  /**
+   * Lights the files a bird's pull request changes, by its index in birdsOf: the bird under the
+   * pointer, or (`held`) the one whose card is open, which stays lit until it is let go. The
+   * hovered one shows first. Null lets that one go.
+   */
+  showPull(bird: number | null, held?: boolean): void;
   /** Highlights the leaves of one legend entry, by label, or clears the highlight. */
   highlight(label: string | null): void;
   /** Previews a legend entry's highlight while the pointer is over it. */

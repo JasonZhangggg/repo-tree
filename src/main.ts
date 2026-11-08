@@ -5,7 +5,7 @@ import './app/app.css';
 import { createTreeView } from './render/tree-view';
 import { parseRepoRef, type RepoRef } from './repo/ref';
 import { nameOf, type App, type CompanionPin } from './app/app';
-import { birdsOf } from './app/birds';
+import { birdsOf, pullFiles, type Bird } from './app/birds';
 import { debug } from './app/debug';
 import { byId } from './app/dom';
 import { count } from './app/format';
@@ -20,6 +20,7 @@ import {
   companionsOf,
   createStore,
   factsOf,
+  repoName,
   qualityOf,
   weatherOf,
   type AppState,
@@ -38,9 +39,20 @@ import { childrenOf, mountSide } from './app/ui/side';
 import { mountHistoryCompute } from './app/ui/history-compute';
 import { mountTimeline } from './app/ui/timeline';
 import { mountCompare } from './app/ui/compare';
+import { mountBranchDiff } from './app/ui/branch-diff';
+import { diffMarks } from './repo/branch-diff';
 import { rankOf, sizeScales, treeStats } from './app/compare';
 
 const SETTINGS_KEY = 'repo-tree:settings';
+/**
+ * `embed=1`, in the hash link or the page's own query, shows just the tree for an iframe on
+ * another page: the cards, panels, buttons and dialogs hide (app.css), and a small link opens
+ * the same view in Repo Tree. Orbit, zoom, hover and pins still work.
+ */
+const embedded =
+  parseLink(location.hash)?.embed === true ||
+  new URLSearchParams(location.search).get('embed') === '1';
+document.body.toggleAttribute('data-embed', embedded);
 const MEASURE_MS = 2000;
 const SMOOTH_FPS = 30;
 const PANEL_GAP = 12;
@@ -71,6 +83,7 @@ const store = createStore({
   compare: [],
   companions: [],
   companionHistory: [],
+  diff: null,
 });
 
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -117,6 +130,11 @@ function setCompanionPin(pin: CompanionPin | null) {
 /** Whether the camera glided to the pin on show, so clearing it glides back. */
 let framedPin = false;
 let hoveredCategory: string | null = null;
+/** The birds whose PRs light their files: the one under the pointer, the one whose card is open. */
+let pullHovered: number | null = null;
+let pullHeld: number | null = null;
+/** The bird whose files are lit now. */
+let litBird: Bird | null = null;
 let toastTimer = 0;
 const toastEl = byId('toast');
 
@@ -146,6 +164,11 @@ const app: App = {
     hoveredCompanion = folder === null ? undefined : companion;
     debug.previewed = folder;
     applyHighlight();
+  },
+  showPull(bird, held = false) {
+    if (held) pullHeld = bird;
+    else pullHovered = bird;
+    applyPull();
   },
   highlight(label) {
     store.dispatch({ type: 'highlight', label });
@@ -178,9 +201,35 @@ const app: App = {
 /** Whether search matches are being stepped through; set once search is mounted. */
 let searchStepping = () => false;
 
+/**
+ * Lights the leaves of the files the shown bird's PR changes, as search lights its matches, and
+ * puts back whatever search had lit once it goes.
+ */
+function applyPull() {
+  const state = store.get();
+  const index = pullHovered ?? pullHeld;
+  const bird = (index !== null && state.repo && birdsOf(state)?.[index]) || null;
+  if (bird === litBird) return;
+  litBird = bird;
+  debug.litPull = bird ? bird.pull.number : null;
+  if (bird) view.setMatches(pullFiles(bird.pull.files, state.repo!.index.files.paths).lit);
+  else {
+    view.setMatches(null);
+    search.relight();
+  }
+  applyHighlight();
+}
+
 /** A legend entry under the pointer shows first, then the pin or highlight, then a hovered folder. */
 function applyHighlight() {
   const { repo, selection, highlight } = store.get();
+  // A PR's files light across the tree, which nothing fades, its perch marked.
+  if (litBird && repo) {
+    const [lo, hi] = repo.tree.folders.range;
+    view.setHighlight({ range: [lo!, hi!] });
+    canvas.mark(litBird.folder);
+    return;
+  }
   const category = hoveredCategory ?? highlight;
   // A pin on a compared tree holds as a pin on the tree on show does.
   const pin = selection ?? companionPin;
@@ -203,6 +252,11 @@ function applyHighlight() {
         : { range: [range[2 * faded]!, range[2 * faded + 1]!], companion: other },
   );
   canvas.mark(other === undefined ? folder : null);
+}
+
+/** The compared branch the tree on show was grown for, once read. */
+function shownDiff({ repo, diff }: AppState) {
+  return repo && diff?.status === 'ready' && repo.diffHead === diff.head ? diff : null;
 }
 
 function describe(state: AppState): string {
@@ -240,7 +294,18 @@ function linkOf(state: AppState): string | null {
     t: state.timeline ?? undefined,
     vs: state.compare.length ? [...state.compare] : undefined,
     pins: pinsOf(state),
+    diff: state.diff?.head,
+    embed: embedded || undefined,
   });
+}
+
+/** The same view in the full app, for the embed's link out and the embed code's source. */
+function appUrl(hash: string, embed: boolean): string {
+  const url = new URL(location.href);
+  url.searchParams.delete('embed');
+  const link = parseLink(hash);
+  url.hash = link ? formatLink({ ...link, embed: embed || undefined }) : hash;
+  return url.href;
 }
 
 function applyLink(link: ViewLink) {
@@ -251,6 +316,10 @@ function applyLink(link: ViewLink) {
   store.dispatch({ type: 'preview', sky: link.wx ?? null });
   store.dispatch({ type: 'compare', refs: link.vs ?? [] });
   pinTray.receive(link.ref, link.pins ?? []);
+  // A branch's changes, once its repo shows; a link without one puts the tree back.
+  const name = `${link.ref.owner}/${link.ref.repo}`.toLowerCase();
+  if (link.diff) branchDiff.request(name, link.diff);
+  else if (store.get().diff) store.dispatch({ type: 'diff', diff: null });
   const { repo } = store.get();
   const same =
     repo &&
@@ -311,6 +380,14 @@ store.subscribe((state, prev) => {
   const birds = birdsOf(state);
   if (birds !== birdsOf(prev) || state.repo !== prev.repo) {
     view.setBirds(birds && birds.map(({ folder, color }) => ({ folder, color })));
+    // The lit PR's files name the old tree's, or a bird no longer there.
+    pullHovered = pullHeld = null;
+    applyPull();
+  }
+  // The compared branch shows once the tree holds its new files.
+  if (state.repo !== prev.repo || shownDiff(state) !== shownDiff(prev)) {
+    const shown = shownDiff(state);
+    view.setDiff(shown && diffMarks(shown.diff, state.repo!.index.files.paths).marks);
   }
   if (s.palette !== prev.settings.palette) view.setPalette(s.palette);
   if (s.colorBy !== prev.settings.colorBy) view.setColorBy(s.colorBy);
@@ -337,7 +414,19 @@ store.subscribe((state, prev) => {
     applyHighlight();
   }
 
-  const regrow = s.quality !== prev.settings.quality || s.hidden !== prev.settings.hidden;
+  // A compared branch's new files grow in once its comparison is read, and go once it is let go.
+  const diff = state.diff;
+  const regrowDiff =
+    diff !== prev.diff &&
+    diff?.status !== 'loading' &&
+    !!state.repo &&
+    (diff?.status === 'ready' && diff.repo === repoName(state.repo) ? diff.head : undefined) !==
+      state.repo.diffHead;
+  // Side by side shows several repos; a branch's changes describe one.
+  if (state.compare.length && diff)
+    queueMicrotask(() => store.dispatch({ type: 'diff', diff: null }));
+  const regrow =
+    s.quality !== prev.settings.quality || s.hidden !== prev.settings.hidden || regrowDiff;
   if (regrow && state.repo) {
     const path = state.selection ? state.repo.tree.folders.path[state.selection.folder] : undefined;
     const ref = state.repo.info.ref;
@@ -478,6 +567,33 @@ byId('export').addEventListener('click', async () => {
   app.toast(`Saved ${name}`);
 });
 byId('search-open').addEventListener('click', () => search.open());
+byId('embed-copy').addEventListener('click', async () => {
+  const { repo } = store.get();
+  if (!repo) return;
+  const name = `${repo.info.ref.owner}/${repo.info.ref.repo}`;
+  const src = appUrl(linkOf(store.get()) ?? location.hash, true).replaceAll('&', '&amp;');
+  const code = `<iframe src="${src}" title="3D tree of ${name}" width="640" height="480" style="border:0;border-radius:12px" loading="lazy"></iframe>`;
+  try {
+    await navigator.clipboard.writeText(code);
+    app.toast('Embed code copied');
+  } catch {
+    app.toast('Couldn’t copy: add ?embed=1 to the link to embed it');
+  }
+});
+
+/** In an embed, the way out to the full app: the repo's name, opened in a new tab. */
+const embedOpen = byId<HTMLAnchorElement>('embed-open');
+embedOpen.hidden = !embedded;
+if (embedded) {
+  const sync = (state: AppState) => {
+    const name = state.repo ? `${state.repo.info.ref.owner}/${state.repo.info.ref.repo}` : '';
+    embedOpen.querySelector('.name')!.textContent = name;
+    embedOpen.href = appUrl(linkOf(state) ?? location.hash, false);
+    embedOpen.setAttribute('aria-label', `Open ${name || 'this tree'} in Repo Tree`);
+  };
+  store.subscribe(sync);
+  sync(store.get());
+}
 
 const phone = matchMedia('(max-width: 760px)');
 const tools = document.querySelector<HTMLElement>('.tools')!;
@@ -588,6 +704,8 @@ addEventListener('keydown', (event) => {
     return;
   }
   if (typing || event.metaKey || event.ctrlKey || event.altKey || !byId('search').hidden) return;
+  // An embed keeps the keys that move the tree, not the ones that open the app's panels.
+  if (embedded && ['/', 't', 'T', 'd', 'D'].includes(event.key)) return;
   if (event.key === '/') {
     event.preventDefault();
     search.open({ instant: true });
@@ -609,6 +727,10 @@ addEventListener('keydown', (event) => {
 
 addEventListener('hashchange', () => {
   const link = parseLink(location.hash);
+  // Into or out of an embed is a different page, so it starts again from the link.
+  if (link && (link.embed === true) !== embedded && !location.search.includes('embed=1')) {
+    return location.reload();
+  }
   if (link) applyLink(link);
 });
 
@@ -626,6 +748,7 @@ const timeline = mountTimeline(
 );
 const settings = mountSettings(app);
 mountCompare(app);
+const branchDiff = mountBranchDiff(app);
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 mountQuick(app);
 const pinTray = mountPinTray(app, () => {

@@ -341,3 +341,111 @@ export const VITE_PULLS: StandInPull[] = [
     files: ['playground/vue/package.json', 'pnpm-lock.yaml', 'playground/vue-jsx/package.json'],
   },
 ];
+
+/** A stand-in comparison: a head's files by GitHub's status, and how far it is ahead. */
+export type StandInCompare = {
+  head: string;
+  ahead: number;
+  behind?: number;
+  added: string[];
+  modified: string[];
+  /** Folders whose every file in the sample the head deletes, and single files. */
+  removed: string[];
+};
+
+/**
+ * Answers `name`'s branches and tags lists, and `GET /compare/<base>...<head>` for each of
+ * `compares` from the vite sample's files (any other head is a 404).
+ */
+export async function serveBranches(
+  page: Page,
+  name: string,
+  { branches, tags, compares }: { branches: string[]; tags: string[]; compares: StandInCompare[] },
+  sample = 'vitejs-vite',
+) {
+  const fixture = JSON.parse(
+    gunzipSync(readFileSync(`public/samples/${sample}.json.gz`)).toString(),
+  ) as { tree: { tree: TreeEntry[] } };
+  const paths = fixture.tree.tree.filter((e) => e.type === 'blob').map((e) => e.path);
+  const cors = { 'access-control-allow-origin': '*' };
+  const repo = `https://api.github.com/repos/${name}`;
+  await page.route(
+    (url) => url.href.startsWith(`${repo}/branches?`),
+    (route) => route.fulfill({ headers: cors, json: branches.map((b) => ({ name: b })) }),
+  );
+  await page.route(
+    (url) => url.href.startsWith(`${repo}/tags?`),
+    (route) => route.fulfill({ headers: cors, json: tags.map((t) => ({ name: t })) }),
+  );
+  await page.route(
+    (url) => url.href.startsWith(`${repo}/compare/`),
+    (route) => {
+      const spec = decodeURIComponent(new URL(route.request().url()).pathname).split(
+        '/compare/',
+      )[1]!;
+      const head = spec.slice(spec.indexOf('...') + 3);
+      const compare = compares.find((c) => c.head === head);
+      if (!compare) {
+        return route.fulfill({ status: 404, headers: cors, json: { message: 'Not Found' } });
+      }
+      const removed = paths.filter((p) =>
+        compare.removed.some((r) => p === r || p.startsWith(`${r}/`)),
+      );
+      const files = [
+        ...compare.added.map((filename) => ({ filename, status: 'added' })),
+        ...compare.modified.map((filename) => ({ filename, status: 'modified' })),
+        ...removed.map((filename) => ({ filename, status: 'removed' })),
+      ];
+      return route.fulfill({
+        headers: cors,
+        json: { ahead_by: compare.ahead, behind_by: compare.behind ?? 0, files },
+      });
+    },
+  );
+}
+
+/** Branches and a tag for the vite sample, and what one branch changes against main. */
+export const VITE_BRANCHES = {
+  branches: ['main', 'feat/rolldown-bundler', 'fix/hmr-css-order', 'docs/v7-migration'],
+  tags: ['v6.3.0', 'v6.2.0'],
+  compares: [
+    {
+      head: 'feat/rolldown-bundler',
+      ahead: 23,
+      behind: 4,
+      added: [
+        'packages/vite/src/node/bundler/index.ts',
+        'packages/vite/src/node/bundler/chunks.ts',
+        'packages/vite/src/node/bundler/css.ts',
+        'packages/vite/src/node/bundler/assets.ts',
+        'packages/vite/src/node/bundler/manifest.ts',
+        'packages/vite/src/node/bundler/__tests__/chunks.spec.ts',
+        'packages/vite/src/node/bundler/__tests__/css.spec.ts',
+        'playground/bundler/index.html',
+        'playground/bundler/main.js',
+        'playground/bundler/style.css',
+        'playground/bundler/vite.config.js',
+        'playground/bundler/__tests__/bundler.spec.ts',
+        'docs/guide/bundler.md',
+      ],
+      modified: [
+        'packages/vite/src/node/plugins/asset.ts',
+        'packages/vite/src/node/plugins/css.ts',
+        'packages/vite/src/node/plugins/define.ts',
+        'packages/vite/src/node/plugins/html.ts',
+        'packages/vite/src/node/plugins/esbuild.ts',
+        'packages/vite/src/node/build.ts',
+        'packages/vite/src/node/config.ts',
+        'packages/vite/package.json',
+        'docs/config/build-options.md',
+      ],
+      removed: [
+        'playground/css-codesplit',
+        'playground/css-codesplit-cjs',
+        'playground/css-no-codesplit',
+        'playground/css-dynamic-import',
+        'playground/css-lightningcss-proxy',
+      ],
+    },
+  ] satisfies StandInCompare[],
+};

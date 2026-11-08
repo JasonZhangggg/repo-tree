@@ -14,6 +14,10 @@ test.afterEach(() => expect(errors).toEqual([]));
 
 type Point = { x: number; y: number };
 type Debug = { __repoTree: { view: { birdsOnScreen(): Point[] } } };
+const litPull = (page: Page) =>
+  page.evaluate(
+    () => (window as unknown as { __repoTree: { litPull: number | null } }).__repoTree.litPull,
+  );
 const birdsOnScreen = (page: Page) =>
   page.evaluate(() => (window as unknown as Debug).__repoTree.view.birdsOnScreen());
 
@@ -65,9 +69,47 @@ test('open PRs perch as birds; one says which PR it is and links to it', async (
     'href',
     `https://github.com/vitejs/vite/pull/${pull.number}`,
   );
+  // Its changed files light on the tree while the card is open, and go dark when it closes.
+  await expect(card).toContainText(
+    `The ${pull.files.length} files it changes are lit on the tree.`,
+  );
+  await expect.poll(() => litPull(page)).toBe(pull.number);
   await expect(card.getByRole('button', { name: 'Not now' })).toHaveCount(0);
   await card.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(card).toBeHidden();
+  await expect.poll(() => litPull(page)).toBeNull();
+});
+
+test('a PR whose files are new says so on its card', async ({ page, isMobile }) => {
+  const fresh = {
+    number: 3001,
+    title: 'Add a Marko template',
+    author: 'carmen',
+    files: [
+      'packages/create-vite/template-marko/index.html',
+      'packages/create-vite/template-marko/src/main.tsx',
+      'packages/create-vite/src/index.ts',
+    ],
+  };
+  await servePulls(page, 'vitejs/vite', [fresh]);
+  await page.goto('./#/vitejs/vite');
+  await ready(page, 'vitejs/vite');
+  await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(1);
+  for (let turn = 0; turn < 8; turn++) {
+    try {
+      await touchABird(page, isMobile);
+      break;
+    } catch {
+      const box = (await page.locator('#view').boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height - 60);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height - 60, { steps: 6 });
+      await page.mouse.up();
+    }
+  }
+  await expect(page.locator('#pr-card')).toContainText(
+    'Its changed file is lit on the tree. 2 more are new in this PR, or in a hidden folder.',
+  );
 });
 
 test('two PRs on one folder share its branch, and the card says they may conflict', async ({

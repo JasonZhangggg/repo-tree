@@ -709,17 +709,16 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
   min-width: min(340px, var(--col));
   max-width: var(--col);
   display: grid;
-  /* The name keeps its width first; the CI chip takes what is left, and its detail goes on a
-     narrow screen. */
+  /* The repo's tile, then the name over its facts; the CI chip takes what is left. */
   grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr);
   grid-template-areas:
     'switch name weather'
     'switch meta meta'
     'status status status';
   align-items: center;
-  gap: 2px 10px;
+  gap: 4px 14px;
   z-index: 2;
-  padding: 8px 12px 8px 8px;
+  padding: 14px 16px 12px 12px;
   background: var(--card);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -729,37 +728,38 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
 .title:not([data-repo]) {
   display: none;
 }
+/* The repo's tile: the GitHub mark on a soft square, like an app's icon, beside the name and
+   facts it heads. It opens the repo field, as the name does. */
 .repo-switch {
   grid-area: switch;
   display: flex;
   align-items: center;
   justify-content: center;
-  align-self: stretch;
-  width: 40px;
-  min-height: 40px;
+  align-self: center;
+  width: 44px;
+  height: 44px;
   border: 0;
-  border-radius: 10px;
-  background: none;
-  color: var(--muted);
+  border-radius: 12px;
+  background: var(--wash);
+  color: var(--ink);
   transition:
     background 0.15s,
     color 0.15s;
 }
 .repo-switch svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
 }
 @media (hover: hover) and (pointer: fine) {
   .repo-switch:hover {
-    background: var(--hover);
-    color: var(--ink);
+    background: color-mix(in srgb, var(--ink) 11%, transparent);
   }
 }
 h1,
 .title .name {
   grid-area: name;
   margin: 0;
-  font-size: 19px;
+  font-size: 20px;
   font-weight: 650;
   letter-spacing: -0.015em;
   line-height: 1.25;
@@ -823,10 +823,9 @@ h1,
   overflow: hidden;
   text-overflow: ellipsis;
 }
-@media (max-width: 1100px) {
-  .title > .weather span {
-    display: none;
-  }
+/* The chip says the verdict; how many runs it read stays in its tooltip and label. */
+.title > .weather span {
+  display: none;
 }
 /* The side panel lists the languages; a wide screen has room to count them here too. */
 @media (max-width: 1600px) {
@@ -843,6 +842,14 @@ h1,
 .title > .meta {
   grid-area: meta;
   padding-left: 4px;
+}
+/* Facts on the left; the two actions, reload and open on GitHub, at the right under the CI chip. */
+.title > .meta .icon-btn:not(.gh) {
+  order: 1;
+  margin-left: auto;
+}
+.title > .meta .gh {
+  order: 2;
 }
 .title > #status {
   grid-area: status;
@@ -2613,6 +2620,8 @@ body:has(.scrubber:not([hidden])) .toast {
   overflow: auto;
   padding: 20px;
   display: grid;
+  /* One column the dialog's own width: a long branch name shortens instead of widening it. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   /* A modal centred on the screen grows from its own centre, not from a corner. */
   transform-origin: center;
@@ -2861,11 +2870,10 @@ body:has(.scrubber:not([hidden])) .toast {
     justify-content: center;
     width: 36px;
     height: 36px;
-    margin-right: -4px;
     border: 0;
-    border-radius: 50%;
-    background: none;
-    color: var(--muted);
+    border-radius: 10px;
+    background: var(--wash);
+    color: var(--ink);
   }
   /* The More menu holds Reload and Open on GitHub on a phone, so the repo row stays one line. */
   .meta :is(.gh, .icon-btn) {
@@ -3574,7 +3582,7 @@ body[data-compare] .title:not([data-loading]) h1 {
 .cmp-rows {
   grid-column: 1 / -1;
   display: grid;
-  margin: 6px -12px -8px -8px;
+  margin: 12px -16px -12px -12px;
 }
 body[data-compare] .title:not([data-loading]) > .cmp-rows {
   margin: 0;
@@ -4060,6 +4068,7 @@ body[data-compare] #overview {
     display: none;
   }
   .cmp-add {
+    gap: 12px;
     padding: 8px 10px;
   }
   .island-tag {
@@ -4284,7 +4293,29 @@ body[data-compare] #overview {
 .diff-rows {
   grid-column: 1 / -1;
   display: grid;
-  margin: 0 -12px -8px -8px;
+  min-width: 0;
+  /* Its own width never sizes the card: a long branch name shortens inside it. */
+  contain: inline-size;
+  margin: 0 -16px -12px -12px;
+}
+/* On a desktop the card is as wide as the repo field above it, so the two read as one column. */
+@media (min-width: 761px) {
+  body:not([data-compare]) .title {
+    width: var(--col);
+  }
+}
+/* On a desktop the card's rows share its columns: each glyph centred under the GitHub mark, each
+   label starting where the repo's name does. */
+@media (min-width: 761px) {
+  body:not([data-compare]) .title .cmp-add {
+    gap: 26px;
+    padding: 14px 16px 15px 20px;
+  }
+  body:not([data-compare]) .title .cmp-add .cmp-plus {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+  }
 }
 .diff-rows[hidden],
 .diff-on[hidden] {
@@ -4297,56 +4328,72 @@ body[data-compare] #overview {
   width: 15px;
   height: 15px;
 }
+/* Glyph column, then the name column the repo card's name and meta use; × at the end. */
 .diff-on {
   display: grid;
-  gap: 6px;
-  padding: 12px 12px 14px 16px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 26px;
+  padding: 12px 10px 14px 20px;
   border-top: 1px solid var(--line);
 }
-.diff-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.diff-on > :not(.cmp-plus, .diff-line, .diff-stop) {
+  grid-column: 2 / -1;
+}
+.diff-on > .diff-counts {
+  margin-top: 2px;
+}
+.diff-glyph-sm {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+.diff-glyph-sm svg {
+  width: 15px;
+  height: 15px;
 }
 .diff-line {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 7px;
   min-width: 0;
   margin: 0;
   font-size: 14px;
 }
-.diff-line svg {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  color: var(--muted);
-}
+/* A long head shortens with an ellipsis (its full name is its tooltip); "vs main" stays whole. */
 .diff-line code {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font: 600 13px var(--mono);
 }
-.diff-line code:last-child {
+.diff-line .diff-base {
+  flex: none;
+  max-width: 40%;
   font-weight: 400;
   color: var(--muted);
 }
 .diff-vs {
+  flex: none;
   color: var(--muted);
 }
 .diff-stop {
   display: grid;
   place-items: center;
   flex: none;
-  width: 28px;
-  height: 28px;
-  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  margin: -6px 0;
   border: 0;
   border-radius: 8px;
   background: none;
   color: var(--muted);
   cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 @media (hover: hover) and (pointer: fine) {
   .diff-stop:hover {
@@ -4361,7 +4408,7 @@ body[data-compare] #overview {
 .diff-counts {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
+  gap: 4px 16px;
   margin: 0;
   font-size: 13.5px;
   font-weight: 600;
@@ -4370,7 +4417,7 @@ body[data-compare] #overview {
 .diff-counts > span {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
 }
 /* A leaf's shape in each kind's look: new shines, changed is lit, deleted has withered. */
 .diff-swatch {
@@ -4393,6 +4440,7 @@ body[data-compare] #overview {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
+  line-height: 1.45;
 }
 .diff-error {
   color: var(--danger);
@@ -4420,6 +4468,7 @@ body[data-compare] #overview {
 }
 .diff-refs {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   margin: 0;
   padding: 0;
@@ -4485,6 +4534,17 @@ body[data-compare] #overview {
     order: 4;
     flex: 1 0 100%;
     margin: 2px -8px -6px;
+  }
+  /* The glyph under the GitHub mark, the name over the repo's name. */
+  .diff-on {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    gap: 4px 18px;
+    padding: 10px 6px 12px 14px;
+  }
+  .diff-glyph-sm {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
   }
   /* iOS zooms into a field under 16px. */
   .diff-input {

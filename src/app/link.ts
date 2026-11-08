@@ -5,7 +5,7 @@ import { COLOR_BYS, PALETTE_IDS } from './settings';
 
 /**
  * Everything a shared URL restores: `#/owner/repo?branch=&palette=&colorBy=&sel=&hl=&wx=&t=`,
- * with a `vs=` per compared repo and a `pin=` per folder in the pin tray.
+ * with a `vs=` per compared repo, a `pin=` per folder in the pin tray, and `embed=1` for just the tree.
  */
 export type ViewLink = {
   ref: RepoRef;
@@ -23,6 +23,8 @@ export type ViewLink = {
   vs?: RepoRef[];
   /** The pin tray's folder paths, oldest first. */
   pins?: string[];
+  /** Just the tree, without the app around it, for an iframe on another page; written embed=1. */
+  embed?: boolean;
 };
 
 export function parseLink(hash: string): ViewLink | null {
@@ -52,11 +54,12 @@ export function parseLink(hash: string): ViewLink | null {
   if (vs.length) link.vs = vs;
   const pins = query.getAll('pin').filter(Boolean);
   if (pins.length) link.pins = pins;
+  if (query.get('embed') === '1') link.embed = true;
   return link;
 }
 
 export function formatLink(link: ViewLink): string {
-  const { ref, palette, colorBy, sel, hl, wx, t, vs, pins } = link;
+  const { ref, palette, colorBy, sel, hl, wx, t, vs, pins, embed } = link;
   const params: [string, string | undefined][] = [
     ['branch', ref.ref],
     ['palette', palette],
@@ -67,6 +70,7 @@ export function formatLink(link: ViewLink): string {
     ['t', t === undefined ? undefined : new Date(t).toISOString().slice(0, 10)],
     ...(vs ?? []).map((r): [string, string] => ['vs', `${r.owner}/${r.repo}`]),
     ...(pins ?? []).map((pin): [string, string] => ['pin', pin]),
+    ['embed', embed ? '1' : undefined],
   ];
   const query = params
     .filter((p): p is [string, string] => p[1] !== undefined)

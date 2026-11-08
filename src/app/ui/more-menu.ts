@@ -1,12 +1,16 @@
 import { byId } from '../dom';
 
 /** Label each moved button shows in the menu, where the desktop's short label would be unclear. */
-const MENU_LABELS: Record<string, string> = { share: 'Copy link', export: 'Export PNG' };
+const MENU_LABELS: Record<string, string> = {
+  share: 'Copy link',
+  export: 'Export PNG',
+  'embed-copy': 'Copy embed code',
+};
 
 /**
  * On a phone the bottom row keeps Timeline, Dark mode (just left of Search), Search and Settings,
- * and a short menu behind `More actions` holds Copy link, Export PNG, Compare, Reload from GitHub
- * and Open on GitHub; Sign in,
+ * and a short menu behind `More actions` holds Copy link, Export PNG, Copy embed code,
+ * Compare, Reload from GitHub and Open on GitHub; Sign in,
  * or the GitHub account once signed in, is a bubble of its own at the top right. Grow again and
  * Spin, which the desktop shows as buttons, are left off the phone: Spin is a switch in Settings,
  * and a tree regrows when it loads. The buttons themselves move, so their
@@ -16,7 +20,7 @@ export function mountMoreMenu(phone: MediaQueryList): void {
   const more = byId<HTMLButtonElement>('more');
   const menu = byId('more-menu');
   /** Into the menu on a phone, in this order; back into the toolbar on a desktop. */
-  const moved = ['share', 'export'].map((id) => byId<HTMLButtonElement>(id));
+  const moved = ['share', 'export', 'embed-copy'].map((id) => byId<HTMLButtonElement>(id));
   const signin = byId<HTMLButtonElement>('signin');
   const desktopLabels = moved.map((el) => el.querySelector('.label')?.textContent ?? null);
   /** Desktop only. */
@@ -41,7 +45,7 @@ export function mountMoreMenu(phone: MediaQueryList): void {
         menu.append(el);
         if (label && menuLabel) label.textContent = menuLabel;
       } else {
-        // Desktop: Share and PNG share one group.
+        // Desktop: Share, PNG and Embed share one group.
         byId('share-group').append(el);
         if (label && menuLabel) label.textContent = desktopLabels[i]!;
       }

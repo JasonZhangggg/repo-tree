@@ -41,6 +41,15 @@ import { mountCompare } from './app/ui/compare';
 import { rankOf, sizeScales, treeStats } from './app/compare';
 
 const SETTINGS_KEY = 'repo-tree:settings';
+/**
+ * `embed=1`, in the hash link or the page's own query, shows just the tree for an iframe on
+ * another page: the cards, panels, buttons and dialogs hide (app.css), and a small link opens
+ * the same view in Repo Tree. Orbit, zoom, hover and pins still work.
+ */
+const embedded =
+  parseLink(location.hash)?.embed === true ||
+  new URLSearchParams(location.search).get('embed') === '1';
+document.body.toggleAttribute('data-embed', embedded);
 const MEASURE_MS = 2000;
 const SMOOTH_FPS = 30;
 const PANEL_GAP = 12;
@@ -240,7 +249,17 @@ function linkOf(state: AppState): string | null {
     t: state.timeline ?? undefined,
     vs: state.compare.length ? [...state.compare] : undefined,
     pins: pinsOf(state),
+    embed: embedded || undefined,
   });
+}
+
+/** The same view in the full app, for the embed's link out and the embed code's source. */
+function appUrl(hash: string, embed: boolean): string {
+  const url = new URL(location.href);
+  url.searchParams.delete('embed');
+  const link = parseLink(hash);
+  url.hash = link ? formatLink({ ...link, embed: embed || undefined }) : hash;
+  return url.href;
 }
 
 function applyLink(link: ViewLink) {
@@ -478,6 +497,33 @@ byId('export').addEventListener('click', async () => {
   app.toast(`Saved ${name}`);
 });
 byId('search-open').addEventListener('click', () => search.open());
+byId('embed-copy').addEventListener('click', async () => {
+  const { repo } = store.get();
+  if (!repo) return;
+  const name = `${repo.info.ref.owner}/${repo.info.ref.repo}`;
+  const src = appUrl(linkOf(store.get()) ?? location.hash, true).replaceAll('&', '&amp;');
+  const code = `<iframe src="${src}" title="3D tree of ${name}" width="640" height="480" style="border:0;border-radius:12px" loading="lazy"></iframe>`;
+  try {
+    await navigator.clipboard.writeText(code);
+    app.toast('Embed code copied');
+  } catch {
+    app.toast('Couldn’t copy: add ?embed=1 to the link to embed it');
+  }
+});
+
+/** In an embed, the way out to the full app: the repo's name, opened in a new tab. */
+const embedOpen = byId<HTMLAnchorElement>('embed-open');
+embedOpen.hidden = !embedded;
+if (embedded) {
+  const sync = (state: AppState) => {
+    const name = state.repo ? `${state.repo.info.ref.owner}/${state.repo.info.ref.repo}` : '';
+    embedOpen.querySelector('.name')!.textContent = name;
+    embedOpen.href = appUrl(linkOf(state) ?? location.hash, false);
+    embedOpen.setAttribute('aria-label', `Open ${name || 'this tree'} in Repo Tree`);
+  };
+  store.subscribe(sync);
+  sync(store.get());
+}
 
 const phone = matchMedia('(max-width: 760px)');
 const tools = document.querySelector<HTMLElement>('.tools')!;
@@ -588,6 +634,8 @@ addEventListener('keydown', (event) => {
     return;
   }
   if (typing || event.metaKey || event.ctrlKey || event.altKey || !byId('search').hidden) return;
+  // An embed keeps the keys that move the tree, not the ones that open the app's panels.
+  if (embedded && ['/', 't', 'T', 'd', 'D'].includes(event.key)) return;
   if (event.key === '/') {
     event.preventDefault();
     search.open();
@@ -609,6 +657,10 @@ addEventListener('keydown', (event) => {
 
 addEventListener('hashchange', () => {
   const link = parseLink(location.hash);
+  // Into or out of an embed is a different page, so it starts again from the link.
+  if (link && (link.embed === true) !== embedded && !location.search.includes('embed=1')) {
+    return location.reload();
+  }
   if (link) applyLink(link);
 });
 

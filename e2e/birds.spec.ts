@@ -171,3 +171,61 @@ test('a rate-limited PR list leaves the tree with no birds and no error', async 
   await expect(page.locator('#notices')).toBeEmpty();
   expect(await birdsOnScreen(page)).toEqual([]);
 });
+
+test('on a phone a tap beside a bird still opens its PR', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'a fingertip reach');
+  await servePulls(page, 'vitejs/vite', VITE_PULLS);
+  await page.goto('./#/vitejs/vite');
+  await ready(page, 'vitejs/vite');
+  await expect.poll(async () => (await birdsOnScreen(page)).length).toBe(VITE_PULLS.length);
+  await settle(page);
+  const box = (await page.locator('#view').boundingBox())!;
+  const spots = await birdsOnScreen(page);
+  // A bird in plain sight, tapped a fingertip's width to its side where no other bird is nearer
+  // and the GPU pick finds a branch or the sky instead.
+  const pick = (x: number, y: number) =>
+    page.evaluate(
+      ([x, y]) =>
+        (
+          window as unknown as {
+            __repoTree: { view: { pickAt(x: number, y: number): { bird?: number } | null } };
+          }
+        ).__repoTree.view.pickAt(x!, y!),
+      [x, y],
+    );
+  const nearest = (x: number, y: number) =>
+    spots.reduce(
+      (best, s, j) =>
+        Math.hypot(s.x - x, s.y - y) < Math.hypot(spots[best]!.x - x, spots[best]!.y - y)
+          ? j
+          : best,
+      0,
+    );
+  let target: { i: number; x: number; y: number } | null = null;
+  for (const [i, { x, y }] of spots.entries()) {
+    if ((await pick(x, y))?.bird !== i) continue;
+    for (const [dx, dy] of [
+      [16, 0],
+      [-16, 0],
+      [0, 16],
+      [0, -16],
+      [12, 12],
+      [-12, 12],
+      [12, -12],
+      [-12, -12],
+    ] as const) {
+      const [tx, ty] = [x + dx, y + dy];
+      if (nearest(tx, ty) === i && (await pick(tx, ty))?.bird === undefined) {
+        target = { i, x: tx, y: ty };
+        break;
+      }
+    }
+    if (target) break;
+  }
+  expect(target, 'a bird with open space beside it').not.toBeNull();
+  await page.touchscreen.tap(box.x + target!.x, box.y + target!.y);
+  const card = page.locator('#pr-card');
+  await expect(card).toBeVisible();
+  const number = Number(/#(\d+)/.exec((await card.locator('.pr-meta').textContent())!)![1]);
+  expect(VITE_PULLS.map((p) => p.number)).toContain(number);
+});

@@ -9,6 +9,8 @@ import { NO_OWNER, type Owners } from '../../timeline/owners';
 import { companionsOf, factsOf, type AppState, type Repo } from '../state';
 import type { Loaded } from '../../load/load-in-worker';
 import { colorByPicker } from './color-by';
+import { springTo, type Run } from './spring';
+import { band, project, pushSample, releaseVelocity, type Sample } from '../../render/momentum';
 
 const FOLDER_ROWS = 10;
 const MONTH = new Intl.DateTimeFormat('en-US', {
@@ -85,13 +87,15 @@ const DRAG_SLOP = 8;
 const FLICK = 0.45;
 /** A drag this far toward the other state, in px or share of the sheet's travel, switches it. */
 const SWITCH = { px: 72, share: 0.3 };
-/** `--ease-drawer`, for the sheet's slides that run from script. */
-const SHEET_EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
+/** How far the sheet gives past open or shut under a finger (px). */
+const SHEET_GIVE = 36;
+/** How quickly a thrown sheet would slow on its own, per ms: what decides where a throw lands. */
+const SHEET_DECELERATION = 0.995;
 
 /**
  * On a phone the sheet follows a finger dragged up or down from its handle, or down from its
  * content once that is scrolled to the top, and snaps open or closed on release. While a drag
- * runs the sheet carries `data-dragging` and its content shows, offset by `--sheet-y`.
+ * or the spring after it runs, the sheet carries `data-dragging` and its content shows.
  */
 function dragSheet(
   side: HTMLElement,
@@ -104,86 +108,138 @@ function dragSheet(
   type Press = {
     id: number;
     y0: number;
+    /** The sheet's offset where the finger took it: closed or open, or wherever it was caught. */
+    from: number;
     wasOpen: boolean;
     fromBody: boolean;
-    samples: { y: number; t: number }[];
+    samples: Sample[];
     travel: number;
     dragging: boolean;
+    /** Taken while still moving: a press that then barely moves turns it back, as a tap would. */
+    caught: boolean;
   };
   let press: Press | null = null;
   let swallowClick = false;
-  let settle: (() => void) | null = null;
+  /** The spring a release hands the sheet to, until it rests open or shut. */
+  let settle: { run: Run; open: boolean; travel: number } | null = null;
 
-  const offsetFor = (p: Press, y: number) =>
-    Math.min(p.travel, Math.max(0, (p.wasOpen ? 0 : p.travel) + y - p.y0));
+  // Past open or past shut the sheet gives a little under the finger instead of stopping dead.
+  const offsetFor = (p: Press, y: number) => band(p.from + y - p.y0, 0, p.travel, SHEET_GIVE);
+  // The bar's controls ride on the sheet on a phone (main.ts moves them in).
+  const controls = document.querySelector<HTMLElement>('.controls');
+  /**
+   * Moves the sheet by its own transform, and fades the bar's controls with how shut it is.
+   * Written on the elements themselves: a custom property on the sheet restyled all it holds.
+   */
   const show = (offset: number, travel: number) => {
-    side.style.setProperty('--sheet-y', `${offset}px`);
-    side.style.setProperty('--sheet-closed', String(travel ? offset / travel : 0));
+    side.style.transform = `translateY(${offset}px)`;
+    if (controls) {
+      controls.style.opacity = String(travel ? Math.min(1, Math.max(0, offset / travel)) : 0);
+    }
   };
   const finish = (open: boolean) => {
     settle = null;
-    side.removeAttribute('data-settling');
-    side.style.removeProperty('--sheet-y');
-    side.style.removeProperty('--sheet-closed');
+    side.style.removeProperty('transform');
+    controls?.style.removeProperty('opacity');
     body.style.animation = open ? 'none' : '';
     setOpen(open);
+    // Let the sheet land while transitions are still off: dropping `data-dragging` first started
+    // a transition back from the drag's offset, which held the sheet there until the next frame.
+    void side.offsetHeight;
     side.removeAttribute('data-dragging');
     markTop();
+  };
+  /** Hands the sheet to a spring toward open or shut, at `velocity` px/s. */
+  const springOpen = (
+    from: number,
+    open: boolean,
+    travel: number,
+    velocity: number,
+    response: number,
+    damping = 1,
+  ) => {
+    const run = springTo(
+      from,
+      open ? 0 : travel,
+      velocity,
+      (y) => show(y, travel),
+      () => finish(open),
+      { response, damping },
+    );
+    settle = { run, open, travel };
   };
 
   /** Lets the content scroll natively except a downward drag from its top, which closes the sheet. */
   const markTop = () => body.toggleAttribute('data-top', body.scrollTop <= 0);
   body.addEventListener('scroll', markTop, { passive: true });
   /**
-   * A tap on the bar slides the sheet open or shut, from wherever it is if a slide is already
-   * running, instead of jumping between its two heights. Shutting is quicker than opening.
+   * A tap on the bar slides the sheet open or shut with a spring, without bounce (a tap throws
+   * nothing), from wherever it is if it is still moving. Shutting is quicker than opening.
    */
-  let slide: { anim: Animation; open: boolean } | null = null;
   toggle.addEventListener('click', () => {
-    const open = slide ? !slide.open : !side.hasAttribute('data-open');
+    const open = settle ? !settle.open : !side.hasAttribute('data-open');
     requestAnimationFrame(markTop);
     if (!phone.matches || reduce.matches) {
+      settle?.run.stop();
+      finish(open);
       body.style.animation = '';
-      setOpen(open);
       return;
     }
-    const from = slide ? new DOMMatrix(getComputedStyle(side).transform).m42 : null;
-    slide?.anim.cancel();
-    body.style.animation = 'none';
-    setOpen(true);
-    const travel = body.offsetHeight;
-    const anim = side.animate(
-      [
-        { transform: `translateY(${from ?? (open ? travel : 0)}px)` },
-        { transform: `translateY(${open ? 0 : travel}px)` },
-      ],
-      { duration: open ? 300 : 220, easing: SHEET_EASE, fill: 'forwards' },
-    );
-    slide = { anim, open };
-    anim.onfinish = () => {
-      if (slide?.anim !== anim) return;
-      slide = null;
-      if (!open) setOpen(false);
-      anim.cancel();
-    };
+    let from: number;
+    let travel: number;
+    if (settle) {
+      from = settle.run.stop();
+      travel = settle.travel;
+    } else {
+      body.style.animation = 'none';
+      side.setAttribute('data-dragging', '');
+      travel = body.offsetHeight;
+      from = open ? travel : 0;
+      show(from, travel);
+    }
+    springOpen(from, open, travel, 0, open ? 0.42 : 0.32);
   });
   markTop();
 
   side.addEventListener('pointerdown', (event) => {
-    if (!phone.matches || press || settle || slide || !event.isPrimary || event.button > 0) return;
+    if (!phone.matches || press || !event.isPrimary || event.button > 0) return;
     const target = event.target as Element;
     const fromBody = body.contains(target);
     if (!fromBody && !toggle.contains(target)) return;
+    // A sheet still moving is caught where it is, and follows the finger from there. Speed is
+    // read from moves alone: a press can carry a different clock than the moves after it.
+    if (settle) {
+      const from = settle.run.stop();
+      const { open, travel } = settle;
+      settle = null;
+      show(from, travel);
+      side.setPointerCapture(event.pointerId);
+      swallowClick = true;
+      press = {
+        id: event.pointerId,
+        y0: event.clientY,
+        from,
+        wasOpen: open,
+        fromBody,
+        samples: [],
+        travel,
+        dragging: true,
+        caught: true,
+      };
+      return;
+    }
     if (fromBody && (!side.hasAttribute('data-open') || body.scrollTop > 0)) return;
     swallowClick = false;
     press = {
       id: event.pointerId,
       y0: event.clientY,
+      from: 0,
       wasOpen: side.hasAttribute('data-open'),
       fromBody,
-      samples: [{ y: event.clientY, t: event.timeStamp }],
+      samples: [],
       travel: 0,
       dragging: false,
+      caught: false,
     };
   });
 
@@ -199,56 +255,60 @@ function dragSheet(
       }
       side.setAttribute('data-dragging', '');
       p.travel = body.offsetHeight;
+      p.from = p.wasOpen ? 0 : p.travel;
       p.dragging = true;
       p.y0 += Math.sign(dy) * DRAG_SLOP;
       side.setPointerCapture(p.id);
     }
-    p.samples.push({ y: event.clientY, t: event.timeStamp });
-    if (p.samples.length > 6) p.samples.shift();
+    // A slow frame folds several moves into one event; each still says how fast the finger went.
+    for (const e of event.getCoalescedEvents?.() ?? [event]) {
+      pushSample(p.samples, { at: e.clientY, t: e.timeStamp });
+    }
     show(offsetFor(p, event.clientY), p.travel);
   });
 
+  /**
+   * A release throws the sheet: where its speed would carry it decides open or shut (a quick
+   * flick goes the way it was flung), and a spring takes it there at the finger's own speed,
+   * overshooting a touch when it was flung.
+   */
   const release = (event: PointerEvent) => {
     const p = press;
     if (!p || event.pointerId !== p.id) return;
     press = null;
     if (!p.dragging) return;
     swallowClick = true;
-    const recent = p.samples.filter((s) => event.timeStamp - s.t < 100);
-    const first = recent[0];
-    const velocity =
-      first && event.timeStamp > first.t
-        ? (event.clientY - first.y) / (event.timeStamp - first.t)
-        : 0;
+    pushSample(p.samples, { at: event.clientY, t: event.timeStamp });
+    const velocity = releaseVelocity(p.samples, event.timeStamp);
     const offset = offsetFor(p, event.clientY);
-    const moved = p.wasOpen ? offset : p.travel - offset;
+    const landing = offset + project(velocity, SHEET_DECELERATION);
+    const moved = p.wasOpen ? landing : p.travel - landing;
+    const flung = Math.abs(velocity) > FLICK;
+    const tapped = p.caught && Math.abs(event.clientY - p.y0) < DRAG_SLOP;
     const open =
       event.type === 'pointercancel'
         ? p.wasOpen
-        : Math.abs(velocity) > FLICK
-          ? velocity < 0
-          : moved > Math.min(SWITCH.px, p.travel * SWITCH.share)
-            ? !p.wasOpen
-            : p.wasOpen;
+        : tapped
+          ? !p.wasOpen
+          : flung
+            ? velocity < 0
+            : moved > Math.min(SWITCH.px, p.travel * SWITCH.share)
+              ? !p.wasOpen
+              : p.wasOpen;
     const goal = open ? 0 : p.travel;
-    if (reduce.matches || Math.abs(goal - offset) < 1) {
+    if (reduce.matches || (Math.abs(goal - offset) < 1 && Math.abs(velocity) < 0.05)) {
       finish(open);
       return;
     }
-    side.setAttribute('data-settling', '');
-    show(goal, p.travel);
-    const done = () => {
-      if (settle !== done) return;
-      clearTimeout(timer);
-      side.removeEventListener('transitionend', onEnd);
-      finish(open);
-    };
-    const onEnd = (e: TransitionEvent) => {
-      if (e.target === side && e.propertyName === 'transform') done();
-    };
-    const timer = setTimeout(done, 450);
-    settle = done;
-    side.addEventListener('transitionend', onEnd);
+    // A throw lands with a touch of bounce; a sheet that stays put snaps back quickly.
+    springOpen(
+      offset,
+      open,
+      p.travel,
+      velocity * 1000,
+      open === p.wasOpen ? 0.3 : 0.4,
+      flung ? 0.82 : 1,
+    );
   };
   side.addEventListener('pointerup', release);
   side.addEventListener('pointercancel', release);

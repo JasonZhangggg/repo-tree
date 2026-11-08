@@ -242,10 +242,14 @@ test('the GitHub account menu shows the requests left this hour, links to the qu
   await expect(panel.locator('#account-usage')).toHaveText('4,812 of 5,000');
   await expect(panel.locator('#account-reset')).toHaveText(/^Resets at /);
   // The meter shows the share left.
-  const fill = await panel
-    .locator('.account-meter i')
-    .evaluate((el) => (el as HTMLElement).style.width);
-  expect(fill).toBe('96.2%');
+  await expect
+    .poll(() =>
+      panel.locator('.account-meter i').evaluate((el) => {
+        const share = el.getBoundingClientRect().width / el.parentElement!.clientWidth;
+        return Math.round(share * 1000) / 10;
+      }),
+    )
+    .toBe(96.2);
   // Asked with the sign-in token, so it is the account's own budget.
   expect(asked.at(-1)).toMatch(/^Bearer \S+$/);
   // Under the button, not off screen.

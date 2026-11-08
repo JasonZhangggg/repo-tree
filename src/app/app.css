@@ -3122,6 +3122,13 @@ body:has(.scrubber:not([hidden])) .toast {
   .side-body[data-top] {
     touch-action: pan-down;
   }
+  /* In the sheet, leaf colors come before the folder list: the legend is what explains the tree
+     the sheet half covers. */
+  #legend-title,
+  #legend,
+  #legend-note {
+    order: -1;
+  }
   .panel {
     box-shadow: none;
     background: color-mix(in srgb, var(--ink) 3.5%, transparent);

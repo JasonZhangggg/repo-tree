@@ -95,3 +95,9 @@ describe('share links', () => {
     expect(parseLink('#/a/b/c')).toBeNull();
   });
 });
+
+test('a diff= names a branch shown against the one on show, and survives a round trip', () => {
+  const link = parseLink('#/vitejs/vite?branch=main&diff=feat/rolldown-bundler')!;
+  expect(link.diff).toBe('feat/rolldown-bundler');
+  expect(formatLink(link)).toBe('#/vitejs/vite?branch=main&diff=feat/rolldown-bundler');
+});

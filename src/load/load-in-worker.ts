@@ -7,7 +7,16 @@ import type { RepoIndex } from './repo-index';
 export type LoadSource =
   | { kind: 'sample'; id: string; base: string }
   | { kind: 'github'; ref: RepoRef; token?: string; fresh: boolean };
-export type LoadRequest = { source: LoadSource; filters: Filters; params: GrowParams };
+/**
+ * `extra`: paths grown into the tree beside the snapshot's own, as empty files: a compared
+ * branch's new files, so they have leaves.
+ */
+export type LoadRequest = {
+  source: LoadSource;
+  filters: Filters;
+  params: GrowParams;
+  extra?: readonly string[];
+};
 export type LoadStep = 'fetch' | 'build' | 'grow';
 export type RepoInfo = Omit<Snapshot, 'files'> & { files: number };
 export type Loaded = { info: RepoInfo; tree: TreeModel; index: RepoIndex };

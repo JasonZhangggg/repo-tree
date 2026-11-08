@@ -2,13 +2,28 @@ import type { Quality } from '../grow/grow';
 import type { Loaded, LoadStep } from '../load/load-in-worker';
 import { ciHealth, ciKey, type CiHealth, type CiRun, type Sky } from '../repo/ci';
 import type { LoadError } from '../repo/github';
+import { addedPaths, type BranchDiff, type DiffError } from '../repo/branch-diff';
 import type { OpenPulls } from '../repo/pulls';
 import type { RepoRef } from '../repo/ref';
 import type { Facts } from '../timeline/facts';
 import type { Settings } from './settings';
 
 /** A loaded repo, a lookup from folder path to its index in the tree, and the bundled sample it came from. */
-export type Repo = Loaded & { folderIds: Map<string, number>; sample?: string };
+export type Repo = Loaded & {
+  folderIds: Map<string, number>;
+  sample?: string;
+  /** The compared branch or tag whose new files this tree was grown with, if any. */
+  diffHead?: string;
+};
+/**
+ * A branch, tag or sha shown against the branch on show (`base`) of repo `repo` (owner/repo,
+ * lowercase): its comparison loading, read, or failed.
+ */
+export type DiffView = { repo: string; base: string; head: string } & (
+  | { status: 'loading' }
+  | { status: 'ready'; diff: BranchDiff }
+  | { status: 'error'; error: DiffError }
+);
 /** A LoadError, or a bug in loading that the user can only retry. */
 export type AppError = LoadError | { kind: 'unexpected' };
 /** The load in flight, independent of the repo on screen, which stays until a new one is ready. */
@@ -69,6 +84,8 @@ export type AppState = {
   companions: readonly Loaded[];
   /** Their histories, loaded like `history` once the colors need them, one per companion asked. */
   companionHistory: readonly HistoryFacts<Loaded>[];
+  /** A branch or tag shown against the branch on show, or null. Another repo drops it. */
+  diff: DiffView | null;
 };
 
 export type Action =
@@ -97,11 +114,28 @@ export type Action =
   | { type: 'history'; history: HistoryFacts }
   | { type: 'compare'; refs: readonly RepoRef[] }
   | { type: 'companion'; companion: Loaded }
-  | { type: 'companion-history'; history: HistoryFacts<Loaded> };
+  | { type: 'companion-history'; history: HistoryFacts<Loaded> }
+  | { type: 'diff'; diff: DiffView | null };
 
 const IDLE: LoadState = { phase: 'idle' };
 /** The most trees compared at once, the repo on show among them. */
 export const MAX_COMPARED = 5;
+
+/** A repo's name as a DiffView keeps it. */
+export const repoName = (repo: Loaded) =>
+  `${repo.info.ref.owner}/${repo.info.ref.repo}`.toLowerCase();
+
+/**
+ * The paths a load of `ref` grows in beside its own: the shown branch's new files, when its
+ * comparison is read and names this repo.
+ */
+export function diffExtra(state: AppState, ref: { owner: string; repo: string }) {
+  const { diff } = state;
+  if (diff?.status !== 'ready' || diff.repo !== `${ref.owner}/${ref.repo}`.toLowerCase()) {
+    return null;
+  }
+  return { head: diff.head, paths: addedPaths(diff.diff) };
+}
 
 export function reduce(state: AppState, action: Action): AppState {
   const { load } = state;
@@ -125,6 +159,7 @@ export function reduce(state: AppState, action: Action): AppState {
         notice: action.repo.info.truncated ? 'truncated' : null,
         timeline: action.timeline ?? null,
         history: null,
+        diff: state.diff && state.diff.repo === repoName(action.repo) ? state.diff : null,
       };
     case 'failed':
       if (!current || load.phase !== 'loading') return state;
@@ -198,6 +233,8 @@ export function reduce(state: AppState, action: Action): AppState {
         ],
       };
     }
+    case 'diff':
+      return action.diff === state.diff ? state : { ...state, diff: action.diff };
   }
 }
 

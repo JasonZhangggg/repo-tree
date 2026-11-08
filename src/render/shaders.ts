@@ -33,6 +33,13 @@ export const treeUniforms = {
    * after its own small delay and shrinks away as it lands.
    */
   uFall: { value: 0 },
+  /**
+   * How far the leaves of files a compared branch deletes (`aFall` 2) have fallen, 0 to 1: they
+   * tumble down as dead wood does, but land flat on the island and stay there.
+   */
+  uDrop: { value: 0 },
+  /** The withered color those fallen leaves take, in linear RGB. */
+  uWither: { value: [0.45, 0.3, 0.18] as [number, number, number] },
   uFloor: { value: 0 },
   /** The breeze's clock (seconds). */
   uWindTime: { value: 0 },
@@ -45,7 +52,11 @@ export const treeUniforms = {
    * for the sun or a cloud (the whole tree and ground fade), or -1 for nothing.
    */
   uFocus: { value: -1 },
-  /** 1 while search matches are lit: leaves outside them (`aMatch` 0) fade, and bark with them. */
+  /**
+   * 1 while search matches are lit: leaves outside them (`aMatch` 0) fade, and bark with them.
+   * A compared branch marks its leaves by kind: `aMatch` 1 changed, 2 new (lit bright), 3 deleted
+   * (withered, fallen).
+   */
   uMatch: { value: 0 },
   /** 1 tints what uFocus names (the mouse is over it); 0 keeps it plain (a rock pinned by a click). */
   uFocusTint: { value: 1 },
@@ -140,6 +151,9 @@ vId = aId;
 const SELECTED_OUT = '(uSel.y >= 0.0 && (vId < uSel.x - 0.5 || vId > uSel.y + 0.5))';
 /** Outside the highlighted range, or, with none, not what the mouse is over. */
 const OUTSIDE = `(${SELECTED_OUT} || (uSel.y < 0.0 && ${focusOut('vId')}))`;
+/** A leaf of a compared branch's new file, and one of a file it deletes. */
+const NEW_LEAF = '(vMatch > 1.5 && vMatch < 2.5)';
+const GONE_LEAF = '(vMatch > 2.5)';
 const OTHER_CATEGORY =
   '((uCategory >= 0.0 && abs(vSlot - uCategory) > 0.5) || (uMatch > 0.5 && vMatch < 0.5))';
 /**
@@ -187,7 +201,7 @@ vec3 fromHSL(vec3 hsl) {
  * darken against a light sky, and how far they lift toward POP_LIGHT against a dark one.
  */
 const LEAF_TUNING =
-  '#define FADE_OTHER 0.9\n#define POP_S 0.7\n#define POP_L 0.7\n#define POP_LIFT 0.7\n#define POP_LIGHT 0.5\n';
+  '#define FADE_OTHER 0.9\n#define POP_S 0.7\n#define POP_L 0.7\n#define POP_LIFT 0.7\n#define POP_LIGHT 0.5\n#define NEW_LIGHT 0.6\n#define NEW_LIT 0.45\n';
 /**
  * Leaves of the highlighted category stand apart from the sky they fade others toward: more
  * saturation, and lightness pushed away from the sky. Under a light sky they darken, so a pale or
@@ -195,10 +209,12 @@ const LEAF_TUNING =
  * Runs on the output color.
  */
 const POP = /* glsl */ `
-if ((uCategory >= 0.0 || uMatch > 0.5) && !${OTHER_CATEGORY}) {
+if ((uCategory >= 0.0 || uMatch > 0.5) && !${OTHER_CATEGORY} && !(uMatch > 0.5 && ${GONE_LEAF})) {
   vec3 hsl = toHSL(clamp(gl_FragColor.rgb, 0.0, 1.0));
   bool night = dot(uFade, vec3(0.299, 0.587, 0.114)) < 0.4;
   float l = night ? mix(hsl.z, POP_LIGHT, POP_LIFT) : hsl.z * POP_L;
+  // New leaves lift toward a bright tone rather than darken, so they read as fresh growth.
+  if (uMatch > 0.5 && ${NEW_LEAF}) l = mix(hsl.z, NEW_LIGHT, 0.7);
   gl_FragColor.rgb = fromHSL(vec3(hsl.x, mix(hsl.y, 1.0, POP_S), l));
 }
 `;
@@ -216,6 +232,7 @@ attribute vec2 aShade;
 attribute float aHeat;
 attribute float aFall;
 uniform float uFall;
+uniform float uDrop;
 uniform float uFloor;
 uniform vec3 uSlots[SLOTS];
 varying vec3 vLeaf;
@@ -235,18 +252,24 @@ float flutter = sin(uWindTime * 3.1 + dot(aBase, vec3(9.1, 5.3, 7.7)));
 transformed.y += uWind * 0.05 * flutter * distance(transformed.xz, aBase.xz);
 `;
 const FALL = /* glsl */ `
-if (aFall > 0.5 && uFall > 0.0) {
+float fallBy = aFall > 1.5 ? uDrop : uFall;
+if (aFall > 0.5 && fallBy > 0.0) {
+  // A deleted file's leaf (aFall 2) drifts further, lands flat and stays; dead wood shrinks away.
+  bool stays = aFall > 1.5;
   float r = fract(sin(dot(aBase.xz, vec2(12.9898, 78.233)) + aId) * 43758.5453);
-  float f = clamp((uFall - r * 0.35) / 0.65, 0.0, 1.0);
+  float f = clamp((fallBy - r * 0.35) / 0.65, 0.0, 1.0);
   vec3 off = transformed - aBase;
   float a = f * (3.0 + 4.0 * r);
   vec3 ax = normalize(vec3(r - 0.5, 0.4, 0.7 - r));
   off = off * cos(a) + cross(ax, off) * sin(a) + ax * dot(ax, off) * (1.0 - cos(a));
+  float drift = stays ? 0.3 : 0.12;
   vec3 stem = aBase;
-  stem.y = mix(aBase.y, uFloor, f * f);
-  stem.x += sin(f * 6.0 + r * 6.28) * 0.12 * f;
-  stem.z += cos(f * 5.0 + r * 6.28) * 0.12 * f;
-  transformed = stem + off * (1.0 - smoothstep(0.85, 1.0, f));
+  stem.y = mix(aBase.y, uFloor + (stays ? 0.02 : 0.0), f * f);
+  stem.x += sin(f * 6.0 + r * 6.28) * drift * f;
+  stem.z += cos(f * 5.0 + r * 6.28) * drift * f;
+  if (stays) off.y *= 1.0 - 0.85 * f;
+  // A fallen leaf lies a little larger than it hung, so it reads from the framed view.
+  transformed = stem + off * (stays ? 1.0 + 0.6 * f : 1.0 - smoothstep(0.85, 1.0, f));
 }
 `;
 /**
@@ -256,6 +279,8 @@ if (aFall > 0.5 && uFall > 0.0) {
 const HOT_GLOW = /* glsl */ `
 #include <emissivemap_fragment>
 totalEmissiveRadiance += vLeaf * (step(0.001, vHeat) * (0.55 + 0.45 * vHeat) * uGlow * SELF_LIT);
+// A compared branch's new files shine in their own color.
+if (uMatch > 0.5 && ${NEW_LEAF}) totalEmissiveRadiance += vLeaf * NEW_LIT;
 `;
 
 type Hook = (shader: WebGLProgramParametersWithUniforms) => void;
@@ -312,12 +337,12 @@ export const leafShader = <M extends Material>(m: M, slots: number) =>
       LEAF_TUNING +
       FADE_UNIFORMS +
       'varying vec3 vLeaf;\nvarying float vSlot;\nvarying float vHeat;\nvarying float vMatch;\n' +
-      '#define SELF_LIT 0.5\nuniform float uGlow;\n' +
+      '#define SELF_LIT 0.5\nuniform float uGlow;\nuniform vec3 uWither;\n' +
       HSL +
       shader.fragmentShader
         .replace(
           '#include <color_fragment>',
-          '#include <color_fragment>\ndiffuseColor.rgb *= vLeaf;',
+          `#include <color_fragment>\ndiffuseColor.rgb *= vLeaf;\nif (uMatch > 0.5 && ${GONE_LEAF}) diffuseColor.rgb = mix(diffuseColor.rgb, uWither, 0.9);`,
         )
         .replace('#include <emissivemap_fragment>', HOT_GLOW)
         .replace(

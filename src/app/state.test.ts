@@ -33,6 +33,7 @@ const INITIAL: AppState = {
   compare: [],
   companions: [],
   companionHistory: [],
+  diff: null,
 };
 const repo = (name: string, truncated = false) =>
   ({

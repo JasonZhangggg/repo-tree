@@ -46,6 +46,7 @@ import { LIGHT, litColor } from './color';
 import { AGES, ageBand, CHANGES, changeBand, DEAD, type Facts } from '../timeline/facts';
 import { ownerCategories } from '../timeline/owners';
 import type { Births } from '../timeline/timeline';
+import { DIFF, diffLeaves } from './diff';
 import { groveSpots } from './grove';
 import { birdGeometry, BIRD_SIZE, perchOnCrown, type Perched } from './birds';
 import { createGround } from './ground';
@@ -228,6 +229,14 @@ export interface TreeView {
    */
   setMatches(files: Uint8Array | null, others?: readonly (Uint8Array | null)[]): void;
   /**
+   * Shows a compared branch on the tree on show, by RepoIndex.files id (DIFF): leaves of changed
+   * files light, of new files light bright, and of deleted files wither, fall and lie on the
+   * island; the rest of the crown and the bark fade, as with matches. A sprig falls only when
+   * every file it stands for is deleted; one deleted among others lights as changed. Matches,
+   * while set, show instead. Null shows the tree plainly; setTree clears it.
+   */
+  setDiff(files: Uint8Array | null): void;
+  /**
    * Keeps a rock lit while the rest fades, untinted, once a click pinned its file, as a pinned
    * folder's leaves stay; or none. What the mouse is over still takes over while it is there.
    */
@@ -355,6 +364,8 @@ const ALIVE_FRAME_MS = 33;
 const FALL_MS = 2600;
 /** A leaf is six triangles of its own three vertices each (grow.ts `leaf`). */
 const LEAF_VERTICES = 18;
+/** A deleted file's fallen leaf. */
+const WITHERED = '#5e4630';
 /** A glow takes its leaf's hue, this saturated and at least this light, so it reads as light. */
 const GLOW_SATURATION = 0.9;
 const GLOW_LIGHTNESS = 0.62;
@@ -749,6 +760,10 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
   };
 
   let matches: Uint8Array | null = null;
+  /** The compared branch's mark per leaf of the tree on show (DIFF), or null. */
+  let diff: Uint8Array | null = null;
+  /** When deleted files' leaves began to fall, or -1. */
+  let dropStart = -1;
   /** Each compared tree's matches, in setCompanions order. */
   let companionMatches: readonly (Uint8Array | null)[] = [];
   /** Each leaf's `aMatch` for a tree: 1 where its sprig stands for any matched file. */
@@ -764,13 +779,24 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     }
     return lit;
   };
+  /** Each leaf vertex's `aMatch` for the compared branch: its leaf's DIFF mark. */
+  const diffLit = ({ leaves }: TreeModel, marks: Uint8Array) => {
+    const lit = new Float32Array(leaves.nodeId.length);
+    marks.forEach((mark, i) => {
+      if (mark) lit.fill(mark, i * LEAF_VERTICES, (i + 1) * LEAF_VERTICES);
+    });
+    return lit;
+  };
   const applyMatches = () => {
-    const on = !!matches || companionMatches.some((m) => !!m);
+    const on = !!matches || !!diff || companionMatches.some((m) => !!m);
     treeUniforms.uMatch.value = on && shown ? 1 : 0;
     if (!shown) return;
     shown.leaves.geometry.setAttribute(
       'aMatch',
-      new BufferAttribute(litOf(shown.model, matches), 1),
+      new BufferAttribute(
+        !matches && diff ? diffLit(shown.model, diff) : litOf(shown.model, matches),
+        1,
+      ),
     );
     companions.forEach((c, i) => {
       const lit = litOf(c.model, companionMatches[i] ?? null);
@@ -867,6 +893,15 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       if (k >= 1) {
         fallStart = -1;
         applyBirths(timelineBirths);
+      }
+    }
+    if (dropStart >= 0) {
+      const k = (now - dropStart) / FALL_MS;
+      treeUniforms.uDrop.value = Math.min(1, Math.max(0, k));
+      busy = true;
+      if (k >= 1) {
+        dropStart = -1;
+        renderer.shadowMap.needsUpdate = true;
       }
     }
     const pulsing = glowing > 0 && !reducedMotion;
@@ -1217,6 +1252,9 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     treeUniforms.uDeadBark.value = new Color(palette.bark)
       .lerp(new Color(palette.sky.edge), DEAD_BLEACH)
       .toArray() as [number, number, number];
+    // A deleted file's fallen leaf is a dry brown leaf, the same in every season, so it reads
+    // against grass and the island's own fallen leaves alike.
+    treeUniforms.uWither.value = new Color(WITHERED).toArray() as [number, number, number];
   };
 
   /**
@@ -1412,11 +1450,40 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     if (glowing > 0) placeGlow();
     shown.leaves.geometry.setAttribute(
       'aFall',
-      new BufferAttribute(falling ? fall : new Float32Array(leafBorn.length), 1),
+      new BufferAttribute(withDrops(falling ? fall : new Float32Array(leafBorn.length)), 1),
     );
     births = next?.nodes ?? null;
     birdMesh.visible = births === null && birdSpots.length > 0;
     if (!next) treeUniforms.uTime.value = ALWAYS;
+    renderer.shadowMap.needsUpdate = true;
+    requestRender();
+  };
+
+  /** Marks the leaves of files a compared branch deletes to fall and stay (2). */
+  const withDrops = (fall: Float32Array) => {
+    if (!diff) return fall;
+    diff.forEach((mark, i) => {
+      if (mark !== DIFF.removed) return;
+      for (let v = i * LEAF_VERTICES; v < (i + 1) * LEAF_VERTICES && v < fall.length; v++) {
+        if (!fall[v]) fall[v] = 2;
+      }
+    });
+    return fall;
+  };
+  /** Writes the drops into `aFall` beside any dead wood falling, and lets them fall. */
+  const applyDrops = () => {
+    if (!shown) return;
+    const attr = shown.leaves.geometry.getAttribute('aFall');
+    const fall = new Float32Array(shown.model.leaves.nodeId.length);
+    const was = attr?.array as Float32Array | undefined;
+    if (was && was.length === fall.length)
+      for (let v = 0; v < fall.length; v++) if (was[v] === 1) fall[v] = 1;
+    shown.leaves.geometry.setAttribute('aFall', new BufferAttribute(withDrops(fall), 1));
+    const any = !!diff && diff.includes(DIFF.removed);
+    // They fall once the tree has grown in, so the fall reads on its own.
+    const grown = growingNow ? growStart + GROW_MS : 0;
+    dropStart = any && !reducedMotion ? Math.max(performance.now(), grown) : -1;
+    treeUniforms.uDrop.value = any && reducedMotion ? 1 : 0;
     renderer.shadowMap.needsUpdate = true;
     requestRender();
   };
@@ -1497,8 +1564,11 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       treeUniforms.uFloor.value = model.bounds.min[1];
       treeUniforms.uWindHeight.value = Math.max(1, model.bounds.max[1]);
       applyBirths(null);
-      // Matches name the last tree's files: the caller lights this tree's again.
+      // Matches and a compared branch name the last tree's files: the caller gives this tree's.
       matches = null;
+      diff = null;
+      dropStart = -1;
+      treeUniforms.uDrop.value = 0;
       companionMatches = [];
       applyMatches();
       // Perches name the last tree's folders: the caller gives this tree's.
@@ -1728,6 +1798,12 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
       matches = files;
       companionMatches = others;
       applyMatches();
+    },
+
+    setDiff(files) {
+      diff = files && shown ? diffLeaves(shown.model, files, LEAF_VERTICES) : null;
+      applyMatches();
+      applyDrops();
     },
 
     pickAt(x, y) {

@@ -5,7 +5,8 @@ import { COLOR_BYS, PALETTE_IDS } from './settings';
 
 /**
  * Everything a shared URL restores: `#/owner/repo?branch=&palette=&colorBy=&sel=&hl=&wx=&t=`,
- * with a `vs=` per compared repo and a `pin=` per folder in the pin tray.
+ * with a `vs=` per compared repo, a `pin=` per folder in the pin tray, and `diff=` a branch or
+ * tag shown against the branch on show.
  */
 export type ViewLink = {
   ref: RepoRef;
@@ -23,6 +24,8 @@ export type ViewLink = {
   vs?: RepoRef[];
   /** The pin tray's folder paths, oldest first. */
   pins?: string[];
+  /** A branch, tag or sha whose changes against the branch on show the tree shows. */
+  diff?: string;
 };
 
 export function parseLink(hash: string): ViewLink | null {
@@ -52,11 +55,13 @@ export function parseLink(hash: string): ViewLink | null {
   if (vs.length) link.vs = vs;
   const pins = query.getAll('pin').filter(Boolean);
   if (pins.length) link.pins = pins;
+  const diff = query.get('diff');
+  if (diff) link.diff = diff;
   return link;
 }
 
 export function formatLink(link: ViewLink): string {
-  const { ref, palette, colorBy, sel, hl, wx, t, vs, pins } = link;
+  const { ref, palette, colorBy, sel, hl, wx, t, vs, pins, diff } = link;
   const params: [string, string | undefined][] = [
     ['branch', ref.ref],
     ['palette', palette],
@@ -67,6 +72,7 @@ export function formatLink(link: ViewLink): string {
     ['t', t === undefined ? undefined : new Date(t).toISOString().slice(0, 10)],
     ...(vs ?? []).map((r): [string, string] => ['vs', `${r.owner}/${r.repo}`]),
     ...(pins ?? []).map((pin): [string, string] => ['pin', pin]),
+    ['diff', diff],
   ];
   const query = params
     .filter((p): p is [string, string] => p[1] !== undefined)

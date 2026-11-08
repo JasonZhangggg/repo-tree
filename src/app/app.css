@@ -4112,3 +4112,213 @@ body[data-compare] #overview {
 .cmp-legend {
   margin-top: 4px;
 }
+
+/* A branch's changes: a row at the foot of the repo card, then its key while it shows. */
+.diff-rows {
+  grid-column: 1 / -1;
+  display: grid;
+  margin: 0 -12px -8px -8px;
+}
+.diff-rows[hidden],
+.diff-on[hidden] {
+  display: none;
+}
+.title:has(> .diff-rows:not([hidden])) > .cmp-rows .cmp-add {
+  border-radius: 0;
+}
+.diff-rows .cmp-plus svg {
+  width: 15px;
+  height: 15px;
+}
+.diff-on {
+  display: grid;
+  gap: 6px;
+  padding: 12px 12px 14px 16px;
+  border-top: 1px solid var(--line);
+}
+.diff-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diff-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+}
+.diff-line svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+.diff-line code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 13px var(--mono);
+}
+.diff-line code:last-child {
+  font-weight: 400;
+  color: var(--muted);
+}
+.diff-vs {
+  color: var(--muted);
+}
+.diff-stop {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.diff-stop:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.diff-stop svg {
+  width: 15px;
+  height: 15px;
+}
+.diff-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.diff-counts > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* A leaf's shape in each kind's look: new shines, changed is lit, deleted has withered. */
+.diff-swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 0 60% 0 60%;
+}
+.diff-swatch.added {
+  background: #f4c84a;
+  box-shadow: 0 0 6px 1px rgba(244, 190, 60, 0.75);
+}
+.diff-swatch.modified {
+  background: #c9562b;
+}
+.diff-swatch.removed {
+  background: #6b5038;
+  rotate: 70deg;
+}
+.diff-detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.diff-error {
+  color: var(--danger);
+}
+.diff-picker {
+  width: min(400px, calc(100% - 32px));
+}
+.diff-glyph {
+  color: var(--ink);
+  background: var(--wash);
+}
+.diff-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--ink);
+  font: 14px var(--mono);
+}
+.diff-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.diff-refs {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.diff-refs:empty {
+  display: none;
+}
+.diff-ref {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--ink);
+  font: 13.5px var(--mono);
+  text-align: left;
+  cursor: pointer;
+}
+.diff-ref:hover,
+.diff-ref:focus-visible {
+  background: var(--hover);
+}
+.diff-ref svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+.diff-ref-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-ref small {
+  margin-left: auto;
+  color: var(--muted);
+  font: 600 11px var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.diff-note:empty {
+  display: none;
+}
+#diff-menu[hidden] {
+  display: none;
+}
+@media (min-width: 761px) {
+  #diff-menu {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .diff-rows {
+    order: 4;
+    flex: 1 0 100%;
+    margin: 2px -8px -6px;
+  }
+  /* iOS zooms into a field under 16px. */
+  .diff-input {
+    font-size: 16px;
+  }
+  /* The row waits in More actions; the card shows a branch only while one shows. */
+  .diff-rows:not(:has(.diff-on:not([hidden]))) {
+    display: none;
+  }
+}

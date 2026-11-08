@@ -8,10 +8,13 @@ import { indexRepo, type RepoIndex } from './repo-index';
 const post = (message: WorkerMessage, transfer: Transferable[] = []) =>
   self.postMessage(message, { transfer });
 
-self.onmessage = async ({ data: { source, filters, params } }: MessageEvent<LoadRequest>) => {
+self.onmessage = async ({
+  data: { source, filters, params, extra },
+}: MessageEvent<LoadRequest>) => {
   post({ step: 'fetch' });
-  const snapshot = await snapshotOf(source);
-  if ('kind' in snapshot) return post({ error: snapshot });
+  const read = await snapshotOf(source);
+  if ('kind' in read) return post({ error: read });
+  const snapshot = withExtra(read, extra);
   post({ step: 'build' });
   const dir = buildHierarchy(snapshot, filters);
   if (dir.fileCount === 0) return post({ error: { kind: 'empty' } });
@@ -26,6 +29,14 @@ self.onmessage = async ({ data: { source, filters, params } }: MessageEvent<Load
     buffers(tree, index),
   );
 };
+
+/** The snapshot with `extra` paths it lacks added as empty files. */
+function withExtra(snapshot: Snapshot, extra?: readonly string[]): Snapshot {
+  if (!extra?.length) return snapshot;
+  const have = new Set(snapshot.files.map((f) => f.path));
+  const added = extra.filter((path) => !have.has(path)).map((path) => ({ path, size: 0 }));
+  return { ...snapshot, files: [...snapshot.files, ...added] };
+}
 
 async function snapshotOf(source: LoadSource): Promise<Snapshot | LoadError> {
   if (source.kind === 'sample') return loadSample(source.id, source.base);

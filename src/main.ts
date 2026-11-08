@@ -20,6 +20,7 @@ import {
   companionsOf,
   createStore,
   factsOf,
+  repoName,
   qualityOf,
   weatherOf,
   type AppState,
@@ -38,6 +39,8 @@ import { childrenOf, mountSide } from './app/ui/side';
 import { mountHistoryCompute } from './app/ui/history-compute';
 import { mountTimeline } from './app/ui/timeline';
 import { mountCompare } from './app/ui/compare';
+import { mountBranchDiff } from './app/ui/branch-diff';
+import { diffMarks } from './repo/branch-diff';
 import { rankOf, sizeScales, treeStats } from './app/compare';
 
 const SETTINGS_KEY = 'repo-tree:settings';
@@ -71,6 +74,7 @@ const store = createStore({
   compare: [],
   companions: [],
   companionHistory: [],
+  diff: null,
 });
 
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -241,6 +245,11 @@ function applyHighlight() {
   canvas.mark(other === undefined ? folder : null);
 }
 
+/** The compared branch the tree on show was grown for, once read. */
+function shownDiff({ repo, diff }: AppState) {
+  return repo && diff?.status === 'ready' && repo.diffHead === diff.head ? diff : null;
+}
+
 function describe(state: AppState): string {
   const repo = state.repo!;
   const { files } = repo.index.folders;
@@ -276,6 +285,7 @@ function linkOf(state: AppState): string | null {
     t: state.timeline ?? undefined,
     vs: state.compare.length ? [...state.compare] : undefined,
     pins: pinsOf(state),
+    diff: state.diff?.head,
   });
 }
 
@@ -287,6 +297,10 @@ function applyLink(link: ViewLink) {
   store.dispatch({ type: 'preview', sky: link.wx ?? null });
   store.dispatch({ type: 'compare', refs: link.vs ?? [] });
   pinTray.receive(link.ref, link.pins ?? []);
+  // A branch's changes, once its repo shows; a link without one puts the tree back.
+  const name = `${link.ref.owner}/${link.ref.repo}`.toLowerCase();
+  if (link.diff) branchDiff.request(name, link.diff);
+  else if (store.get().diff) store.dispatch({ type: 'diff', diff: null });
   const { repo } = store.get();
   const same =
     repo &&
@@ -351,6 +365,11 @@ store.subscribe((state, prev) => {
     pullHovered = pullHeld = null;
     applyPull();
   }
+  // The compared branch shows once the tree holds its new files.
+  if (state.repo !== prev.repo || shownDiff(state) !== shownDiff(prev)) {
+    const shown = shownDiff(state);
+    view.setDiff(shown && diffMarks(shown.diff, state.repo!.index.files.paths).marks);
+  }
   if (s.palette !== prev.settings.palette) view.setPalette(s.palette);
   if (s.colorBy !== prev.settings.colorBy) view.setColorBy(s.colorBy);
   if (factsOf(state) !== factsOf(prev) || state.repo !== prev.repo) view.setFacts(factsOf(state));
@@ -376,7 +395,19 @@ store.subscribe((state, prev) => {
     applyHighlight();
   }
 
-  const regrow = s.quality !== prev.settings.quality || s.hidden !== prev.settings.hidden;
+  // A compared branch's new files grow in once its comparison is read, and go once it is let go.
+  const diff = state.diff;
+  const regrowDiff =
+    diff !== prev.diff &&
+    diff?.status !== 'loading' &&
+    !!state.repo &&
+    (diff?.status === 'ready' && diff.repo === repoName(state.repo) ? diff.head : undefined) !==
+      state.repo.diffHead;
+  // Side by side shows several repos; a branch's changes describe one.
+  if (state.compare.length && diff)
+    queueMicrotask(() => store.dispatch({ type: 'diff', diff: null }));
+  const regrow =
+    s.quality !== prev.settings.quality || s.hidden !== prev.settings.hidden || regrowDiff;
   if (regrow && state.repo) {
     const path = state.selection ? state.repo.tree.folders.path[state.selection.folder] : undefined;
     const ref = state.repo.info.ref;
@@ -665,6 +696,7 @@ const timeline = mountTimeline(
 );
 const settings = mountSettings(app);
 mountCompare(app);
+const branchDiff = mountBranchDiff(app);
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 mountQuick(app);
 const pinTray = mountPinTray(app, () => {

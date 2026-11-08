@@ -9,7 +9,7 @@ import { PALETTES } from '../render/palette';
 import { leafCategories } from '../render/tree-view';
 import { debug } from './debug';
 import { sampleFor, type Sample } from './samples';
-import { qualityOf, type Repo, type Store } from './state';
+import { diffExtra, qualityOf, type Repo, type Store } from './state';
 
 export const SEED = 42;
 const KEEP = 4;
@@ -110,7 +110,9 @@ export function createLoader(store: Store, { signInExpired }: { signInExpired?: 
       ? { kind: 'sample', id: sample.id, base: new URL('./', location.href).href }
       : { kind: 'github', ref, token, fresh };
     const name = sample?.id ?? `${ref.owner}/${ref.repo}@${ref.ref ?? ''}`.toLowerCase();
-    const key = `${name}|${hidden.join('/')}|${quality}`;
+    // A compared branch's new files grow in as leaves of their own.
+    const extra = diffExtra(state, ref);
+    const key = `${name}|${hidden.join('/')}|${quality}|${extra?.head ?? ''}`;
     const runsFor = (branch: string) => {
       if (runsInFlight && runsInFlight.key !== ciKey(ref, branch)) runsInFlight.abort.abort();
       // A sample reloaded live from GitHub still falls back to its bundled runs.
@@ -125,7 +127,7 @@ export function createLoader(store: Store, { signInExpired }: { signInExpired?: 
     if (!repo) {
       try {
         const result = await loadInWorker(
-          { source, filters: { hidden }, params: { seed: SEED, quality } },
+          { source, filters: { hidden }, params: { seed: SEED, quality }, extra: extra?.paths },
           {
             step(step) {
               if (step === 'build') debug.timings.loaded ??= performance.now();
@@ -152,7 +154,7 @@ export function createLoader(store: Store, { signInExpired }: { signInExpired?: 
           return store.dispatch({ type: 'failed', id, error: result });
         }
         const folderIds = new Map(result.tree.folders.path.map((path, i) => [path, i]));
-        repo = { ...result, folderIds, sample: sample?.id };
+        repo = { ...result, folderIds, sample: sample?.id, diffHead: extra?.head };
       } catch (error) {
         if (abort.signal.aborted) return;
         console.error(error);

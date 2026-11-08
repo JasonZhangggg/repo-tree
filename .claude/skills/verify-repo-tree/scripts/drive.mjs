@@ -2,7 +2,7 @@
 // Usage: node .claude/skills/verify-repo-tree/scripts/drive.mjs <command> [--port 4175]
 //          [--out dir] [--viewport desktop|phone|phone-390] [--scale 2] [--history]
 // Commands: launch, doctor, cleanup, or a journey: load-repo, explore, search, settings,
-// share-and-export, phone-layout, tree-sizes, timeline, compare, weather, birds, hover, activity, changes, busiest,
+// share-and-export, phone-layout, tree-sizes, timeline, compare, weather, birds, branch, hover, activity, changes, busiest,
 // history-compute.
 // `launch --history` starts e2e/history-stack.mjs instead (app, history Worker and fake GitHub
 // on port, port+1 and port+2), which the history-compute journey needs. Journeys save numbered screenshots and report.json in --out
@@ -27,8 +27,10 @@ import {
   quietSettings,
   ready,
   serveRepo,
+  serveBranches,
   servePulls,
   serveRuns,
+  VITE_BRANCHES,
   VITE_PULLS,
 } from '../../../../e2e/github.ts';
 
@@ -763,6 +765,10 @@ const JOURNEYS = {
         'href',
         /^https:\/\/github\.com\/vitejs\/vite\/pull\/\d+$/,
       );
+      // Its changed files light on the tree while the card is open.
+      await expect(card).toContainText(/lit on the tree/);
+      await expect.poll(() => page.evaluate(() => window.__repoTree.litPull)).not.toBeNull();
+      await settle(page);
     });
     await step('off', async () => {
       await page.locator('#pr-card').getByRole('button', { name: 'Not now' }).click();
@@ -771,6 +777,69 @@ const JOURNEYS = {
       await expect.poll(async () => (await birdsOnScreen()).length).toBe(0);
       await page.getByRole('button', { name: 'Close settings' }).click();
       await settle(page);
+    });
+  },
+
+  branch: async ({ page, step }) => {
+    const phone = viewport.startsWith('phone');
+    await serveBranches(page, 'vitejs/vite', VITE_BRANCHES);
+    const card = page.locator('#diff-on');
+    await step('idle', async () => {
+      await page.goto(base);
+      await ready(page, 'vitejs/vite');
+      if (!phone) await expect(page.locator('#diff-open')).toBeVisible();
+      await settle(page);
+    });
+    /** The row at the foot of the repo card, or on a phone the More actions menu's entry. */
+    const openPicker = async () => {
+      if (!phone) return page.locator('#diff-open').click();
+      await page.getByRole('button', { name: 'More actions' }).click();
+      await page.locator('#diff-menu').click();
+    };
+    await step('picker', async () => {
+      await openPicker();
+      const picker = page.getByRole('dialog', { name: /Show a branch’s changes against main/ });
+      await expect(picker).toBeVisible();
+      await expect(picker.getByRole('button', { name: /feat\/rolldown-bundler/ })).toBeVisible();
+      await expect(picker.getByRole('button', { name: /v6\.3\.0/ })).toBeVisible();
+    });
+    await step('typed', async () => {
+      await page.getByLabel('Branch, tag or commit').fill('roll');
+      await expect(page.locator('.diff-ref')).toHaveCount(1);
+    });
+    await step('compared', async () => {
+      await page.locator('.diff-ref', { hasText: 'feat/rolldown-bundler' }).click();
+      await expect(card).toContainText('13 new');
+      await expect(card).toContainText('9 changed');
+      await expect(card).toContainText('58 deleted');
+      await expect(card).toContainText('23 commits ahead, 4 behind');
+      await expect(card).not.toContainText('Growing');
+      await ready(page, 'vitejs/vite');
+      await expect
+        .poll(() => page.evaluate(() => location.hash))
+        .toContain('diff=feat/rolldown-bundler');
+      await settle(page);
+    });
+    await step('link', async () => {
+      const hash = await page.evaluate(() => location.hash);
+      await page.goto(`${base}${hash}`);
+      await page.reload();
+      await ready(page, 'vitejs/vite');
+      await expect(card).toContainText('13 new');
+      await settle(page);
+    });
+    await step('stop', async () => {
+      await page.getByRole('button', { name: 'Stop showing branch changes' }).click();
+      await expect(card).toBeHidden();
+      await expect.poll(() => page.evaluate(() => location.hash)).not.toContain('diff=');
+      await ready(page, 'vitejs/vite');
+      await settle(page);
+    });
+    await step('missing', async () => {
+      await openPicker();
+      await page.getByLabel('Branch, tag or commit').fill('no-such-branch');
+      await page.getByRole('button', { name: 'Show changes' }).click();
+      await expect(card).toContainText('GitHub has no branch, tag or commit “no-such-branch”');
     });
   },
 

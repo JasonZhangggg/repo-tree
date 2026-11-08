@@ -8,7 +8,7 @@ Pick any branch, tag or commit and the tree shows what it changes against the br
 - `diff-compare` reads `GET /compare/<base>...<head>` once (`fetchCompare`); a rename is its old path deleted and its new one added; GitHub's 300-file cap is noted.
 - `diff-grow` regrows the tree with the head's new files (`LoadRequest.extra`), then `TreeView.setDiff` marks leaves: a sprig's leaves split by its files, so the share deleted falls (at least one leaf) and the share added shines, the rest lit when any file changed.
 - `diff-fall` deleted leaves fall once the tree has grown in and stay on the island in a dry brown; under reduced motion they lie there at once.
-- `diff-key` the key at the repo card's foot: counts, ahead and behind, files in hidden folders, and ×.
+- `diff-key` the key at the repo card's foot: counts (a kind with no files is left out), ahead and behind, files in hidden folders, and ×. A long head name ends in an ellipsis inside the card, with the full name as its tooltip, and never widens the card.
 - `diff-link` puts `diff=<head>` in the link, which restores it.
 - `diff-error` a name GitHub does not know (or one sharing no history) says so in the key and leaves the tree as it was; a rate limit says when it lifts.
 - `diff-grove` comparing trees side by side lets the branch go: it describes one repo.

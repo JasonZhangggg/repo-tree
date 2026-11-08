@@ -1324,10 +1324,25 @@ const JOURNEYS = {
     await step('progress', async () => {
       await dialog.getByRole('button', { name: 'Close', exact: true }).click();
       await openTimeline('acme/widgets');
-      const popup = page.waitForEvent('popup');
       await dialog.getByRole('button', { name: /^Sign in/ }).click();
+    });
+    await step('consent', async () => {
+      // Before any popup: what signing in grants and what it can't, with an Authorize button.
+      const consent = page.getByRole('dialog', { name: 'Sign in with GitHub' });
+      await expect(consent).toContainText('asks GitHub for no permissions');
+      await expect(consent).toContainText('Change anything on GitHub');
+      await expect(consent.getByRole('button', { name: 'Authorize with GitHub' })).toBeFocused();
+    });
+    await step('signed-in', async () => {
+      const popup = page.waitForEvent('popup');
+      await page.getByRole('button', { name: 'Authorize with GitHub' }).click();
       const signin = await popup;
       if (!signin.isClosed()) await signin.waitForEvent('close');
+      const done = page.getByRole('dialog', { name: 'Signed in as @visitor' });
+      await expect(done).toContainText('your own 5,000 requests an hour');
+    });
+    await step('computing', async () => {
+      await page.getByRole('button', { name: 'Done' }).click();
       await expect(dialog.locator('progress')).toHaveAttribute('value', /^[1-9]\d?$/);
       await expect(dialog).toContainText(/\d+% · /);
       await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
@@ -1340,8 +1355,11 @@ const JOURNEYS = {
       const manifest = JSON.parse(res.headers.get('x-history-manifest'));
       expect(manifest).toMatchObject({ repo: 'acme/widgets', branch: 'main', by: 'visitor' });
       expect([...authorized].sort()).toEqual([fake, worker].sort());
-      const stored = await page.evaluate(() => JSON.stringify(localStorage));
-      expect(stored).not.toMatch(/gho_|token/i);
+      // The sign-in is kept under its own key only (this browser, every tab), never in settings.
+      const stored = await page.evaluate(() => ({ ...localStorage }));
+      expect(stored['repo-tree:github-signin']).toMatch(/^gho_/);
+      const others = Object.entries(stored).filter(([k]) => k !== 'repo-tree:github-signin');
+      expect(JSON.stringify(others)).not.toMatch(/gho_/);
       await settle(page);
     });
     await step('shared', async () => {

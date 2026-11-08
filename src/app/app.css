@@ -608,10 +608,11 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
 .account-meter i {
   display: block;
   height: 100%;
-  width: 0;
-  border-radius: inherit;
   background: var(--ink);
-  transition: width 0.3s var(--ease);
+  /* Filled by scaling, not by width, so the meter moves on the compositor. */
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s var(--ease);
 }
 .account[data-low='true'] .account-meter i {
   background: var(--danger);
@@ -2916,7 +2917,6 @@ body:has(.scrubber:not([hidden])) .toast {
     border-radius: 20px 20px 0 0;
     box-shadow: 0 -8px 30px rgba(60, 40, 20, 0.12);
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    transition: max-height 0.36s var(--ease-drawer);
     touch-action: none;
   }
   .side[data-dragging] {
@@ -3010,10 +3010,11 @@ body:has(.scrubber:not([hidden])) .toast {
     font-size: 12.5px;
     font-variant-numeric: tabular-nums;
   }
+  /* Its right edge lines up with the cards below it. */
   .close.sheet-clear {
     display: grid;
     top: 12px;
-    right: 10px;
+    right: 12px;
   }
   .detail .close,
   .side[data-open] .controls {
@@ -3251,8 +3252,13 @@ body:has(.scrubber:not([hidden])) .toast {
   .inline-form input {
     min-height: 44px;
   }
+  /* A phone's X is a 44 px target, so a dialog's title wraps clear of the larger button. */
+  .compute:has(> .close) > :is(h2, .ci-head) {
+    padding-right: 44px;
+  }
+  /* Centred on the title's line, below the drawer's tab. */
   .settings .close {
-    top: 26px;
+    top: 21px;
   }
   .toast {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 124px);
@@ -4270,9 +4276,11 @@ body[data-compare] #overview {
   color: var(--muted);
   cursor: pointer;
 }
-.diff-stop:hover {
-  background: var(--hover);
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .diff-stop:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
 }
 .diff-stop svg {
   width: 15px;
@@ -4363,9 +4371,13 @@ body[data-compare] #overview {
   text-align: left;
   cursor: pointer;
 }
-.diff-ref:hover,
 .diff-ref:focus-visible {
   background: var(--hover);
+}
+@media (hover: hover) and (pointer: fine) {
+  .diff-ref:hover {
+    background: var(--hover);
+  }
 }
 .diff-ref svg {
   flex: none;

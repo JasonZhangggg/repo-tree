@@ -85,6 +85,8 @@ const DRAG_SLOP = 8;
 const FLICK = 0.45;
 /** A drag this far toward the other state, in px or share of the sheet's travel, switches it. */
 const SWITCH = { px: 72, share: 0.3 };
+/** `--ease-drawer`, for the sheet's slides that run from script. */
+const SHEET_EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
 
 /**
  * On a phone the sheet follows a finger dragged up or down from its handle, or down from its
@@ -132,14 +134,43 @@ function dragSheet(
   /** Lets the content scroll natively except a downward drag from its top, which closes the sheet. */
   const markTop = () => body.toggleAttribute('data-top', body.scrollTop <= 0);
   body.addEventListener('scroll', markTop, { passive: true });
+  /**
+   * A tap on the bar slides the sheet open or shut, from wherever it is if a slide is already
+   * running, instead of jumping between its two heights. Shutting is quicker than opening.
+   */
+  let slide: { anim: Animation; open: boolean } | null = null;
   toggle.addEventListener('click', () => {
-    body.style.animation = '';
+    const open = slide ? !slide.open : !side.hasAttribute('data-open');
     requestAnimationFrame(markTop);
+    if (!phone.matches || reduce.matches) {
+      body.style.animation = '';
+      setOpen(open);
+      return;
+    }
+    const from = slide ? new DOMMatrix(getComputedStyle(side).transform).m42 : null;
+    slide?.anim.cancel();
+    body.style.animation = 'none';
+    setOpen(true);
+    const travel = body.offsetHeight;
+    const anim = side.animate(
+      [
+        { transform: `translateY(${from ?? (open ? travel : 0)}px)` },
+        { transform: `translateY(${open ? 0 : travel}px)` },
+      ],
+      { duration: open ? 300 : 220, easing: SHEET_EASE, fill: 'forwards' },
+    );
+    slide = { anim, open };
+    anim.onfinish = () => {
+      if (slide?.anim !== anim) return;
+      slide = null;
+      if (!open) setOpen(false);
+      anim.cancel();
+    };
   });
   markTop();
 
   side.addEventListener('pointerdown', (event) => {
-    if (!phone.matches || press || settle || !event.isPrimary || event.button > 0) return;
+    if (!phone.matches || press || settle || slide || !event.isPrimary || event.button > 0) return;
     const target = event.target as Element;
     const fromBody = body.contains(target);
     if (!fromBody && !toggle.contains(target)) return;
@@ -262,7 +293,6 @@ export function mountSide(app: App): void {
     side.toggleAttribute('data-open', open);
     toggle.setAttribute('aria-expanded', String(open));
   };
-  toggle.addEventListener('click', () => setOpen(!side.hasAttribute('data-open')));
   dragSheet(side, toggle, byId('side-body'), setOpen);
   sheetClear.addEventListener('click', () => app.select(null));
 

@@ -1,5 +1,9 @@
-import { signedInToken } from '../../repo/auth';
-import { historySource } from '../../timeline/source';
+import { githubToken, signedInToken } from '../../repo/auth';
+import { fetchReleases, loadSampleReleases, releasesKey, type Release } from '../../repo/releases';
+import { cachedReleases, cacheReleases } from '../../load/cache';
+import { placeMarks, releaseOn, type Mark } from '../../timeline/releases';
+import { sampleFor } from '../samples';
+import { GITHUB_API, historySource } from '../../timeline/source';
 import type { mountHistoryCompute } from './history-compute';
 import {
   buildTimeline,
@@ -24,6 +28,13 @@ const PLAY_MS = 20_000;
 const STEPS = 1000;
 /** Year labels closer than this many pixels to the last one shown are left as bare ticks. */
 const LABEL_GAP = 40;
+/**
+ * Releases closer than this many pixels to one already marked are left out, a fingertip's
+ * width on a touch screen; a tap within half of it lands on the release.
+ */
+const MARK_GAP = { fine: 18, coarse: 28 } as const;
+/** A press that moves less than this many pixels is a tap, and keeps the release it landed on. */
+const TAP_SLOP = 5;
 
 type Phase =
   | { kind: 'closed' }
@@ -42,6 +53,10 @@ type Phase =
        * history replays from the date asked for.
        */
       before?: number;
+      /** Each tree's releases (this one, then the compared ones), once read; null while reading. */
+      releases: (Release[] | null)[] | null;
+      /** The releases marked on the track, by position. */
+      marks: Mark[];
     };
 
 const MONTH = new Intl.DateTimeFormat('en-US', {
@@ -60,7 +75,11 @@ export function mountTimeline(
   reducedMotion: () => boolean,
   showCounts: (counts: ReadonlyMap<number, number> | null) => void,
   compute: ReturnType<typeof mountHistoryCompute>,
-): { date(): number | null } {
+): {
+  date(): number | null;
+  /** Gives the compared trees' seeds, so their releases are marked in each tree's color. */
+  seeds(seedOf: (ref: { owner: string; repo: string }) => number): void;
+} {
   const { store, view } = app;
   const button = byId<HTMLButtonElement>('timeline');
   const scrubber = byId('scrubber');
@@ -70,6 +89,12 @@ export function mountTimeline(
   const filesEl = byId('timeline-files');
   const ticks = byId('timeline-ticks');
   const bubble = byId('timeline-bubble');
+  const marksEl = byId('timeline-marks');
+  const coarse = matchMedia('(pointer: coarse)');
+  let seedOf: (ref: { owner: string; repo: string }) => number = () => 0;
+  /** The mark elements, in `phase.marks` order, and the one the date sits on. */
+  let markEls: HTMLElement[] = [];
+  let onMark: Mark | null = null;
   const built = new WeakMap<Loaded, Timeline>();
   let phase: Phase = { kind: 'closed' };
   let raf = 0;
@@ -111,8 +136,14 @@ export function mountTimeline(
       files += at.files;
       atLeast ||= at.atLeast;
     }
+    const on = releaseOn(phase.marks, date);
+    if (on !== onMark) {
+      markEls[onMark ? phase.marks.indexOf(onMark) : -1]?.removeAttribute('data-on');
+      markEls[on ? phase.marks.indexOf(on) : -1]?.setAttribute('data-on', '');
+      onMark = on;
+    }
     dateEl.textContent = MONTH.format(date);
-    bubble.textContent = MONTH.format(date);
+    bubble.textContent = on ? `${on.short} · ${MONTH.format(date)}` : MONTH.format(date);
     const noun = files === 1 ? 'file' : 'files';
     // The short form keeps the label inside its fixed slot; the long one is read aloud.
     filesEl.textContent = `${count(files)}${atLeast ? '+' : ''} ${noun}`;
@@ -120,7 +151,10 @@ export function mountTimeline(
     const spoken = `${atLeast ? 'at least ' : ''}${count(files)} ${noun}${trees}`;
     filesEl.title = spoken;
     range.value = String(Math.round(phase.s * STEPS));
-    range.setAttribute('aria-valuetext', `${DAY.format(date)}, ${spoken}`);
+    const release = on
+      ? `, release ${phase.others.length ? `${nameOf(on.tree)} ` : ''}${on.tag}`
+      : '';
+    range.setAttribute('aria-valuetext', `${DAY.format(date)}${release}, ${spoken}`);
     scrubber.style.setProperty('--at', String(phase.s));
     const at = phase.s;
     debug.timeline = { s: at, date, files };
@@ -190,7 +224,126 @@ export function mountTimeline(
     }
     ticks.replaceChildren(...marks);
   };
-  new ResizeObserver(layTicks).observe(range);
+  /** The thumb's width in px: the track's ends sit half of it in from the range's. */
+  const thumbPx = () => parseFloat(getComputedStyle(scrubber).getPropertyValue('--thumb')) || 18;
+  const refOf = (tree: number) =>
+    phase.kind !== 'open'
+      ? null
+      : tree === 0
+        ? phase.repo.info.ref
+        : (phase.others[tree - 1]?.repo.info.ref ?? null);
+  const nameOf = (tree: number) => {
+    const ref = refOf(tree);
+    return ref ? `${ref.owner}/${ref.repo}` : '';
+  };
+
+  /**
+   * Marks each tree's releases along the track, as many as fit a fingertip apart, majors first;
+   * a compared tree's in its own seed color. Only a tree that replays has its releases marked,
+   * and only those between its first commit and head.
+   */
+  const layMarks = () => {
+    if (phase.kind !== 'open') return;
+    const { repo, others, timeline, releases } = phase;
+    const own = [repo, ...others.map((o) => (o.timeline ? o.repo : null))].map((r) =>
+      r ? (built.get(r) ?? null) : null,
+    );
+    const width = Math.max(1, range.clientWidth - thumbPx());
+    phase.marks = placeMarks(
+      (releases ?? []).map((list, i) => ({
+        releases: list ?? [],
+        position: (ms: number) => {
+          const t = own[i];
+          return t && ms >= t.start && ms <= t.end ? positionAt(timeline, ms) : null;
+        },
+      })),
+      width,
+      coarse.matches ? MARK_GAP.coarse : MARK_GAP.fine,
+    );
+    const comparing = others.length > 0;
+    markEls = phase.marks.map((m) => {
+      const ref = refOf(m.tree);
+      return h('i', {
+        style: `left:${(m.s * 100).toFixed(3)}%`,
+        'data-rank': String(m.rank),
+        'data-name': m.short,
+        'data-label': m.labeled ? '' : null,
+        'data-seed': comparing && ref ? String(seedOf(ref)) : null,
+      });
+    });
+    onMark = null;
+    marksEl.replaceChildren(...markEls);
+    scrubber.toggleAttribute('data-releases', phase.marks.length > 0);
+    range.setAttribute('aria-keyshortcuts', phase.marks.length ? 'PageUp PageDown' : '');
+    if (!phase.marks.length) range.removeAttribute('aria-keyshortcuts');
+    seek(phase.s);
+  };
+
+  const releaseCache = new Map<string, Promise<Release[] | null>>();
+  /**
+   * A tree's releases: a sample's bundled tags, else the cached or live ones from GitHub (the
+   * bundled tags again if GitHub can't answer for a sample's repo). Read once a session per repo.
+   */
+  const releasesOf = (repo: Loaded & { sample?: string }): Promise<Release[] | null> => {
+    const { ref, branch } = repo.info;
+    const key = releasesKey(ref);
+    let read = releaseCache.get(key);
+    if (read) return read;
+    const bundled = repo.sample ?? sampleFor({ ...ref, ref: branch })?.id;
+    read = (async () => {
+      if (repo.sample) return loadSampleReleases(repo.sample);
+      const kept = await cachedReleases(key);
+      if (kept) return kept;
+      const token = githubToken(store.get().settings.token);
+      const live = await fetchReleases(ref, token, undefined, GITHUB_API).catch(() => null);
+      if (live) void cacheReleases(key, live);
+      return live ?? (bundled ? loadSampleReleases(bundled) : null);
+    })();
+    releaseCache.set(key, read);
+    // A failed read is tried again the next time the timeline opens.
+    void read.then((r) => r || releaseCache.delete(key));
+    return read;
+  };
+
+  /** Reads the releases of every tree on show and marks them, without holding the scrubber up. */
+  const loadReleases = async () => {
+    if (phase.kind !== 'open') return;
+    const opened = phase;
+    const trees = [opened.repo, ...opened.others.map((o) => o.repo)];
+    const all = await Promise.all(trees.map((r) => releasesOf(r)));
+    if (phase !== opened) return;
+    opened.releases = all;
+    layMarks();
+  };
+
+  /** Moves the scrubber onto a release and keeps it there in the link. */
+  const jumpTo = (mark: Mark) => {
+    if (phase.kind !== 'open') return;
+    pause(true);
+    phase.before = undefined;
+    seek(mark.s);
+    settle();
+  };
+
+  /** The mark within half a gap of a point on the track, nearest first. */
+  const markNear = (clientX: number): Mark | null => {
+    if (phase.kind !== 'open' || !phase.marks.length) return null;
+    const width = Math.max(1, range.clientWidth - thumbPx());
+    const s = positionOf(clientX);
+    const reach = (coarse.matches ? MARK_GAP.coarse : MARK_GAP.fine) / 2;
+    let best: Mark | null = null;
+    for (const m of phase.marks) {
+      const d = Math.abs(m.s - s) * width;
+      if (d <= reach && (!best || d < Math.abs(best.s - s) * width)) best = m;
+    }
+    return best;
+  };
+
+  new ResizeObserver(() => {
+    layTicks();
+    layMarks();
+  }).observe(range);
+  coarse.addEventListener('change', layMarks);
 
   /** Opens at a date, or at the start to play when `autoplay`, or whole. */
   const open = async ({ at, autoplay }: { at?: number; autoplay: boolean }) => {
@@ -253,13 +406,24 @@ export function mountTimeline(
       new Map(others.flatMap((o) => (o.timeline ? [[o.repo.tree, o.timeline] as const] : []))),
     );
     const before = at !== undefined && at < main!.start ? at : undefined;
-    phase = { kind: 'open', repo, timeline: main!, others, s: 1, playing: false, before };
+    phase = {
+      kind: 'open',
+      repo,
+      timeline: main!,
+      others,
+      s: 1,
+      playing: false,
+      before,
+      releases: null,
+      marks: [],
+    };
     timeline = main!;
     syncButton();
     layTicks();
     seek(at !== undefined ? positionAt(timeline, at) : autoplay ? 0 : 1);
     if (autoplay) start();
     else settle();
+    void loadReleases();
   };
 
   /** A compared tree's own timeline from its stored history, or null when there is none. */
@@ -290,6 +454,11 @@ export function mountTimeline(
       view.setTimeline(null);
       view.setCompanionBirths(null);
     }
+    markEls = [];
+    onMark = null;
+    marksEl.replaceChildren();
+    scrubber.removeAttribute('data-releases');
+    scrubber.removeAttribute('data-peek');
     showCounts(null);
     debug.timeline = null;
     syncButton();
@@ -315,24 +484,59 @@ export function mountTimeline(
    * itself grabbed first), a bubble over the thumb names the month the finger hides, and a
    * timeline that was playing plays on from where it is let go.
    */
-  let drag: { id: number; resume: boolean } | null = null;
-  const positionOf = (clientX: number) => {
+  let drag: { id: number; resume: boolean; x: number; snapped: Mark | null } | null = null;
+  function positionOf(clientX: number) {
     const box = range.getBoundingClientRect();
-    const thumb = parseFloat(getComputedStyle(scrubber).getPropertyValue('--thumb')) || 18;
+    const thumb = thumbPx();
     return (clientX - box.left - thumb / 2) / Math.max(1, box.width - thumb);
-  };
+  }
   range.addEventListener('pointerdown', (event) => {
     if (phase.kind !== 'open' || event.button > 0) return;
     event.preventDefault();
     range.focus({ preventScroll: true });
     range.setPointerCapture(event.pointerId);
-    drag = { id: event.pointerId, resume: phase.playing };
+    // A press on a release lands on it; moving on from there scrubs freely.
+    const snapped = markNear(event.clientX);
+    drag = { id: event.pointerId, resume: phase.playing, x: event.clientX, snapped };
     pause(true);
+    phase.before = undefined;
+    scrubber.removeAttribute('data-peek');
     scrubber.toggleAttribute('data-dragging', true);
-    seek(positionOf(event.clientX));
+    seek(snapped ? snapped.s : positionOf(event.clientX));
   });
   range.addEventListener('pointermove', (event) => {
-    if (drag?.id === event.pointerId) seek(positionOf(event.clientX));
+    if (drag?.id === event.pointerId) {
+      if (drag.snapped && Math.abs(event.clientX - drag.x) < TAP_SLOP) return;
+      drag.snapped = null;
+      return seek(positionOf(event.clientX));
+    }
+    // A mouse over a release names it and its day in the bubble.
+    const near = event.pointerType === 'mouse' && !drag ? markNear(event.clientX) : null;
+    scrubber.toggleAttribute('data-peek', !!near);
+    if (near) {
+      const tree = phase.kind === 'open' && phase.others.length ? `${nameOf(near.tree)} ` : '';
+      bubble.textContent = `${tree}${near.tag} · ${DAY.format(near.at)}`;
+      scrubber.style.setProperty('--peek', String(near.s));
+    }
+  });
+  range.addEventListener('pointerleave', () => {
+    if (!drag && scrubber.hasAttribute('data-peek')) {
+      scrubber.removeAttribute('data-peek');
+      if (phase.kind === 'open') seek(phase.s);
+    }
+  });
+  // Page Up and Page Down step from release to release, where there are any.
+  range.addEventListener('keydown', (event) => {
+    if (phase.kind !== 'open' || !phase.marks.length) return;
+    if (event.key !== 'PageUp' && event.key !== 'PageDown') return;
+    event.preventDefault();
+    const s = phase.s;
+    const eps = 1e-6;
+    const next =
+      event.key === 'PageUp'
+        ? phase.marks.find((m) => m.s > s + eps)
+        : phase.marks.findLast((m) => m.s < s - eps);
+    if (next) jumpTo(next);
   });
   const release = (event: PointerEvent) => {
     if (drag?.id !== event.pointerId) return;
@@ -344,8 +548,9 @@ export function mountTimeline(
   };
   range.addEventListener('pointerup', release);
   range.addEventListener('pointercancel', release);
-  // Keys still move the native range.
+  // Keys still move the native range. A touch moves it too, under the drag: the drag has the say.
   range.addEventListener('input', () => {
+    if (drag) return;
     if (phase.kind === 'open') phase.before = undefined;
     pause(true);
     seek(Number(range.value) / STEPS);
@@ -396,6 +601,9 @@ export function mountTimeline(
 
   return {
     date: () => (phase.kind === 'open' ? dateAt(phase.timeline, phase.s) : null),
+    seeds: (fn) => {
+      seedOf = fn;
+    },
   };
 }
 

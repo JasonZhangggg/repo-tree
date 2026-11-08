@@ -747,7 +747,7 @@ const timeline = mountTimeline(
   compute,
 );
 const settings = mountSettings(app);
-mountCompare(app);
+timeline.seeds(mountCompare(app).seedOf);
 const branchDiff = mountBranchDiff(app);
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 mountQuick(app);

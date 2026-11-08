@@ -4322,3 +4322,60 @@ body[data-compare] #overview {
     display: none;
   }
 }
+
+/* Embed (embed=1, main.ts): just the tree for an iframe on another page. The repo card shows only
+   while the first tree loads, for its progress; errors keep their corner. */
+body[data-embed] :is(.bar, .title:not([data-loading]), .side, .controls, #signin, .more-menu) {
+  display: none !important;
+}
+.embed-open {
+  position: fixed;
+  z-index: 6;
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 6px 10px 6px 12px;
+  border-radius: 999px;
+  background: var(--raised);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 550;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.embed-open[hidden] {
+  display: none;
+}
+.embed-open .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.embed-open .name:empty,
+.embed-open .name:empty + .by::before {
+  display: none;
+}
+.embed-open .by {
+  color: var(--muted);
+}
+.embed-open .by::before {
+  content: '· ';
+}
+.embed-open svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+@media (hover: hover) and (pointer: fine) {
+  .embed-open:hover {
+    box-shadow: var(--shadow-lift);
+  }
+}

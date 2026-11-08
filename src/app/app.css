@@ -2999,12 +2999,13 @@ body:has(.scrubber:not([hidden])) .toast {
     padding-bottom: env(safe-area-inset-bottom, 0px);
     touch-action: none;
   }
+  /* A drag, and the spring a release hands it to, move the sheet frame by frame. Lifted past
+     open it gives a little, and a second shadow of its own color fills the gap under it. */
   .side[data-dragging] {
-    transform: translateY(var(--sheet-y, 0px));
     transition: none;
-  }
-  .side[data-settling] {
-    transition: transform 0.32s var(--ease-drawer);
+    box-shadow:
+      0 -8px 30px rgba(60, 40, 20, 0.12),
+      0 40px 0 var(--raised);
   }
   .side:not([data-open], [data-dragging]) .side-body {
     display: none;
@@ -3102,7 +3103,6 @@ body:has(.scrubber:not([hidden])) .toast {
   }
   .side[data-dragging] .controls {
     display: flex;
-    opacity: var(--sheet-closed, 1);
   }
   body:has(.side[data-open], .side[data-dragging], #settings:not([hidden])) #labels {
     visibility: hidden;
@@ -3298,6 +3298,9 @@ body:has(.scrubber:not([hidden])) .toast {
   }
   .settings[data-dragging] {
     animation: none;
+    box-shadow:
+      var(--shadow),
+      0 40px 0 var(--raised);
   }
   .settings-grip {
     position: sticky;

@@ -399,6 +399,8 @@ export function mountSettings(app: App): {
   };
 
   function open(focus?: 'token' | 'hidden') {
+    leaving?.cancel();
+    leaving = null;
     render(store.get());
     dialog.hidden = false;
     opener.setAttribute('aria-expanded', 'true');
@@ -413,9 +415,31 @@ export function mountSettings(app: App): {
     if (focus) dialog.querySelector(`#${focus}-field`)?.scrollIntoView({ block: 'nearest' });
   }
 
+  /** On a phone the drawer slides back down when closed by its X, Esc or a tap outside. */
+  let leaving: Animation | null = null;
+  const phone = matchMedia('(max-width: 760px)');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+
   function close(): boolean {
-    if (dialog.hidden) return false;
-    dialog.hidden = true;
+    if (dialog.hidden || leaving) return false;
+    // A drag that closes it has already slid it out of sight.
+    if (phone.matches && !reduce.matches && !dialog.style.transform) {
+      const anim = dialog.animate(
+        [{ transform: 'translateY(0)' }, { transform: 'translateY(100%)' }],
+        {
+          duration: 200,
+          easing: 'cubic-bezier(0.32, 0.72, 0, 1)',
+          fill: 'forwards',
+        },
+      );
+      leaving = anim;
+      anim.onfinish = () => {
+        if (leaving !== anim) return;
+        leaving = null;
+        dialog.hidden = true;
+        anim.cancel();
+      };
+    } else dialog.hidden = true;
     opener.setAttribute('aria-expanded', 'false');
     document.removeEventListener('pointerdown', onOutside, true);
     if (dialog.contains(document.activeElement) || document.activeElement === document.body)
@@ -423,7 +447,7 @@ export function mountSettings(app: App): {
     return true;
   }
 
-  opener.addEventListener('click', () => (dialog.hidden ? open() : close()));
+  opener.addEventListener('click', () => (dialog.hidden || leaving ? open() : close()));
   dragDown(dialog, close);
   dialog.addEventListener('keydown', (event) => {
     if (event.key !== 'Tab') return;

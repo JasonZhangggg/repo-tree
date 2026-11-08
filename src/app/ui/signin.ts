@@ -134,7 +134,7 @@ export function mountSignIn(
       }
       usage.textContent = `${formatCount(rate.remaining)} of ${formatCount(rate.limit)}`;
       const share = rate.limit ? rate.remaining / rate.limit : 0;
-      fillBar.style.width = `${Math.round(Math.min(1, Math.max(0, share)) * 1000) / 10}%`;
+      fillBar.style.transform = `scaleX(${Math.round(Math.min(1, Math.max(0, share)) * 1000) / 1000})`;
       panel.dataset.low = String(share < 0.1);
       const when = resetsIn(rate);
       resets.textContent = when[0]!.toUpperCase() + when.slice(1);

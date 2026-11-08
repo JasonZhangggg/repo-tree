@@ -49,6 +49,21 @@ test('a branch picked from the list shows its changes against main, and × puts 
   await expect(page).not.toHaveURL(/diff=/);
 });
 
+test('the picker closes with its corner X, with no Cancel beside Show changes', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('./#/vitejs/vite');
+  await ready(page, 'vitejs/vite');
+  await openPicker(page, isMobile);
+  const picker = page.getByRole('dialog', { name: 'Show a branch’s changes against main' });
+  await expect(picker.locator('.diff-ref')).toHaveCount(5);
+  await expect(picker.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
+  await picker.getByRole('button', { name: 'Close' }).click();
+  await expect(picker).toBeHidden();
+  await expect(page.locator('#diff-on')).toBeHidden();
+});
+
 test('a link opens with the branch shown', async ({ page }) => {
   await page.goto('./#/vitejs/vite?branch=main&diff=feat/rolldown-bundler');
   await expect(page.locator('#diff-on')).toContainText('13 new');

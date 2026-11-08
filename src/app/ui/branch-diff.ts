@@ -8,7 +8,7 @@ import {
   type Refs,
 } from '../../repo/branch-diff';
 import type { App } from '../app';
-import { byId, fill, h, icon, ICONS } from '../dom';
+import { byId, closeButton, fill, h, icon, ICONS } from '../dom';
 import { count, plural } from '../format';
 import { repoName, type AppState, type DiffView } from '../state';
 
@@ -86,7 +86,6 @@ export function mountBranchDiff(app: App): {
   const list = h('ul', { class: 'diff-refs', role: 'listbox', 'aria-label': 'Branches and tags' });
   const note = h('p', { class: 'compute-fine diff-note' });
   const go = h('button', { type: 'submit', class: 'btn dark' }, 'Show changes');
-  const cancel = h('button', { type: 'button', class: 'btn' }, 'Cancel');
   const form = h(
     'form',
     {
@@ -110,7 +109,8 @@ export function mountBranchDiff(app: App): {
     input,
     list,
     note,
-    h('div', { class: 'actions' }, go, cancel),
+    h('div', { class: 'actions' }, go),
+    closeButton('Close', () => close()),
   );
   scrim.hidden = form.hidden = true;
   document.body.append(scrim, form);
@@ -129,7 +129,6 @@ export function mountBranchDiff(app: App): {
     (opener as HTMLElement | null)?.focus?.();
     opener = null;
   };
-  cancel.addEventListener('click', close);
   scrim.addEventListener('pointerdown', close);
   window.addEventListener(
     'keydown',

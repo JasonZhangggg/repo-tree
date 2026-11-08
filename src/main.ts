@@ -708,7 +708,7 @@ addEventListener('keydown', (event) => {
   if (embedded && ['/', 't', 'T', 'd', 'D'].includes(event.key)) return;
   if (event.key === '/') {
     event.preventDefault();
-    search.open();
+    search.open({ instant: true });
   } else if (event.key === ' ' && !target.matches('button, a, [role="radio"]')) {
     event.preventDefault();
     toggleSpin();

@@ -1,7 +1,7 @@
 import type { App } from '../app';
 import { githubToken } from '../../repo/auth';
 import { birdsOf, pullFiles, pullsOf } from '../birds';
-import { byId, h, icon, ICONS } from '../dom';
+import { byId, closeButton, h, icon, ICONS } from '../dom';
 import { ago, plural } from '../format';
 
 /**
@@ -69,7 +69,6 @@ export function mountPrCard(app: App): { open(bird: number): boolean } {
     const path = state.repo.tree.folders.path[folder]!;
     const where = path ? h('code', {}, `${path}/`) : 'the top of the repo';
     const mates = birds!.filter((b) => b.folder === folder && b !== bird);
-    const done = h('button', { type: 'button', class: 'btn', onclick: close }, 'Not now');
     card.style.setProperty('--bird', color);
     card.replaceChildren(
       h(
@@ -121,8 +120,8 @@ export function mountPrCard(app: App): { open(bird: number): boolean } {
           },
           'Open pull request',
         ),
-        done,
       ),
+      closeButton('Close', close),
     );
     opener = document.activeElement;
     card.hidden = scrim.hidden = false;

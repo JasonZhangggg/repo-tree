@@ -27,6 +27,8 @@ export type StepView = {
   lines: { text: string; kind?: 'warn' | 'note' | 'fine' | 'progress' }[];
   /** The first is the main one. */
   buttons: { label: string; act: 'start' | 'cancel' | 'close' }[];
+  /** Shows the corner X, which declines or dismisses. Off while work runs: Cancel stops it. */
+  closable: boolean;
 };
 
 /** What the dialog shows at a step: plain data, so each state is testable without a DOM. */
@@ -79,8 +81,10 @@ export function describeStep(
         lines,
         buttons: [
           { label: go, act: 'start' },
-          { label: refresh ? 'Use this one' : 'Not now', act: 'close' },
+          // A stale history is still a timeline: keeping it is a choice, not a dismissal.
+          ...(refresh ? [{ label: 'Use this one', act: 'close' as const }] : []),
         ],
+        closable: true,
       };
     }
     case 'computing':
@@ -101,6 +105,7 @@ export function describeStep(
           },
         ],
         buttons: [{ label: 'Cancel', act: 'cancel' }],
+        closable: false,
       };
     case 'sharing':
       return {
@@ -108,6 +113,7 @@ export function describeStep(
         progress: 1,
         lines: [{ kind: 'progress', text: 'Done. Sending it to the history server for everyone…' }],
         buttons: [],
+        closable: false,
       };
     case 'failed':
       return {
@@ -122,8 +128,8 @@ export function describeStep(
                   act: 'start' as const,
                 },
               ]),
-          { label: 'Close', act: 'close' },
         ],
+        closable: true,
       };
   }
 }

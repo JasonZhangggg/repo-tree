@@ -39,7 +39,7 @@ export function matchedFiles(repo: Loaded, hits: readonly SearchHit[]): Uint8Arr
  * (gliding to it on a lone tree; a grove stays in view), until it is closed.
  */
 export function mountSearch(app: App): {
-  open(): void;
+  open(options?: { instant?: boolean }): void;
   close(): boolean;
   /** Ends stepping through matches, if it runs: the matches go dark and the pin clears. */
   stop(): boolean;
@@ -331,9 +331,12 @@ export function mountSearch(app: App): {
   });
   scrim.addEventListener('click', () => close());
 
-  function open() {
+  /** `instant`: opened from the keyboard shortcut, so it shows at once without animating. */
+  function open({ instant = false }: { instant?: boolean } = {}) {
     if (!store.get().repo) return;
     returnFocus = document.activeElement as HTMLElement | null;
+    dialog.toggleAttribute('data-instant', instant);
+    scrim.toggleAttribute('data-instant', instant);
     dialog.hidden = false;
     scrim.hidden = false;
     input.select();

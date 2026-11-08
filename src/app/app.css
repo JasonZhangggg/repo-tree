@@ -1296,7 +1296,7 @@ body:not([data-shell]) :is(.bar, .title) {
   background: var(--c);
   border-radius: 3px;
   transform-origin: left;
-  animation: grow-bar 0.5s var(--ease);
+  animation: grow-bar 0.3s var(--ease);
 }
 .more {
   margin: 0;
@@ -1784,7 +1784,7 @@ body:not([data-shell]) :is(.bar, .title) {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  transition: opacity 0.4s;
+  transition: opacity 0.25s var(--ease);
   z-index: 1;
   overflow: hidden;
 }
@@ -1931,6 +1931,12 @@ body:not([data-shell]) :is(.bar, .title) {
   box-shadow: var(--shadow-lift);
   animation: pop 0.18s var(--ease);
   transform-origin: top center;
+}
+/* Opened from the keyboard ("/"), a dialog appears at once: a shortcut used often should
+   never wait on its own animation. */
+.dialog[data-instant],
+.scrim[data-instant] {
+  animation: none;
 }
 .search {
   top: calc(env(safe-area-inset-top, 0px) + 72px);
@@ -2099,7 +2105,7 @@ body:not([data-shell]) :is(.bar, .title) {
   top: 12px;
   right: 12px;
 }
-/* A phone's drawer tab; a desktop's popover has the close button. */
+/* A phone's drawer tab, beside the close button every dialog has. */
 .settings-grip {
   display: none;
 }
@@ -2407,7 +2413,7 @@ body:not([data-shell]) :is(.bar, .title) {
   opacity: 0;
   pointer-events: none;
   transition:
-    opacity 0.2s,
+    opacity 0.2s var(--ease),
     translate 0.25s var(--ease);
 }
 .toast.on {
@@ -2533,6 +2539,19 @@ body:has(.scrubber:not([hidden])) .toast {
   padding: 20px;
   display: grid;
   gap: 12px;
+  /* A modal centred on the screen grows from its own centre, not from a corner. */
+  transform-origin: center;
+}
+/* The corner X is the one way to decline or dismiss; the title keeps clear of it. */
+.compute > .close {
+  top: 16px;
+  right: 16px;
+}
+.ci-card > .close {
+  top: 23px;
+}
+.compute:has(> .close) > :is(h2, .ci-head) {
+  padding-right: 34px;
 }
 .compute h2 {
   margin: 0;
@@ -2636,6 +2655,7 @@ body:has(.scrubber:not([hidden])) .toast {
     top: auto;
     bottom: max(12px, env(safe-area-inset-bottom, 0px));
     translate: -50% 0;
+    transform-origin: bottom center;
   }
   /* Side by side and each on one line; a label too long for that takes the row to itself. */
   .compute-actions .btn {
@@ -3158,7 +3178,7 @@ body:has(.scrubber:not([hidden])) .toast {
     min-height: 44px;
   }
   .settings .close {
-    display: none;
+    top: 26px;
   }
   .toast {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 124px);
@@ -3195,14 +3215,6 @@ body:has(.scrubber:not([hidden])) .toast {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
-}
 .pr-card .pr-glyph {
   color: var(--bird);
   background: color-mix(in srgb, var(--bird) 14%, transparent);
@@ -4377,5 +4389,51 @@ body[data-embed] :is(.bar, .title:not([data-loading]), .side, .controls, #signin
 @media (hover: hover) and (pointer: fine) {
   .embed-open:hover {
     box-shadow: var(--shadow-lift);
+  }
+}
+
+/* Last in the file, so these @keyframes replace every earlier one of the same name. */
+/* Reduced motion means gentler, not none: nothing moves, slides or scales, but panels and
+   dialogs still fade in, so they don't pop into place. The loading spinners keep turning. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes pick-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes steps-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes sheet {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes unfold {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes grow-bar {
+    from {
+      opacity: 0;
+    }
   }
 }

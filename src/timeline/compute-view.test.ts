@@ -18,10 +18,8 @@ describe('describeStep', () => {
       text: 'Sign-in asks GitHub for no permissions, and your token stays in this tab.',
     });
     expect(v.lines.some((l) => l.kind === 'warn')).toBe(false);
-    expect(v.buttons).toEqual([
-      { label: 'Sign in with GitHub', act: 'start' },
-      { label: 'Not now', act: 'close' },
-    ]);
+    expect(v.buttons).toEqual([{ label: 'Sign in with GitHub', act: 'start' }]);
+    expect(v.closable).toBe(true);
     expect(describeStep({ kind: 'offer' }, { ...ctx, signedIn: true }).buttons[0]!.label).toBe(
       'Compute history',
     );
@@ -33,7 +31,8 @@ describe('describeStep', () => {
     expect(warn).toMatch(
       /^A big repo: about 50 MB to download and about \d+ MB of memory, for a minute or more\.$/,
     );
-    expect(big.buttons.map((b) => b.label)).toEqual(['Sign in and compute', 'Not now']);
+    expect(big.buttons.map((b) => b.label)).toEqual(['Sign in and compute']);
+    expect(big.closable).toBe(true);
     const phone = describeStep({ kind: 'offer' }, { ...ctx, warn: true, phone: true });
     expect(phone.lines.find((l) => l.kind === 'warn')!.text).toMatch(
       /^On a phone this can be slow: about 2 MB to download and about \d+ MB of memory\.$/,
@@ -66,6 +65,7 @@ describe('describeStep', () => {
     expect(v.progress).toBe(0.42);
     expect(v.lines[0]).toEqual({ kind: 'progress', text: '42% · 22 MB of about 50 MB' });
     expect(v.buttons).toEqual([{ label: 'Cancel', act: 'cancel' }]);
+    expect(v.closable).toBe(false);
     const tiny = describeStep(
       { kind: 'computing', progress: 0.5 },
       { ...ctx, estimate: estimateCompute(100) },
@@ -90,6 +90,7 @@ describe('describeStep', () => {
       ctx,
     );
     expect(other.lines[0]!.text).toContain('default branch, main');
-    expect(other.buttons).toEqual([{ label: 'Close', act: 'close' }]);
+    expect(other.buttons).toEqual([]);
+    expect(other.closable).toBe(true);
   });
 });

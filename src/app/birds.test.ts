@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { birdsFrom, FLEDGLING, PLUMAGE, plumageOf } from './birds';
+import { birdsFrom, FLEDGLING, PLUMAGE, plumageOf, pullFiles } from './birds';
 import type { OpenPull } from '../repo/pulls';
 
 const pull = (number: number, files: string[], over: Partial<OpenPull> = {}): OpenPull => ({
@@ -52,5 +52,18 @@ describe('birdsFrom', () => {
     const names = Array.from({ length: 40 }, (_, i) => `dev${i}`);
     expect(new Set(names.map(plumageOf)).size).toBeGreaterThan(PLUMAGE.length / 2);
     expect(plumageOf('Octo')).toBe(plumageOf('octo'));
+  });
+});
+
+describe('pullFiles', () => {
+  test('marks each changed file the tree has, and counts the ones it lacks', () => {
+    const paths = ['README.md', 'src/a.ts', 'src/b.ts', 'docs/x.md'];
+    const { lit, shown, missing } = pullFiles(
+      ['src/b.ts', 'README.md', 'src/new.ts', 'src/b.ts', 'node_modules/x/index.js'],
+      paths,
+    );
+    expect([...lit]).toEqual([1, 0, 1, 0]);
+    expect(shown).toBe(2);
+    expect(missing).toBe(2);
   });
 });

@@ -3214,6 +3214,25 @@ body:has(.scrubber:not([hidden])) .toast {
   color: var(--muted);
   font-size: 13.5px;
 }
+.pr-card .pr-lit strong {
+  font-weight: 600;
+}
+/*
+ * The card stands over the side panel's column, clear of the tree, so the PR's lit files show,
+ * and its scrim only catches a click away: it dims nothing.
+ */
+#pr-scrim {
+  background: none;
+}
+@media (min-width: 761px) {
+  .pr-card {
+    top: calc(env(safe-area-inset-top, 0px) + 84px);
+    left: auto;
+    right: max(var(--edge), env(safe-area-inset-right, 0px));
+    translate: none;
+    width: min(360px, calc(100% - 32px));
+  }
+}
 
 /* The pin tray: every folder pinned in this repo, one tap from gliding back. */
 .pins {

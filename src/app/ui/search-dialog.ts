@@ -46,6 +46,8 @@ export function mountSearch(app: App): {
   /** Steps to the next match (`by` 1) or the previous (-1), if stepping runs. */
   step(by: 1 | -1): boolean;
   stepping(): boolean;
+  /** Lights the matches again, if any show, after something else lit its own leaves. */
+  relight(): void;
 } {
   const { store, view } = app;
   const dialog = byId('search');
@@ -350,5 +352,10 @@ export function mountSearch(app: App): {
     return true;
   }
 
-  return { open, close, stop, step, stepping: () => stepper !== null };
+  const relight = () => {
+    if (!dialog.hidden) light(hits);
+    else if (stepper) light(stepper.hits);
+  };
+
+  return { open, close, stop, step, stepping: () => stepper !== null, relight };
 }

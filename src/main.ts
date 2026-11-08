@@ -5,7 +5,7 @@ import './app/app.css';
 import { createTreeView } from './render/tree-view';
 import { parseRepoRef, type RepoRef } from './repo/ref';
 import { nameOf, type App, type CompanionPin } from './app/app';
-import { birdsOf } from './app/birds';
+import { birdsOf, pullFiles, type Bird } from './app/birds';
 import { debug } from './app/debug';
 import { byId } from './app/dom';
 import { count } from './app/format';
@@ -117,6 +117,11 @@ function setCompanionPin(pin: CompanionPin | null) {
 /** Whether the camera glided to the pin on show, so clearing it glides back. */
 let framedPin = false;
 let hoveredCategory: string | null = null;
+/** The birds whose PRs light their files: the one under the pointer, the one whose card is open. */
+let pullHovered: number | null = null;
+let pullHeld: number | null = null;
+/** The bird whose files are lit now. */
+let litBird: Bird | null = null;
 let toastTimer = 0;
 const toastEl = byId('toast');
 
@@ -146,6 +151,11 @@ const app: App = {
     hoveredCompanion = folder === null ? undefined : companion;
     debug.previewed = folder;
     applyHighlight();
+  },
+  showPull(bird, held = false) {
+    if (held) pullHeld = bird;
+    else pullHovered = bird;
+    applyPull();
   },
   highlight(label) {
     store.dispatch({ type: 'highlight', label });
@@ -178,9 +188,35 @@ const app: App = {
 /** Whether search matches are being stepped through; set once search is mounted. */
 let searchStepping = () => false;
 
+/**
+ * Lights the leaves of the files the shown bird's PR changes, as search lights its matches, and
+ * puts back whatever search had lit once it goes.
+ */
+function applyPull() {
+  const state = store.get();
+  const index = pullHovered ?? pullHeld;
+  const bird = (index !== null && state.repo && birdsOf(state)?.[index]) || null;
+  if (bird === litBird) return;
+  litBird = bird;
+  debug.litPull = bird ? bird.pull.number : null;
+  if (bird) view.setMatches(pullFiles(bird.pull.files, state.repo!.index.files.paths).lit);
+  else {
+    view.setMatches(null);
+    search.relight();
+  }
+  applyHighlight();
+}
+
 /** A legend entry under the pointer shows first, then the pin or highlight, then a hovered folder. */
 function applyHighlight() {
   const { repo, selection, highlight } = store.get();
+  // A PR's files light across the tree, which nothing fades, its perch marked.
+  if (litBird && repo) {
+    const [lo, hi] = repo.tree.folders.range;
+    view.setHighlight({ range: [lo!, hi!] });
+    canvas.mark(litBird.folder);
+    return;
+  }
   const category = hoveredCategory ?? highlight;
   // A pin on a compared tree holds as a pin on the tree on show does.
   const pin = selection ?? companionPin;
@@ -311,6 +347,9 @@ store.subscribe((state, prev) => {
   const birds = birdsOf(state);
   if (birds !== birdsOf(prev) || state.repo !== prev.repo) {
     view.setBirds(birds && birds.map(({ folder, color }) => ({ folder, color })));
+    // The lit PR's files name the old tree's, or a bird no longer there.
+    pullHovered = pullHeld = null;
+    applyPull();
   }
   if (s.palette !== prev.settings.palette) view.setPalette(s.palette);
   if (s.colorBy !== prev.settings.colorBy) view.setColorBy(s.colorBy);

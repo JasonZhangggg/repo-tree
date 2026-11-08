@@ -4,7 +4,7 @@ import { debug } from '../debug';
 import { byId, h } from '../dom';
 import { bytes, count, plural } from '../format';
 import { pickLabels, relaxLabels, type LabelPick } from '../labels';
-import { birdsOf } from '../birds';
+import { birdsOf, pullFiles } from '../birds';
 import { mountCiCard } from './ci-card';
 import { mountPrCard } from './pr-card';
 import { companionsOf, weatherOf, type AppState, type Repo, type Selection } from '../state';
@@ -87,7 +87,10 @@ export function mountCanvas(app: App): {
       picked?.companion === undefined || !repo
         ? null
         : `${repo.info.ref.owner}/${repo.info.ref.repo}`;
-    app.hover(folder, picked?.companion);
+    // A bird lights its PR's files rather than its perch folder.
+    const bird = picked?.bird ?? null;
+    app.hover(bird === null ? folder : null, picked?.companion);
+    app.showPull(bird);
     container.style.cursor = folder === null ? '' : 'pointer';
   };
 
@@ -119,7 +122,11 @@ export function mountCanvas(app: App): {
     if (pull) {
       tip.replaceChildren(
         h('code', {}, `#${pull.number} ${pull.title}`),
-        h('span', {}, `${pull.author}${pull.draft ? ' · draft' : ''} · click for details`),
+        h(
+          'span',
+          {},
+          `${pull.author}${pull.draft ? ' · draft' : ''} · ${plural(pullFiles(pull.files, repo.index.files.paths).shown, 'changed file')} lit · click for details`,
+        ),
       );
       return placeTip();
     }

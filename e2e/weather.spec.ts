@@ -319,6 +319,19 @@ test('a tap on the sun says what the sky stands for before leaving for CI', asyn
   await expect(card).toBeHidden();
 });
 
+test('a first visit starts light even when the system prefers dark, embedded too', async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.goto('./?embed=1');
+  await ready(page, 'vitejs/vite');
+  await expect(page.locator('body')).toHaveAttribute('data-embed', '');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+});
+
 test('dark mode turns the sky to night and the panels dark, keeping the leaf colors', async ({
   page,
   isMobile,

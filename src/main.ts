@@ -70,7 +70,7 @@ const store = createStore({
   selection: null,
   highlight: null,
   notice: null,
-  settings: parseSettings(stored, matchMedia('(prefers-color-scheme: dark)').matches),
+  settings: parseSettings(stored),
   autoQuality: autoQuality({
     pixelRatio: devicePixelRatio || 1,
     cores: navigator.hardwareConcurrency || 4,

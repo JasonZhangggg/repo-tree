@@ -168,6 +168,44 @@ test('a shared link restores repo, palette and pinned folder', async ({ page, co
   );
 });
 
+test('embed code opens just the tree, with a link back to the full app', async ({
+  page,
+  context,
+}) => {
+  await page.goto('./#/vitejs/vite?palette=winter');
+  await ready(page, 'vitejs/vite');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await chooseAction(page, 'Copy embed code');
+  await expect(page.getByRole('status').last()).toHaveText('Embed code copied');
+  const code = await page.evaluate(() => navigator.clipboard.readText());
+  const src = code.match(/^<iframe src="([^"]+)" title="3D tree of vitejs\/vite"/)?.[1];
+  expect(src).toMatch(
+    /#\/vitejs\/vite\?branch=main&amp;palette=winter&amp;colorBy=language&amp;embed=1$/,
+  );
+
+  const embed = await context.newPage();
+  await embed.goto(src!.replaceAll('&amp;', '&'));
+  await ready(embed, 'vitejs/vite');
+  await expect(embed.locator('canvas')).toBeVisible();
+  for (const hidden of ['.bar', '#title', '#side', '.controls']) {
+    await expect(embed.locator(hidden)).toBeHidden();
+  }
+  const open = embed.getByRole('link', { name: 'Open vitejs/vite in Repo Tree' });
+  await expect(open).toBeVisible();
+  await expect(open).toHaveAttribute('target', '_blank');
+  const href = await open.getAttribute('href');
+  expect(href).toMatch(/#\/vitejs\/vite\?branch=main&palette=winter&colorBy=language$/);
+  // The keys that open the app's panels do nothing; the tree still pins on a click.
+  await embed.keyboard.press('/');
+  await expect(embed.getByRole('dialog', { name: 'Search folders and files' })).toBeHidden();
+
+  const full = await context.newPage();
+  await full.goto(href!);
+  await ready(full, 'vitejs/vite');
+  await expect(full.locator('#title')).toBeVisible();
+  await expect(full.locator('#embed-open')).toBeHidden();
+});
+
 test('search finds a folder, frames it and pins it', async ({ page }) => {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
@@ -890,7 +928,7 @@ test('the desktop toolbar groups its actions, and Timeline leads the controls', 
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   const share = page.getByRole('group', { name: 'Share' });
-  await expect(share.getByRole('button')).toHaveText(['Share', 'PNG']);
+  await expect(share.getByRole('button')).toHaveText(['Share', 'PNG', 'Embed']);
   const view = page.getByRole('group', { name: 'View' });
   await expect(view.getByRole('button', { name: 'Dark mode' })).toBeVisible();
   await expect(view.getByRole('button', { name: 'Settings' })).toBeVisible();

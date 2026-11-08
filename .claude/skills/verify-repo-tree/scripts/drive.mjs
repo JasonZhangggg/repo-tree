@@ -18,6 +18,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { readdir } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { parseArgs } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { expect } from '@playwright/test';
@@ -225,6 +226,18 @@ const branchNear = (page, at, folder) =>
   );
 /** Waits until the view renders on demand again, so the camera has come to rest. */
 /** Chooses a tree action, opening `More actions` first on a phone, where the action lives. */
+/** A page on another origin (127.0.0.1, a free port) that holds `html`, as a blog would. */
+async function serveHost(html) {
+  const server = createServer((_, res) =>
+    res.writeHead(200, { 'content-type': 'text/html' }).end(html),
+  );
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    url: `http://127.0.0.1:${server.address().port}/`,
+    close: () => (server.closeAllConnections(), server.close()),
+  };
+}
+
 async function chooseAction(page, name) {
   const more = page.getByRole('button', { name: 'More actions' });
   if (await more.isVisible()) await more.click();
@@ -486,6 +499,42 @@ const JOURNEYS = {
       await download.saveAs(`${out}/vitejs-vite-tree.png`);
       expect(readFileSync(`${out}/vitejs-vite-tree.png`).subarray(1, 4).toString()).toBe('PNG');
       await expect(page.locator('#toast')).toHaveText('Saved vitejs-vite-tree.png');
+    });
+    let embed = '';
+    let host;
+    await step('copy-embed-code', async () => {
+      await chooseAction(page, 'Copy embed code');
+      await expect(page.locator('#toast')).toHaveText('Embed code copied');
+      const code = await page.evaluate(() => navigator.clipboard.readText());
+      embed = code.match(/^<iframe src="([^"]+)"/)?.[1]?.replaceAll('&amp;', '&') ?? '';
+      expect(embed).toMatch(/&sel=packages\/vite&embed=1$/);
+    });
+    await step('open-embed', async () => {
+      // Another site's page first, so the embed starts cold rather than from a hash change. It is
+      // the host page of the next step: a real server on 127.0.0.1, another origin, since Chromium
+      // keeps a routed (public) page from framing localhost.
+      host = await serveHost(
+        `<!doctype html><body style="margin:0;padding:40px;background:#e9e4da;font:16px sans-serif">
+          <h2 style="margin:0 0 16px">A post about vitejs/vite</h2>
+          <iframe src="${embed}" width="640" height="480" style="border:0;border-radius:12px"></iframe>
+        </body>`,
+      );
+      await page.goto(host.url);
+      await page.goto(embed);
+      await ready(page, 'vitejs/vite');
+      for (const hidden of ['.bar', '#title', '#side', '.controls']) {
+        await expect(page.locator(hidden)).toBeHidden();
+      }
+      await expect(page.getByRole('link', { name: 'Open vitejs/vite in Repo Tree' })).toBeVisible();
+    });
+    await step('embed-in-iframe', async () => {
+      await page.goto(host.url);
+      const frame = page.frameLocator('iframe');
+      await expect(frame.locator('body[data-ready="vitejs/vite"]')).toBeAttached({
+        timeout: 60_000,
+      });
+      await expect(frame.getByRole('link', { name: /in Repo Tree/ })).toBeVisible();
+      host.close();
     });
   },
 

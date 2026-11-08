@@ -97,51 +97,10 @@ test('a spent search budget keeps the local rows and says so', async ({ page }) 
 test('while adding to a comparison, a GitHub pick joins it and compared repos are left out', async ({
   page,
 }) => {
-  const asked = await serveSearch(page, () => ({
+  await serveSearch(page, () => ({
     json: { items: [item('vitejs/vite', 83767), item('acme/gadgets', 12, 'Small tools.')] },
   }));
   await serveRepo(page, 'acme/gadgets');
-  // DIAGNOSTIC (temporary): what the page did when CI sees this fail.
-  const logs: string[] = [];
-  const t0 = Date.now();
-  page.on('console', (m) => logs.push(`${Date.now() - t0} ${m.type()} ${m.text().slice(0, 200)}`));
-  page.on('pageerror', (e) => logs.push(`${Date.now() - t0} pageerror ${e.message.slice(0, 300)}`));
-  page.on('requestfailed', (r) =>
-    logs.push(`${Date.now() - t0} failed ${r.url().slice(0, 120)} ${r.failure()?.errorText}`),
-  );
-  page.on(
-    'response',
-    (r) =>
-      /github\.com/.test(r.url()) &&
-      logs.push(`${Date.now() - t0} ${r.status()} ${r.url().slice(0, 120)}`),
-  );
-  await page.addInitScript(() => {
-    const at = () => Math.round(performance.now());
-    for (const type of ['focusin', 'focusout'])
-      document.addEventListener(
-        type,
-        (e) =>
-          console.log(
-            `[probe] ${at()} ${type} ${(e.target as HTMLElement).id || (e.target as HTMLElement).className} -> ${((e as FocusEvent).relatedTarget as HTMLElement | null)?.id ?? null}`,
-          ),
-        true,
-      );
-    const fetch0 = window.fetch;
-    window.fetch = (...args) => {
-      const url = String(args[0] instanceof Request ? args[0].url : args[0]);
-      if (url.includes('search')) console.log(`[probe] ${at()} fetch ${url}`);
-      return fetch0(...args).then(
-        (r) => {
-          if (url.includes('search')) console.log(`[probe] ${at()} fetched ${r.status} ${url}`);
-          return r;
-        },
-        (e) => {
-          if (url.includes('search')) console.log(`[probe] ${at()} fetch threw ${e} ${url}`);
-          throw e;
-        },
-      );
-    };
-  });
   await page.goto('./');
   await ready(page, 'vitejs/vite');
   const add = page.locator('#compare-add');
@@ -155,22 +114,7 @@ test('while adding to a comparison, a GitHub pick joins it and compared repos ar
   const hit = list(page).locator('button', { hasText: 'acme/gadgets' });
   await expect(hit).toBeVisible();
   await field(page).fill('vite');
-  try {
-    await expect(list(page)).toContainText('On GitHub');
-  } catch (error) {
-    const state = await page.evaluate(() => ({
-      active: document.activeElement?.id,
-      hidden: document.getElementById('suggest')!.hidden,
-      value: (document.getElementById('repo-input') as HTMLInputElement).value,
-      mode: document.getElementById('repo-mode')!.hidden,
-      body: [...document.body.attributes].map((a) => `${a.name}=${a.value}`).join(' '),
-      now: Math.round(performance.now()),
-    }));
-    throw new Error(
-      `DIAG ${JSON.stringify({ asked, state })}\n${logs.filter((l) => !/ 200 https:\/\/api.github.com\/repos\/vitejs\/vite\/pulls\/\d/.test(l)).join('\n')}`,
-      { cause: error },
-    );
-  }
+  await expect(list(page)).toContainText('On GitHub');
   await expect(list(page).locator('button', { hasText: 'vitejs/vite' })).toHaveCount(0);
   await field(page).fill('ga');
   await hit.click();

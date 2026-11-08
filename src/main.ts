@@ -625,7 +625,7 @@ const timeline = mountTimeline(
   compute,
 );
 const settings = mountSettings(app);
-mountCompare(app);
+timeline.seeds(mountCompare(app).seedOf);
 const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
 mountQuick(app);
 const pinTray = mountPinTray(app, () => {

@@ -1771,6 +1771,80 @@ body:not([data-shell]) :is(.bar, .title) {
     transform 0.16s var(--ease),
     box-shadow 0.16s var(--ease);
 }
+/* Releases: diamonds on the track, majors labeled above it. A repo with releases gives the
+   track a row more height for the labels; the range, ticks and marks move down into it. */
+.scrubber[data-releases] .scrub-track {
+  height: 52px;
+}
+.scrubber[data-releases] :is(#timeline-range, .scrub-ticks, .scrub-marks) {
+  top: 12px;
+}
+.scrub-marks {
+  position: absolute;
+  inset: 0 calc(var(--thumb) / 2);
+  pointer-events: none;
+}
+.scrub-marks i {
+  --mark: color-mix(in srgb, var(--ink) 58%, transparent);
+  --k: 1;
+  position: absolute;
+  top: 15px;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+}
+.scrub-marks i[data-seed] {
+  --mark: var(--seed);
+}
+.scrub-marks i[data-rank='1'] {
+  --k: 0.8;
+}
+.scrub-marks i[data-rank='2'] {
+  --k: 0.62;
+}
+.scrub-marks i::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 1.5px;
+  background: var(--mark);
+  box-shadow: 0 0 0 1.5px var(--card-solid);
+  transform: rotate(45deg) scale(var(--k));
+  transition: transform 0.16s var(--ease);
+}
+.scrub-marks i:is([data-label], [data-on])::after {
+  content: attr(data-name);
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--card-solid);
+  color: var(--muted);
+  font: 600 10.5px/1 var(--sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Side by side, a label is in its tree's color too, darkened to read on the card. */
+.scrub-marks i[data-seed]::after {
+  color: color-mix(in srgb, var(--seed) 70%, var(--ink));
+}
+.scrub-marks i[data-on] {
+  --mark: var(--accent);
+  --k: 1.25;
+  z-index: 1;
+}
+.scrub-marks i[data-on]::after {
+  color: var(--accent);
+  font-weight: 700;
+}
+.scrubber[data-peek] .scrub-bubble {
+  left: calc(var(--thumb) / 2 + var(--peek, 0) * (100% - var(--thumb)));
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+  font-size: 12px;
+}
 #timeline-range:focus-visible {
   outline: none;
 }
@@ -4031,6 +4105,9 @@ body[data-compare] #overview {
     grid-area: track;
     margin: 0 6px;
     height: 44px;
+  }
+  .scrubber[data-releases] .scrub-track {
+    height: 56px;
   }
   #timeline-range {
     height: 30px;

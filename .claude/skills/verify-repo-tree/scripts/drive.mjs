@@ -639,11 +639,69 @@ const JOURNEYS = {
         await settle(page);
       });
     }
+    // Release marks: a tap (a click on a desktop) on one lands on that release's day.
+    const tapMark = async (name) => {
+      const box = await page.locator(`#timeline-marks i[data-name="${name}"]`).boundingBox();
+      const coarse = await page.evaluate(() => matchMedia('(pointer: coarse)').matches);
+      const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+      if (coarse) await page.touchscreen.tap(x, y);
+      else await page.mouse.click(x, y);
+    };
+    await step('release-marks', async () => {
+      await expect(page.locator('#scrubber')).toHaveAttribute('data-releases', '');
+      await expect(page.locator('#timeline-marks i').first()).toBeVisible();
+      await expect(page.locator('#timeline-marks i[data-name="v4.0"]')).toHaveAttribute(
+        'data-label',
+        '',
+      );
+      await settle(page);
+    });
+    await step('release-tap', async () => {
+      await tapMark('v4.0');
+      await expect(date).toHaveText('Dec 2022');
+      await expect(range).toHaveAttribute('aria-valuetext', /^Dec 9, 2022, release v4\.0\.0, /);
+      await expect(page.locator('#timeline-marks i[data-on]')).toHaveAttribute('data-name', 'v4.0');
+      await expect(page).toHaveURL(/&t=2022-12-09$/);
+      await settle(page);
+    });
+    await step('release-keys', async () => {
+      await range.focus();
+      await page.keyboard.press('PageUp');
+      await expect(page.locator('#timeline-marks i[data-on]')).not.toHaveAttribute(
+        'data-name',
+        'v4.0',
+      );
+      await page.keyboard.press('PageDown');
+      await expect(page.locator('#timeline-marks i[data-on]')).toHaveAttribute('data-name', 'v4.0');
+      await settle(page);
+    });
     await step('play-pause', async () => {
       const before = await date.textContent();
       await page.getByRole('button', { name: 'Play timeline' }).click();
       await expect(date).not.toHaveText(before);
       await page.getByRole('button', { name: 'Pause timeline' }).click();
+      await settle(page);
+    });
+    await step('release-link', async () => {
+      await page.goto(`${base}?visit=r#/vitejs/vite?t=2021-02-16`);
+      await ready(page, 'vitejs/vite');
+      await expect(date).toHaveText('Feb 2021');
+      await expect(page.locator('#timeline-marks i[data-on]')).toHaveAttribute('data-name', 'v2.0');
+      await settle(page);
+    });
+    await step('release-grove', async () => {
+      // Side by side, each tree's releases are marked in its seed color.
+      await page.goto(`${base}?visit=g#/vitejs/vite?t=2022-07-13&vs=torvalds/linux`);
+      await ready(page, 'vitejs/vite');
+      await expect(page.locator('#compare')).toHaveAttribute('data-ready', 'torvalds/linux', {
+        timeout: 120_000,
+      });
+      const marks = page.locator('#timeline-marks i');
+      await expect(marks.first()).toBeVisible();
+      const seeds = await marks.evaluateAll((all) => [...new Set(all.map((m) => m.dataset.seed))]);
+      expect([...seeds].sort()).toEqual(['0', '1']);
+      // Linux's 2.6 releases reach back before vite's first commit.
+      await expect(page.locator('#timeline-marks i[data-name^="v2.6."]').first()).toBeVisible();
       await settle(page);
     });
     await step('restore-link', async () => {

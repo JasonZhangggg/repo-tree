@@ -74,6 +74,16 @@ function perchOf(files: readonly string[], has: (folder: string) => boolean): st
 function fetchPulls(ref: RepoRef, branch: string, token?: string, signal?: AbortSignal): Promise<OpenPulls | null>; // ?state=open&sort=updated&per_page=50, those into branch, then each one's files; 404 is empty, any other failure null (no birds), a PR whose files fail left out; rejects only on abort
 // load/cache.ts keeps them for ten minutes under pulls:owner/repo@branch. Samples read them live too; none are bundled.
 
+// repo/releases.ts  (boundary: network; release marks on the timeline)
+type Release = { tag: string; at: number /* ms: a release's published_at, a tag's tagger or commit date */ };
+const PAGES = { signedOut: 1, signedIn: 10 }; // pages of 100 releases read
+function parseReleases(body: unknown): Release[] | null; // GET /repos/{o}/{r}/releases body; drafts, prereleases and malformed left out
+function parseTagRefs(body: unknown): { tags: Release[]; next: string | null } | null; // one page of the GraphQL refs(refPrefix: "refs/tags/") query
+function parseTags(body: unknown): Release[] | null; // a sample's bundled [{ tag, at /* ISO or ms */ }]
+function fetchReleases(ref: RepoRef, token?: string, signal?: AbortSignal, api?: string /* GITHUB_API */): Promise<Release[] | null>; // ?per_page=100 following Link next up to PAGES; none and signed in: the tags through GraphQL (which needs a token); 404 is [], any other failure null (no marks); rejects only on abort
+function loadSampleReleases(id: string, base?: string): Promise<Release[] | null>; // <base>samples/<id>.releases.json, every tag, from scripts/make-releases.mjs (git, no API)
+// load/cache.ts keeps them for six hours under releases:owner/repo. A sample reads only its bundled tags; a sample's repo loaded live falls back to them when GitHub can't answer.
+
 // app/birds.ts
 type Bird = { pull: OpenPull; folder: number /* perchOf, in the shown tree */; color: string /* PLUMAGE by author, FLEDGLING for a draft */ };
 function birdsOf(state: AppState): Bird[] | null; // the same array while the pulls and tree stay; null with birds off or before they arrive
@@ -390,6 +400,15 @@ function sharedTimelines(timelines: readonly Timeline[]): Timeline[]; // trees s
 function positionAt(t: Timeline, ms: number): number; function dateAt(t: Timeline, s: number): number;
 function filesAt(t: Timeline, s: number, census?: Census): { files: number; atLeast: boolean }; // files alive then, deleted ones while they lived
 function aliveAt(t: number, born: number, gone?: number): boolean;
+
+// timeline/releases.ts  (pure; consumes only Release)
+type Rank = 0 /* major: v3.0.0, v3.0; 0.y.0 under 1.0 */ | 1 /* minor, or a tag that is no version */ | 2 /* patch */;
+function versionOf(tag: string): { rank: Rank; pre: boolean /* any suffix but +build */; bare: boolean /* only a version, not pkg@1.0.0 */; short: string /* label: a major or minor without its .0 patch */ };
+function releaseCandidates(releases: readonly Release[]): (Release & ReturnType<typeof versionOf>)[]; // each tag once, no prereleases; only bare tags where a repo has any (a monorepo marks its main package)
+type Mark = { tag: string; short: string; at: number; s: number /* scrubber position */; rank: Rank; tree: number /* 0 the tree on show, then the compared ones */; labeled: boolean };
+function placeMarks(trees: readonly { releases: readonly Release[]; position: (ms: number) => number | null /* null outside that tree's history */ }[], width: number, gap: number, charWidth?: number): Mark[]; // by rank then newest first, each kept only gap px from every kept one; the top rank on show labeled where labels fit; by position
+function releaseOn(marks: readonly Mark[], date: number, tree?: number): Mark | null; // the release dated the same UTC day (a jump, or a link's t=)
+// app/ui/timeline.ts marks them on the track (#timeline-marks, gap 18 px, 28 on a coarse pointer): a press within half a gap lands on the release, moving on scrubs freely; Page Up and Page Down step between them; a mouse over one names it and its day in the bubble; aria-valuetext names the release the date sits on. Side by side, each tree's releases are on the shared axis in its compare seed (mountCompare().seedOf).
 
 // timeline/facts.ts  (pure; consumes only History, TreeModel and RepoIndex)
 const AGES: { label: 'This month' | 'This year' | '1 to 3 years' | 'Dead wood'; within: number /* ms before asOf */ }[]; const DEAD: number; // the last band

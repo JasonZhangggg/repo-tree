@@ -2,6 +2,7 @@ import type { CiRun } from '../repo/ci';
 import type { Snapshot } from '../repo/github';
 import type { History } from '../repo/history';
 import type { OpenPulls } from '../repo/pulls';
+import type { Release } from '../repo/releases';
 
 const DB = 'repo-tree';
 const STORE = 'snapshots';
@@ -77,3 +78,10 @@ export const cachedPulls = async (key: string) =>
   (await cached<StoredPulls>(`pulls:${key}`, RUNS_FRESH_MS))?.pulls;
 export const cachePulls = (key: string, pulls: OpenPulls) =>
   cache<StoredPulls>(`pulls:${key}`, { pulls, fetchedAt: Date.now() });
+
+type StoredReleases = { releases: Release[]; fetchedAt: number };
+/** Releases fetched within six hours: a repo releases far less often than it commits. */
+export const cachedReleases = async (key: string) =>
+  (await cached<StoredReleases>(`releases:${key}`, HISTORY_FRESH_MS))?.releases;
+export const cacheReleases = (key: string, releases: Release[]) =>
+  cache<StoredReleases>(`releases:${key}`, { releases, fetchedAt: Date.now() });

@@ -75,6 +75,8 @@ const MODE_TITLE: Record<ColorBy, string> = {
 export function mountCompare(app: App): {
   open(): void;
   close(): boolean;
+  /** The seed a compared tree wears (`data-seed`), so the timeline marks its releases in it. */
+  seedOf(ref: { owner: string; repo: string }): number;
 } {
   const { store, view } = app;
   const root = byId('compare');
@@ -810,7 +812,7 @@ export function mountCompare(app: App): {
   openButton.addEventListener('click', () => (store.get().compare.length ? close() : open()));
 
   sync(store.get(), null);
-  return { open, close };
+  return { open, close, seedOf };
 }
 
 /**

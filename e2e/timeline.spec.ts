@@ -278,3 +278,56 @@ test('a phone gives the track the whole width', async ({ page, isMobile }) => {
   const bar = (await scrubber(page).boundingBox())!;
   expect(range.width / bar.width).toBeGreaterThan(0.85);
 });
+
+test('release marks: a tap lands on a release, Page Up and Down step between them', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('./');
+  await ready(page, 'vitejs/vite');
+  await timelineButton(page).click();
+  const marks = page.locator('#timeline-marks i');
+  await expect(page.locator('#scrubber')).toHaveAttribute('data-releases', '');
+  await expect(marks.first()).toBeVisible();
+  // Majors are labeled, a monorepo's package tags and prereleases are not marked.
+  await expect(page.locator('#timeline-marks i[data-name="v4.0"]')).toHaveAttribute(
+    'data-label',
+    '',
+  );
+  const names = await marks.evaluateAll((all) => all.map((m) => m.getAttribute('data-name')!));
+  expect(names.some((n) => n.includes('@') || n.includes('-'))).toBe(false);
+
+  const box = (await page.locator('#timeline-marks i[data-name="v4.0"]').boundingBox())!;
+  // A press a few pixels off the diamond still lands on it.
+  const [x, y] = [box.x + box.width / 2 + 3, box.y + box.height / 2];
+  if (isMobile) await page.touchscreen.tap(x, y);
+  else await page.mouse.click(x, y);
+  const range = page.getByRole('slider', { name: 'Timeline position' });
+  await expect(date(page)).toHaveText('Dec 2022');
+  await expect(range).toHaveAttribute('aria-valuetext', /^Dec 9, 2022, release v4\.0\.0, /);
+  await expect(page.locator('#timeline-marks i[data-on]')).toHaveAttribute('data-name', 'v4.0');
+  await expect(page).toHaveURL(/&t=2022-12-09$/);
+
+  await range.focus();
+  await page.keyboard.press('PageUp');
+  await expect(page.locator('#timeline-marks i[data-on]')).not.toHaveAttribute('data-name', 'v4.0');
+  await expect(page).not.toHaveURL(/&t=2022-12-09$/);
+  await page.keyboard.press('PageDown');
+  await expect(page.locator('#timeline-marks i[data-on]')).toHaveAttribute('data-name', 'v4.0');
+});
+
+test('a link to a release’s day opens on it', async ({ page }) => {
+  await page.goto('./#/vitejs/vite?t=2021-02-16');
+  await ready(page, 'vitejs/vite');
+  await expect(date(page)).toHaveText('Feb 2021');
+  await expect(page.locator('#timeline-marks i[data-on]')).toHaveAttribute('data-name', 'v2.0');
+});
+
+test('a repo with no tags has no release marks', async ({ page }) => {
+  await page.goto('./#/mathiasbynens/dotfiles?t=2020');
+  await ready(page, 'mathiasbynens/dotfiles');
+  await expect(scrubber(page)).toBeVisible();
+  await expect(date(page)).toHaveText('Jan 2020');
+  await expect(page.locator('#timeline-marks i')).toHaveCount(0);
+  await expect(page.locator('#scrubber')).not.toHaveAttribute('data-releases');
+});

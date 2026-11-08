@@ -15,6 +15,8 @@ export const debug: {
   previewed: number | null;
   /** The rock a pin keeps lit while the rest fades, by its index in the tree's rocks. */
   keptRock: number | null;
+  /** The pull request whose changed files are lit, by number, or null. */
+  litPull: number | null;
   labels: { path: string; x: number; y: number }[];
   timings: Record<string, number>;
   view?: TreeView;
@@ -33,6 +35,7 @@ export const debug: {
   companionPin: null,
   previewed: null,
   keptRock: null,
+  litPull: null,
   labels: [],
   timings: {},
   timeline: null,

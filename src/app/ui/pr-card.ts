@@ -1,7 +1,7 @@
 import type { App } from '../app';
 import { githubToken } from '../../repo/auth';
-import { birdsOf, pullsOf } from '../birds';
-import { byId, h, icon, ICONS } from '../dom';
+import { birdsOf, pullFiles, pullsOf } from '../birds';
+import { byId, closeButton, h, icon, ICONS } from '../dom';
 import { ago, plural } from '../format';
 
 /**
@@ -13,9 +13,15 @@ export function mountPrCard(app: App): { open(bird: number): boolean } {
   const card = byId('pr-card');
   const scrim = byId('pr-scrim');
   let opener: Element | null = null;
+  /** Whether opening glided the camera to the perch, so closing glides back. */
+  let glided = false;
 
   const close = () => {
+    if (card.hidden) return;
     card.hidden = scrim.hidden = true;
+    app.showPull(null, true);
+    if (glided) app.view.frameFolder(0);
+    glided = false;
     (opener as HTMLElement | null)?.focus?.();
     opener = null;
   };
@@ -30,6 +36,26 @@ export function mountPrCard(app: App): { open(bird: number): boolean } {
     true,
   );
 
+  /** Where its files are on the tree: lit, or not there yet. */
+  const lit = ({ shown, missing }: { shown: number; missing: number }) => {
+    if (!shown) {
+      return h(
+        'p',
+        { class: 'pr-lit' },
+        'None of its files are on the tree yet: they are new in this PR, or in a hidden folder.',
+      );
+    }
+    const which =
+      shown === 1 ? 'Its changed file is' : `The ${plural(shown, 'file')} it changes are`;
+    const rest = `${missing} more ${missing === 1 ? 'is' : 'are'} new in this PR, or in a hidden folder.`;
+    return h(
+      'p',
+      { class: 'pr-lit' },
+      h('strong', {}, `${which} lit on the tree.`),
+      missing ? ` ${rest}` : '',
+    );
+  };
+
   const open = (index: number) => {
     const state = store.get();
     const birds = birdsOf(state);
@@ -43,7 +69,6 @@ export function mountPrCard(app: App): { open(bird: number): boolean } {
     const path = state.repo.tree.folders.path[folder]!;
     const where = path ? h('code', {}, `${path}/`) : 'the top of the repo';
     const mates = birds!.filter((b) => b.folder === folder && b !== bird);
-    const done = h('button', { type: 'button', class: 'btn', onclick: close }, 'Not now');
     card.style.setProperty('--bird', color);
     card.replaceChildren(
       h(
@@ -65,6 +90,7 @@ export function mountPrCard(app: App): { open(bird: number): boolean } {
         where,
         '.',
       ),
+      lit(pullFiles(pull.files, state.repo.index.files.paths)),
       mates.length
         ? h(
             'p',
@@ -94,11 +120,15 @@ export function mountPrCard(app: App): { open(bird: number): boolean } {
           },
           'Open pull request',
         ),
-        done,
       ),
+      closeButton('Close', close),
     );
     opener = document.activeElement;
     card.hidden = scrim.hidden = false;
+    app.showPull(index, true);
+    // Nearer the perch the lit leaves read; a pin's own framing stays as it is.
+    glided = folder !== 0 && !state.selection;
+    if (glided) app.view.frameFolder(folder);
     card.querySelector<HTMLElement>('.btn.dark')!.focus();
     return true;
   };

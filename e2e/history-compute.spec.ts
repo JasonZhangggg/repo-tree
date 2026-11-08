@@ -49,7 +49,9 @@ test('a signed-out visitor is offered to compute a missing history, and may decl
   await expect(dialog(page)).toContainText('No timeline yet for acme/widgets');
   await expect(dialog(page)).toContainText('work it out from GitHub (under 1 MB)');
   await expect(dialog(page)).toContainText('share it so everyone who opens acme/widgets gets it');
-  await page.getByRole('button', { name: 'Not now' }).click();
+  // Declining is the corner X, not a second button beside the main one.
+  await expect(dialog(page).getByRole('button')).toHaveText(['Sign in with GitHub', '']);
+  await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
   await expect(dialog(page)).toBeHidden();
   await expect(page.getByRole('group', { name: 'Timeline' })).toBeHidden();
 });
@@ -329,7 +331,7 @@ test.describe('on a phone', () => {
     await expect(dialog(page)).toContainText('On a phone this can be slow');
     await expect(dialog(page)).toContainText(/about \d+ MB of memory/);
     await expect(page.getByRole('button', { name: 'Sign in and compute' })).toBeVisible();
-    await page.getByRole('button', { name: 'Not now' }).click();
+    await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
     await expect(dialog(page)).toBeHidden();
   });
 });

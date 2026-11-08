@@ -63,3 +63,38 @@ export function birdsOf(state: AppState): Bird[] | null {
   memo.set(pulls, { folderIds: state.repo.folderIds, birds });
   return birds;
 }
+
+/** What a PR's changed paths are on the tree on show. */
+export type PullFiles = {
+  /** Per RepoIndex file: 1 where the PR changes it. */
+  lit: Uint8Array;
+  /** Changed files with a leaf or rock on the tree. */
+  shown: number;
+  /** Changed paths the tree lacks: new in the PR, or in a hidden folder. */
+  missing: number;
+};
+
+const pathIds = new WeakMap<readonly string[], Map<string, number>>();
+/** Each file path's RepoIndex id, built once per tree. */
+function idsOf(paths: readonly string[]): Map<string, number> {
+  let ids = pathIds.get(paths);
+  if (!ids) {
+    ids = new Map(paths.map((path, i) => [path, i]));
+    pathIds.set(paths, ids);
+  }
+  return ids;
+}
+
+/** The files a PR changes, marked on the tree's own file ids. */
+export function pullFiles(files: readonly string[], paths: readonly string[]): PullFiles {
+  const ids = idsOf(paths);
+  const lit = new Uint8Array(paths.length);
+  let shown = 0;
+  for (const file of files) {
+    const id = ids.get(file);
+    if (id === undefined || lit[id]) continue;
+    lit[id] = 1;
+    shown++;
+  }
+  return { lit, shown, missing: new Set(files).size - shown };
+}

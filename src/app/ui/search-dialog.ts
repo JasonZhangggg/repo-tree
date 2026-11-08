@@ -39,13 +39,15 @@ export function matchedFiles(repo: Loaded, hits: readonly SearchHit[]): Uint8Arr
  * (gliding to it on a lone tree; a grove stays in view), until it is closed.
  */
 export function mountSearch(app: App): {
-  open(): void;
+  open(options?: { instant?: boolean }): void;
   close(): boolean;
   /** Ends stepping through matches, if it runs: the matches go dark and the pin clears. */
   stop(): boolean;
   /** Steps to the next match (`by` 1) or the previous (-1), if stepping runs. */
   step(by: 1 | -1): boolean;
   stepping(): boolean;
+  /** Lights the matches again, if any show, after something else lit its own leaves. */
+  relight(): void;
 } {
   const { store, view } = app;
   const dialog = byId('search');
@@ -329,9 +331,12 @@ export function mountSearch(app: App): {
   });
   scrim.addEventListener('click', () => close());
 
-  function open() {
+  /** `instant`: opened from the keyboard shortcut, so it shows at once without animating. */
+  function open({ instant = false }: { instant?: boolean } = {}) {
     if (!store.get().repo) return;
     returnFocus = document.activeElement as HTMLElement | null;
+    dialog.toggleAttribute('data-instant', instant);
+    scrim.toggleAttribute('data-instant', instant);
     dialog.hidden = false;
     scrim.hidden = false;
     input.select();
@@ -350,5 +355,10 @@ export function mountSearch(app: App): {
     return true;
   }
 
-  return { open, close, stop, step, stepping: () => stepper !== null };
+  const relight = () => {
+    if (!dialog.hidden) light(hits);
+    else if (stepper) light(stepper.hits);
+  };
+
+  return { open, close, stop, step, stepping: () => stepper !== null, relight };
 }

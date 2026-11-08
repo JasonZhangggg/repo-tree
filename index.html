@@ -81,6 +81,12 @@
             </svg>
             <span class="label">PNG</span>
           </button>
+          <button type="button" class="tool" id="embed-copy" aria-label="Copy embed code">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m8.5 8-4 4 4 4m7-8 4 4-4 4m-2-10-3 12" />
+            </svg>
+            <span class="label">Embed</span>
+          </button>
         </div>
         <div class="tool-group" role="group" aria-label="View">
           <button type="button" class="tool" id="theme" aria-label="Dark mode">
@@ -366,6 +372,11 @@
       <div id="notices"></div>
     </div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <a class="embed-open" id="embed-open" target="_blank" rel="noopener" hidden>
+      <span class="name"></span>
+      <span class="by">Repo Tree</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5m0-5-8 8" /></svg>
+    </a>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

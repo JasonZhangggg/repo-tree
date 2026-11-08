@@ -4,9 +4,9 @@ A repo that is not a sample has no timeline until someone computes its history. 
 
 ## Sub-features
 
-- `history-offer` the dialog `No timeline yet for <repo>` names the download estimate (`under 1 MB`, `about N MB`) and that the result is shared. It offers `Sign in with GitHub` (or `Compute history` when already signed in) and `Not now`.
+- `history-offer` the dialog `No timeline yet for <repo>` names the download estimate (`under 1 MB`, `about N MB`) and that the result is shared. It offers `Sign in with GitHub` (or `Compute history` when already signed in), with the corner X (`Close`) to decline.
 - `history-warn` a big repo (an estimate of 25 MB or more, Linux-sized) or a constrained device (`navigator.deviceMemory` ≤ 4 or a coarse pointer) shows a warning with the download and memory estimates. The button then reads `Sign in and compute` (or `Compute anyway` when signed in).
-- `history-decline` `Not now`, Escape or a click on the scrim closes the dialog without opening the timeline.
+- `history-decline` the X (`Close`), Escape or a click on the scrim closes the dialog without opening the timeline.
 - `history-progress` during the computation the dialog shows `Working out the history of <repo>`, a progress bar, `N% · X MB of about Y MB` (just `N% · under 1 MB` for a small repo) and `Cancel`. `Sharing the history of <repo>` follows while it uploads.
 - `history-failed` a failure (rate limit with its reset time, revoked token, repo gone, GitHub trouble) shows `The history could not be finished` with `Try again`, which resumes where it stopped.
 - `history-shared` on success the timeline opens. The Worker holds the history with a manifest naming the uploader, and a fresh signed-out visitor opens the timeline with no dialog.
@@ -31,9 +31,9 @@ Preconditions:
 - Run `drive history-compute --port <p> --scale 2`, then the same with `--viewport phone-390`.
 
 - **Offer.** Load `acme/widgets` through the stand-in API and choose `Timeline`. Step `offer`. The dialog names `under 1 MB` and the sharing. On a phone it also shows the small-device warning.
-- **Decline.** Choose `Not now`. Step `decline`. The dialog and the scrubber are hidden.
+- **Decline.** Choose the X (`Close`). Step `decline`. The dialog and the scrubber are hidden.
 - **Big repo.** Load `acme/huge` (the Linux sample's tree) and choose `Timeline`. Step `big-repo`. The dialog warns `A big repo:` with `about 50 MB` and offers `Sign in and compute`.
-- **Progress.** Choose `Not now`, load `acme/widgets`, choose `Timeline`, then choose `Sign in…`. The popup signs in against the fake and closes. Step `progress`. The bar and `N% ·` show, with `Cancel`.
+- **Progress.** Choose the X (`Close`), load `acme/widgets`, choose `Timeline`, then choose `Sign in…`. The popup signs in against the fake and closes. Step `progress`. The bar and `N% ·` show, with `Cancel`.
 - **Timeline.** Step `timeline`. The scrubber opens on `36 files`, and the Worker answers `GET /v1/history/acme/widgets?branch=main` with a manifest `by: visitor`. Only the fake and the Worker received an `Authorization` header, and localStorage holds no token.
 - **Shared.** A second, signed-out browser context opens `#/acme/widgets` and chooses `Timeline`. Step `shared`. The scrubber opens with no dialog. The screenshot shows the first page, and the step only checks the second.
 - **Refresh offer.** The journey moves the fake's head to the newest commit and shifts the page's clock two days on (`addInitScript`), then reopens `#/acme/widgets` signed in and chooses `Timeline`. Step `refresh-offer`. The dialog reads `The timeline of acme/widgets is out of date` with `Refresh history` and `Use this one`.

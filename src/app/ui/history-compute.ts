@@ -11,7 +11,7 @@ import type { HistorySource } from '../../timeline/source';
 import type { App } from '../app';
 import { formatTrace } from '../../../server/src/core/trace';
 import { debug, debugEnabled } from '../debug';
-import { byId, fill, h } from '../dom';
+import { byId, closeButton, fill, h } from '../dom';
 import type { Repo } from '../state';
 
 /**
@@ -103,8 +103,9 @@ export function mountHistoryCompute(
             ),
           ),
         ),
+      v.closable && closeButton('Close', act.close),
     );
-    dialog.querySelector<HTMLButtonElement>('.compute-actions button')?.focus();
+    dialog.querySelector<HTMLButtonElement>('.compute-actions button, .close')?.focus();
   };
 
   async function start() {

@@ -530,8 +530,8 @@ export function mountHeader(app: App): void {
 }
 
 /**
- * The repo card's second line: the branch (a link to it), reload, whether it is a bundled
- * snapshot, its files, folders and languages, and a link to GitHub. Each card has one, alike.
+ * The repo card's second line: the branch (a link to it), whether it is a bundled snapshot, its
+ * files, folders and languages, then reload and a link to GitHub together. Each card has one, alike.
  */
 export function repoMeta(repo: Loaded & { sample?: string }, reload: () => void): (Node | null)[] {
   const { folders } = repo.index;
@@ -552,19 +552,6 @@ export function repoMeta(repo: Loaded & { sample?: string }, reload: () => void)
       icon(...ICONS.branch),
       h('span', {}, repo.info.branch),
     ),
-    h(
-      'button',
-      {
-        type: 'button',
-        class: 'icon-btn',
-        'aria-label': 'Reload from GitHub',
-        title: 'Reload from GitHub, skipping the cache',
-        // The ref as it was asked for: pinning the branch here would make the reload a
-        // branch link, which reads history but is never offered to compute one.
-        onclick: reload,
-      },
-      icon(...ICONS.reload),
-    ),
     repo.sample
       ? h(
           'span',
@@ -578,18 +565,36 @@ export function repoMeta(repo: Loaded & { sample?: string }, reload: () => void)
     h('span', { class: 'opt' }, plural(folders.files.length - 1, 'folder')),
     sep('sep opt langs'),
     h('span', { class: 'opt langs' }, plural(langs, 'language')),
-    // A phone keeps this in its More menu.
+    // The two actions travel together, so neither ends up alone on a line of its own. A phone
+    // keeps them in its More menu.
     h(
-      'a',
-      {
-        class: 'icon-btn gh',
-        href: githubUrl(repo.info.ref),
-        target: '_blank',
-        rel: 'noopener',
-        'aria-label': 'Open on GitHub',
-        title: 'Open on GitHub',
-      },
-      icon(...ICONS.external),
+      'span',
+      { class: 'meta-acts' },
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'icon-btn',
+          'aria-label': 'Reload from GitHub',
+          title: 'Reload from GitHub, skipping the cache',
+          // The ref as it was asked for: pinning the branch here would make the reload a
+          // branch link, which reads history but is never offered to compute one.
+          onclick: reload,
+        },
+        icon(...ICONS.reload),
+      ),
+      h(
+        'a',
+        {
+          class: 'icon-btn gh',
+          href: githubUrl(repo.info.ref),
+          target: '_blank',
+          rel: 'noopener',
+          'aria-label': 'Open on GitHub',
+          title: 'Open on GitHub',
+        },
+        icon(...ICONS.external),
+      ),
     ),
   ];
 }

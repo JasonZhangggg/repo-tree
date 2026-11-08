@@ -827,11 +827,9 @@ h1,
 .title > .weather span {
   display: none;
 }
-/* The side panel lists the languages; a wide screen has room to count them here too. */
-@media (max-width: 1600px) {
-  .title .meta .langs {
-    display: none;
-  }
+/* The side panel lists the languages, and the card is no wider than the repo field. */
+.title .meta .langs {
+  display: none;
 }
 /* A small laptop or a tablet keeps the card to two rows: the branch, file count and GitHub link. */
 @media (max-width: 1100px) {
@@ -843,13 +841,32 @@ h1,
   grid-area: meta;
   padding-left: 4px;
 }
-/* Facts on the left; the two actions, reload and open on GitHub, at the right under the CI chip. */
-.title > .meta .icon-btn:not(.gh) {
-  order: 1;
-  margin-left: auto;
+/* On a desktop the facts keep to one line beside the actions. */
+@media (min-width: 761px) {
+  .title > .meta {
+    flex-wrap: nowrap;
+    min-width: 0;
+    white-space: nowrap;
+  }
 }
-.title > .meta .gh {
-  order: 2;
+/* Short of room (a long branch, a huge repo), the branch shortens with an ellipsis; the facts
+   stay whole, and nothing leaves the line. */
+.title > .meta .branch {
+  min-width: 0;
+  max-width: 50%;
+}
+.title > .meta .branch span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Facts on the left; the two actions, reload and open on GitHub, together at the right under
+   the CI chip. They never part, and never leave the line. */
+.meta-acts {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
 }
 .title > #status {
   grid-area: status;
@@ -862,9 +879,6 @@ h1,
   grid-template-areas:
     'switch name weather'
     'status status status';
-}
-.meta .gh {
-  margin-left: -2px;
 }
 .meta {
   margin: 0;
@@ -2876,7 +2890,7 @@ body:has(.scrubber:not([hidden])) .toast {
     color: var(--ink);
   }
   /* The More menu holds Reload and Open on GitHub on a phone, so the repo row stays one line. */
-  .meta :is(.gh, .icon-btn) {
+  .meta .meta-acts {
     display: none;
   }
   .repo-switch svg {

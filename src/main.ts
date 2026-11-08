@@ -37,6 +37,7 @@ import { mountSearch } from './app/ui/search-dialog';
 import { mountSettings } from './app/ui/settings-dialog';
 import { childrenOf, mountSide } from './app/ui/side';
 import { mountHistoryCompute } from './app/ui/history-compute';
+import { mountConsent } from './app/ui/consent';
 import { mountTimeline } from './app/ui/timeline';
 import { mountCompare } from './app/ui/compare';
 import { mountBranchDiff } from './app/ui/branch-diff';
@@ -70,7 +71,7 @@ const store = createStore({
   selection: null,
   highlight: null,
   notice: null,
-  settings: parseSettings(stored, matchMedia('(prefers-color-scheme: dark)').matches),
+  settings: parseSettings(stored),
   autoQuality: autoQuality({
     pixelRatio: devicePixelRatio || 1,
     cores: navigator.hardwareConcurrency || 4,
@@ -694,7 +695,7 @@ addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement;
   const typing = target.matches('input, textarea, select, [contenteditable]');
   if (event.key === 'Escape') {
-    if (search.close() || settings.close() || compute.close() || typing) return;
+    if (consent.close() || search.close() || settings.close() || compute.close() || typing) return;
     if (search.stop()) return;
     const { selection, highlight, load } = store.get();
     if (selection || companionPin) app.select(null);
@@ -739,7 +740,9 @@ mountHeader(app);
 mountSide(app);
 const search = mountSearch(app);
 searchStepping = search.stepping;
-const compute = mountHistoryCompute(app);
+// Every sign-in first says what it grants, then which account signed in.
+const consent = mountConsent();
+const compute = mountHistoryCompute(app, { sign: consent.ask });
 const timeline = mountTimeline(
   app,
   () => reducedMotion(store.get().settings),
@@ -749,7 +752,7 @@ const timeline = mountTimeline(
 const settings = mountSettings(app);
 timeline.seeds(mountCompare(app).seedOf);
 const branchDiff = mountBranchDiff(app);
-const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns() });
+const signin = mountSignIn(app, { refreshRuns: () => loader.refreshRuns(), sign: consent.ask });
 mountQuick(app);
 const pinTray = mountPinTray(app, () => {
   const link = linkOf(store.get());

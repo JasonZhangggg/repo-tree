@@ -6,9 +6,9 @@ describe('parseSettings', () => {
     expect(parseSettings(null)).toEqual(DEFAULT_SETTINGS);
   });
 
-  test("takes a first visit's theme from the system, then keeps the stored one", () => {
-    expect(parseSettings(null, true).theme).toBe('dark');
-    expect(parseSettings('{"theme":"light"}', true).theme).toBe('light');
+  test('starts a first visit light, then keeps the stored theme', () => {
+    expect(parseSettings(null).theme).toBe('light');
+    expect(parseSettings('{"theme":"dark"}').theme).toBe('dark');
     expect(parseSettings('{"theme":"dusk"}').theme).toBe('light');
   });
 

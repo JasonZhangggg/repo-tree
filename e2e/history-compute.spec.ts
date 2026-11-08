@@ -28,6 +28,22 @@ const closed = async (popup: Page) => {
 
 const dialog = (page: Page) => page.getByRole('dialog', { name: /timeline|history/i });
 
+/**
+ * Every sign-in says what it grants first; its Authorize button opens GitHub's popup. Then it
+ * names the account (the fake GitHub's `visitor`) until Done.
+ */
+async function authorize(page: Page) {
+  const consent = page.getByRole('dialog', { name: 'Sign in with GitHub' });
+  await expect(consent).toBeVisible();
+  const popup = page.waitForEvent('popup');
+  await consent.getByRole('button', { name: 'Authorize with GitHub' }).click();
+  await closed(await popup);
+  const done = page.getByRole('dialog', { name: 'Signed in as @visitor' });
+  await expect(done).toBeVisible();
+  await done.getByRole('button', { name: 'Done' }).click();
+  await expect(done).toBeHidden();
+}
+
 async function open(page: Page, name = 'acme/widgets') {
   await page.goto('./');
   await ready(page, 'vitejs/vite');
@@ -68,9 +84,8 @@ test('signs in, computes in the browser, shares it, and opens the timeline', asy
   page.on('console', (m) => void (m.type() === 'info' && logged.push(m.text())));
   await open(page);
   await page.locator('#timeline').click();
-  const popup = page.waitForEvent('popup');
   await dialog(page).getByRole('button', { name: 'Sign in with GitHub' }).click();
-  await closed(await popup);
+  await authorize(page);
   await expect(page.getByRole('group', { name: 'Timeline' })).toBeVisible({ timeout: 60_000 });
   await expect(dialog(page)).toBeHidden();
   await expect(page.locator('#timeline-date')).not.toBeEmpty();
@@ -192,12 +207,27 @@ test('signed out, the GitHub button opens the menu, whose Sign in signs in; GitH
   await expect(panel.getByRole('link', { name: 'Login Q&A' })).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Sign out' })).toBeHidden();
 
-  // Sign in from the menu; it stays open and shows the account.
-  const popup = page.waitForEvent('popup');
+  // Sign in from the menu: first a screen of what signing in grants, with no popup yet.
   await panel.getByRole('button', { name: 'Sign in with GitHub' }).click();
-  await closed(await popup);
-  await expect(page.locator('#toast')).toHaveText('Signed in with GitHub');
+  await expect(panel).toBeHidden();
+  const consent = page.getByRole('dialog', { name: 'Sign in with GitHub' });
+  await expect(consent.getByRole('list', { name: 'Repo Tree can', exact: true })).toContainText(
+    'your own 5,000 requests an hour',
+  );
+  await expect(consent.getByRole('list', { name: 'Repo Tree can’t' })).toContainText(
+    'Change anything on GitHub',
+  );
+  expect(popups).toBe(0);
+  // Not now declines, and nothing opens.
+  await consent.getByRole('button', { name: 'Not now' }).click();
+  await expect(consent).toBeHidden();
+  expect(popups).toBe(0);
+  await expect(button).toHaveAccessibleName('Sign in');
+  await button.click();
+  await panel.getByRole('button', { name: 'Sign in with GitHub' }).click();
+  await authorize(page);
   await expect(button).toHaveAccessibleName('GitHub account');
+  await button.click();
   await expect(panel).toContainText('Signed in');
   await expect(panel.getByRole('button', { name: 'Sign in with GitHub' })).toBeHidden();
   await expect(panel.getByRole('button', { name: 'Sign out' })).toBeVisible();
@@ -234,10 +264,10 @@ test('the GitHub account menu shows the requests left this hour, links to the qu
   const button = page.locator('#signin');
   await button.click();
   const panel = page.getByRole('dialog', { name: 'GitHub account' });
-  const popup = page.waitForEvent('popup');
   await panel.getByRole('button', { name: 'Sign in with GitHub' }).click();
-  await closed(await popup);
+  await authorize(page);
   await expect(button).toHaveAccessibleName('GitHub account');
+  await button.click();
   await expect(panel).toBeVisible();
   await expect(panel.locator('#account-usage')).toHaveText('4,812 of 5,000');
   await expect(panel.locator('#account-reset')).toHaveText(/^Resets at /);
@@ -317,10 +347,15 @@ test.describe('on a phone', () => {
     await bubble.tap();
     const panel = page.getByRole('dialog', { name: 'GitHub account' });
     await expect(panel).toBeVisible();
-    const popup = page.waitForEvent('popup');
     await panel.getByRole('button', { name: 'Sign in with GitHub' }).tap();
-    await closed(await popup);
+    const consent = page.getByRole('dialog', { name: 'Sign in with GitHub' });
+    const sheet = (await consent.boundingBox())!;
+    expect(sheet.x).toBeGreaterThanOrEqual(0);
+    expect(sheet.x + sheet.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    expect(sheet.y + sheet.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+    await authorize(page);
     await expect(page.locator('#signin')).toHaveAccessibleName('GitHub account');
+    await page.locator('#signin').tap();
     await expect(panel.locator('#account-usage')).toHaveText('4,812 of 5,000');
     const box = (await panel.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);

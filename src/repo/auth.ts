@@ -121,3 +121,36 @@ export function signIn(
     }, 500);
   });
 }
+
+/** Who a sign-in token belongs to, as GitHub shows anyone. */
+export type Account = { login: string; avatar: string | null };
+
+/**
+ * The account behind `token` (`GET /user`, public profile only), or null when GitHub can't say.
+ * Asked of the GitHub that issued the token (VITE_GITHUB_API, a fake one in e2e).
+ */
+export async function fetchAccount(
+  token: string,
+  signal?: AbortSignal,
+  api: string = import.meta.env.VITE_GITHUB_API || 'https://api.github.com',
+): Promise<Account | null> {
+  try {
+    const res = await fetch(`${api}/user`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        Authorization: `Bearer ${token}`,
+      },
+      signal,
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { login?: unknown; avatar_url?: unknown };
+    if (typeof body.login !== 'string') return null;
+    return {
+      login: body.login,
+      avatar: typeof body.avatar_url === 'string' ? body.avatar_url : null,
+    };
+  } catch {
+    return null;
+  }
+}

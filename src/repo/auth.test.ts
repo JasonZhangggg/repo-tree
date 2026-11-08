@@ -56,3 +56,32 @@ describe('signIn', () => {
     expect(await signIn('', fakeWindow({}).win, memory())).toBeNull();
   });
 });
+
+describe('fetchAccount', () => {
+  test('reads the login and avatar of the token’s account, or null when GitHub says no', async () => {
+    const { fetchAccount } = await import('./auth');
+    const calls: [string, RequestInit | undefined][] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push([url, init]);
+        return new Response(
+          JSON.stringify({ login: 'octocat', avatar_url: 'https://a.example/u/1?v=4' }),
+          { status: 200 },
+        );
+      }),
+    );
+    expect(await fetchAccount('gho_x', undefined, 'https://gh.example')).toEqual({
+      login: 'octocat',
+      avatar: 'https://a.example/u/1?v=4',
+    });
+    expect(calls[0]![0]).toBe('https://gh.example/user');
+    expect((calls[0]![1]!.headers as Record<string, string>).Authorization).toBe('Bearer gho_x');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{}', { status: 401 })),
+    );
+    expect(await fetchAccount('gho_x', undefined, 'https://gh.example')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+});

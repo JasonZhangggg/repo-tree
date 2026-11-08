@@ -231,6 +231,8 @@ function signedInToken(): string | null;
 function signOut(): void;
 function githubToken(manual: string | undefined): string | undefined; // the Settings token, else the signed-in one: every read of GitHub's API (tree, Actions runs, history) sends it
 function onAuthChange(listener: () => void): void; // this tab or another tab of this browser signed in or out
+function fetchAccount(token: string, signal?: AbortSignal, api?: string): Promise<Account | null>; // GET <VITE_GITHUB_API or api.github.com>/user; Account = { login: string; avatar: string | null }
+// app/ui/consent.ts: mountConsent(sign = signIn) => { ask(): Promise<string | null>; close(): boolean }. Every sign-in (account menu, rate-limit action, history compute) goes through ask(): a sheet of what signing in grants and can't, whose Authorize with GitHub opens the popup (GitHub skips its own authorize screen for an app already approved, and an OAuth App can't force it), then Signed in as @login until Done; resolves with the token on Done, null on Not now or a sign-in that didn't finish.
 // The sign-in token goes only in the Authorization header of requests to GitHub's API and the history Worker, never in a link.
 // app/ui/signin.ts: the GitHub button beside Settings (its own rounded box at the top right on a phone), hidden without HISTORY_URL; signed in or out it opens the account menu: requests left this hour over a meter (fetchRateLimit with the token in use), Sign in with GitHub or Sign out, and a link to the questions page's GitHub section (Login Q&A: FAQ_URL, public/faq.html#github, static). Settings holds no sign-in; its GitHub token field stays, for private repos.
 // app/errors.ts: describeError(error, ref, { hasToken, signedIn?, canSignIn? }); ErrorAction adds 'signin', offered for a rate limit when the build can sign in, and for a refused sign-in token (which is then forgotten).
@@ -381,7 +383,7 @@ function ciFailed(state: AppState, repo?: Loaded | null /* the repo on show by d
 // A loaded link's hl must name a legend entry, except an activity band or (by owner) any name: those wait for the history.
 
 // app/settings.ts  (localStorage 'repo-tree:settings'; each malformed field falls back to its default)
-type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Quality; spin: boolean; labels: boolean; growAnim: boolean; ground: boolean; weather: boolean; birds: boolean /* open PRs as birds */; theme: 'light' | 'dark' /* first visit follows prefers-color-scheme */; hidden: string[]; token: string };
+type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Quality; spin: boolean; labels: boolean; growAnim: boolean; ground: boolean; weather: boolean; birds: boolean /* open PRs as birds */; theme: 'light' | 'dark' /* first visit is light, whatever prefers-color-scheme says */; hidden: string[]; token: string };
 // 'auto' starts from devicePixelRatio and hardwareConcurrency, then steps down once if the first 2 s after growth render under 30 fps.
 // The token is sent only by fetchSnapshot, which only calls api.github.com.
 

@@ -381,7 +381,7 @@ function ciFailed(state: AppState, repo?: Loaded | null /* the repo on show by d
 // A loaded link's hl must name a legend entry, except an activity band or (by owner) any name: those wait for the history.
 
 // app/settings.ts  (localStorage 'repo-tree:settings'; each malformed field falls back to its default)
-type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Quality; spin: boolean; labels: boolean; growAnim: boolean; ground: boolean; weather: boolean; birds: boolean /* open PRs as birds */; theme: 'light' | 'dark' /* first visit follows prefers-color-scheme */; hidden: string[]; token: string };
+type Settings = { palette: PaletteId; colorBy: ColorBy; quality: 'auto' | Quality; spin: boolean; labels: boolean; growAnim: boolean; ground: boolean; weather: boolean; birds: boolean /* open PRs as birds */; theme: 'light' | 'dark' /* first visit is light, whatever prefers-color-scheme says */; hidden: string[]; token: string };
 // 'auto' starts from devicePixelRatio and hardwareConcurrency, then steps down once if the first 2 s after growth render under 30 fps.
 // The token is sent only by fetchSnapshot, which only calls api.github.com.
 

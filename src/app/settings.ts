@@ -48,10 +48,10 @@ const oneOf = <T>(allowed: readonly T[], value: unknown, fallback: T): T =>
 const bool = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback);
 
 /**
- * Reads stored settings; anything missing or malformed falls back to its default. A first visit
- * takes its theme from the system (`prefersDark`).
+ * Reads stored settings; anything missing or malformed falls back to its default, so a first
+ * visit is light whatever the system prefers.
  */
-export function parseSettings(raw: string | null, prefersDark = false): Settings {
+export function parseSettings(raw: string | null): Settings {
   let stored: Record<string, unknown> = {};
   try {
     const value: unknown = JSON.parse(raw ?? '{}');
@@ -71,7 +71,7 @@ export function parseSettings(raw: string | null, prefersDark = false): Settings
     ground: bool(stored.ground, d.ground),
     weather: bool(stored.weather, d.weather),
     birds: bool(stored.birds, d.birds),
-    theme: oneOf(THEMES, stored.theme, prefersDark ? 'dark' : d.theme),
+    theme: oneOf(THEMES, stored.theme, d.theme),
     hidden: Array.isArray(hidden) && hidden.every((h) => typeof h === 'string') ? hidden : d.hidden,
     token: typeof stored.token === 'string' ? stored.token : d.token,
   };

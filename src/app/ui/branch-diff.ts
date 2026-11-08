@@ -165,7 +165,7 @@ export function mountBranchDiff(app: App): {
             'button',
             { type: 'button', class: 'diff-ref', onclick: () => pick(name) },
             icon(...ICONS.branch),
-            h('span', { class: 'diff-ref-name' }, name),
+            h('span', { class: 'diff-ref-name', title: name }, name),
             kind === 'tag' ? h('small', {}, 'tag') : '',
           ),
         ),
@@ -277,7 +277,14 @@ export function mountBranchDiff(app: App): {
     openButton.hidden = !!diff;
     shown.hidden = !diff;
     if (!diff) return;
-    const head = h('code', { class: 'diff-head' }, diff.head);
+    // The key keeps the row's glyph in its column, so the row it replaces turns into it in place:
+    // glyph, then head vs base and ×, with the counts and the commits lined up under the name.
+    const glyph = h(
+      'span',
+      { class: 'cmp-plus diff-glyph-sm', 'aria-hidden': 'true' },
+      icon(...ICONS.branch),
+    );
+    const head = h('code', { class: 'diff-head', title: diff.head }, diff.head);
     const stopButton = h(
       'button',
       {
@@ -292,22 +299,25 @@ export function mountBranchDiff(app: App): {
     const line = h(
       'p',
       { class: 'diff-line' },
-      icon(...ICONS.branch),
       head,
       h('span', { class: 'diff-vs' }, 'vs'),
-      h('code', {}, diff.base),
+      h('code', { class: 'diff-base' }, diff.base),
     );
     if (diff.status === 'loading') {
       return fill(
         shown,
-        h('div', { class: 'diff-top' }, line, stopButton),
+        glyph,
+        line,
+        stopButton,
         h('p', { class: 'diff-detail', role: 'status' }, `Comparing with ${diff.base}…`),
       );
     }
     if (diff.status === 'error') {
       return fill(
         shown,
-        h('div', { class: 'diff-top' }, line, stopButton),
+        glyph,
+        line,
+        stopButton,
         h(
           'p',
           { class: 'diff-detail diff-error', role: 'alert' },
@@ -319,16 +329,24 @@ export function mountBranchDiff(app: App): {
     const grown = repo.diffHead === diff.head;
     const { ahead, behind, capped } = diff.diff;
     const total = counts.added + counts.modified + counts.removed;
+    // A kind with no files has nothing on the tree to point at, so the key leaves it out.
+    const kinds = (
+      [
+        ['added', counts.added, 'new'],
+        ['modified', counts.modified, 'changed'],
+        ['removed', counts.removed, 'deleted'],
+      ] as const
+    ).filter(([, n]) => n > 0);
     fill(
       shown,
-      h('div', { class: 'diff-top' }, line, stopButton),
+      glyph,
+      line,
+      stopButton,
       total
         ? h(
             'p',
             { class: 'diff-counts' },
-            h('span', {}, swatch('added'), `${count(counts.added)} new`),
-            h('span', {}, swatch('modified'), `${count(counts.modified)} changed`),
-            h('span', {}, swatch('removed'), `${count(counts.removed)} deleted`),
+            ...kinds.map(([kind, n, word]) => h('span', {}, swatch(kind), `${count(n)} ${word}`)),
           )
         : h('p', { class: 'diff-detail' }, `No files differ from ${diff.base}.`),
       h(

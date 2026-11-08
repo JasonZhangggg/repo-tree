@@ -717,9 +717,9 @@ body:has(#signin.bubble:not([hidden])) :is(.title, .bar) {
     'switch meta meta'
     'status status status';
   align-items: center;
-  gap: 2px 10px;
+  gap: 6px 10px;
   z-index: 2;
-  padding: 8px 12px 8px 8px;
+  padding: 14px 16px 12px 12px;
   background: var(--card);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -2613,6 +2613,8 @@ body:has(.scrubber:not([hidden])) .toast {
   overflow: auto;
   padding: 20px;
   display: grid;
+  /* One column the dialog's own width: a long branch name shortens instead of widening it. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   /* A modal centred on the screen grows from its own centre, not from a corner. */
   transform-origin: center;
@@ -3574,7 +3576,7 @@ body[data-compare] .title:not([data-loading]) h1 {
 .cmp-rows {
   grid-column: 1 / -1;
   display: grid;
-  margin: 6px -12px -8px -8px;
+  margin: 12px -16px -12px -12px;
 }
 body[data-compare] .title:not([data-loading]) > .cmp-rows {
   margin: 0;
@@ -4060,6 +4062,7 @@ body[data-compare] #overview {
     display: none;
   }
   .cmp-add {
+    gap: 12px;
     padding: 8px 10px;
   }
   .island-tag {
@@ -4284,7 +4287,18 @@ body[data-compare] #overview {
 .diff-rows {
   grid-column: 1 / -1;
   display: grid;
-  margin: 0 -12px -8px -8px;
+  min-width: 0;
+  /* Its own width never sizes the card: a long branch name shortens inside it. */
+  contain: inline-size;
+  margin: 0 -16px -12px -12px;
+}
+/* On a desktop the card's rows share its columns: each glyph centred under the GitHub mark, each
+   label starting where the repo's name does. */
+@media (min-width: 761px) {
+  body:not([data-compare]) .title .cmp-add {
+    gap: 22px;
+    padding: 14px 16px 15px 20px;
+  }
 }
 .diff-rows[hidden],
 .diff-on[hidden] {
@@ -4297,56 +4311,69 @@ body[data-compare] #overview {
   width: 15px;
   height: 15px;
 }
+/* Glyph column, then the name column the repo card's name and meta use; × at the end. */
 .diff-on {
   display: grid;
-  gap: 6px;
-  padding: 12px 12px 14px 16px;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 22px;
+  padding: 12px 10px 14px 20px;
   border-top: 1px solid var(--line);
 }
-.diff-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.diff-on > :not(.cmp-plus, .diff-line, .diff-stop) {
+  grid-column: 2 / -1;
+}
+.diff-on > .diff-counts {
+  margin-top: 2px;
+}
+.diff-glyph-sm {
+  color: var(--muted);
+}
+.diff-glyph-sm svg {
+  width: 15px;
+  height: 15px;
 }
 .diff-line {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 7px;
   min-width: 0;
   margin: 0;
   font-size: 14px;
 }
-.diff-line svg {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  color: var(--muted);
-}
+/* A long head shortens with an ellipsis (its full name is its tooltip); "vs main" stays whole. */
 .diff-line code {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font: 600 13px var(--mono);
 }
-.diff-line code:last-child {
+.diff-line .diff-base {
+  flex: none;
+  max-width: 40%;
   font-weight: 400;
   color: var(--muted);
 }
 .diff-vs {
+  flex: none;
   color: var(--muted);
 }
 .diff-stop {
   display: grid;
   place-items: center;
   flex: none;
-  width: 28px;
-  height: 28px;
-  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  margin: -6px 0;
   border: 0;
   border-radius: 8px;
   background: none;
   color: var(--muted);
   cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 @media (hover: hover) and (pointer: fine) {
   .diff-stop:hover {
@@ -4361,7 +4388,7 @@ body[data-compare] #overview {
 .diff-counts {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
+  gap: 4px 16px;
   margin: 0;
   font-size: 13.5px;
   font-weight: 600;
@@ -4370,7 +4397,7 @@ body[data-compare] #overview {
 .diff-counts > span {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
 }
 /* A leaf's shape in each kind's look: new shines, changed is lit, deleted has withered. */
 .diff-swatch {
@@ -4393,6 +4420,7 @@ body[data-compare] #overview {
   margin: 0;
   color: var(--muted);
   font-size: 13px;
+  line-height: 1.45;
 }
 .diff-error {
   color: var(--danger);
@@ -4420,6 +4448,7 @@ body[data-compare] #overview {
 }
 .diff-refs {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   margin: 0;
   padding: 0;
@@ -4485,6 +4514,11 @@ body[data-compare] #overview {
     order: 4;
     flex: 1 0 100%;
     margin: 2px -8px -6px;
+  }
+  /* The glyph under the GitHub mark, the name over the repo's name. */
+  .diff-on {
+    gap: 4px 14px;
+    padding: 10px 6px 12px 14px;
   }
   /* iOS zooms into a field under 16px. */
   .diff-input {

@@ -616,9 +616,14 @@ mountMoreMenu(phone);
 // Moving between the bar and the menu restores the label the button started with.
 phone.addEventListener('change', () => syncTheme(store.get()));
 
+/** A panel's children, looking through any wrapper that has no box of its own. */
+const boxed = (el: Element): Element[] =>
+  [...el.children].flatMap((child) =>
+    getComputedStyle(child).display === 'contents' ? boxed(child) : [child],
+  );
 /** A panel covers the union of its visible children, so a row holding two buttons covers just them. */
 function footprint(panel: HTMLElement, origin: DOMRect): Rect | null {
-  const shown = [...panel.children]
+  const shown = boxed(panel)
     .map((child) => child.getBoundingClientRect())
     .filter((r) => r.width > 0 && r.height > 0);
   if (shown.length === 0) return null;

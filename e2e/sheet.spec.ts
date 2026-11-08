@@ -87,10 +87,10 @@ test('the open sheet scrolls its content, and closes from it only at the top', a
   const cdp = await page.context().newCDPSession(page);
   await sheet(page).tap();
   await expect(sheet(page)).toHaveAttribute('aria-expanded', 'true');
-  const body = page.locator('#side-body');
+  const body = page.locator('#sheet-scroll');
   const scrollTop = () => body.evaluate((el) => el.scrollTop);
   expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
-  const { x, top } = await center(page, '#side-body');
+  const { x, top } = await center(page, '#sheet-scroll');
 
   await swipe(cdp, x, top + 220, top + 40, { ms: 30, hold: 200 });
   await expect.poll(scrollTop, { message: 'content scrolled' }).toBeGreaterThan(40);
@@ -102,6 +102,32 @@ test('the open sheet scrolls its content, and closes from it only at the top', a
 
   await swipe(cdp, x, top + 40, top + 300, { ms: 30, hold: 200 });
   await expect(sheet(page)).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('the open sheet scrolls its title away, and its grip stays to tap it shut', async ({
+  page,
+}) => {
+  const cdp = await page.context().newCDPSession(page);
+  await sheet(page).tap();
+  await expect(sheet(page)).toHaveAttribute('aria-expanded', 'true');
+  const grip = page.locator('#sheet-grip');
+  const gripTop = (await grip.boundingBox())!.y;
+  const titleTop = (await page.locator('#sheet-title').boundingBox())!.y;
+  const { x, top } = await center(page, '#sheet-scroll');
+
+  await swipe(cdp, x, top + 220, top + 40, { ms: 30, hold: 200 });
+  await expect
+    .poll(async () => (await page.locator('#sheet-title').boundingBox())!.y, {
+      message: 'title scrolled up',
+    })
+    .toBeLessThan(titleTop - 40);
+  expect((await grip.boundingBox())!.y, 'grip stays').toBe(gripTop);
+  await expect(grip).toBeInViewport({ ratio: 1 });
+
+  const box = (await grip.boundingBox())!;
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(sheet(page)).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('#sheet-title')).toBeVisible();
 });
 
 test('Settings opens as a drawer from the bottom, with a tab to drag or tap it closed', async ({

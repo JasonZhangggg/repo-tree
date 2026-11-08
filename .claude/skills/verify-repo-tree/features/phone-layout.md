@@ -8,6 +8,7 @@ On a narrow screen the side panel becomes a bottom sheet with a peek row, the bo
 - `phone-tap-pin` pins a folder with a tap and names it in the peek without opening the sheet.
 - `phone-sheet` opens and closes the sheet from its handle and shows the pinned card inside it.
 - `phone-sheet-drag` drags the sheet with a finger: it follows the handle up or down, or down from its content once that is scrolled to the top, and snaps open or closed by distance and speed on release, carried there by a spring at the finger's speed (a touch of bounce after a flick). Dragged past open or shut it gives a little. A quick short flick switches it, a short slow drag springs back, a press on a sheet still moving catches it (a tap there turns it back), and content further down scrolls instead.
+- `phone-sheet-scroll` scrolls the open sheet's title, Color leaves by picker and lists as one, under a slim grip (`#sheet-grip`) that stays pinned and taps or drags the sheet shut. In the open sheet the picker's menu opens downward, and the leaf colors legend comes before the folder list. Asserted in `e2e/sheet.spec.ts`.
 - `phone-clear` clears the pin from inside the sheet.
 - `phone-settings` opens Settings as a bottom sheet from the bottom controls.
 - `phone-orbit` orbits by touch drag.

@@ -321,7 +321,18 @@
         </svg>
         <span>Reset view</span>
       </button>
-      <p class="help" id="help">Drag to orbit · scroll to zoom · click a branch to pin</p>
+      <p class="help" id="help">
+        <span>Drag to orbit · scroll to zoom · click a branch to pin</span>
+        <button
+          type="button"
+          class="help-close"
+          id="help-close"
+          aria-label="Close tip"
+          title="Close tip"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+        </button>
+      </p>
     </div>
 
     <div id="tip" role="tooltip" hidden></div>

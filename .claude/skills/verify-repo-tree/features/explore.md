@@ -15,7 +15,7 @@ A user points at a branch to see which folder it is, clicks to pin that folder's
 - `explore-frame` frames the whole tree with `f`.
 - `explore-orbit` orbits by dragging and zooms by scrolling or pinching. A drag turns the tree 1:1; let go mid-flick and it keeps turning and slows to rest, let go after holding still and it stays put. A pinch, drag or wheel past the nearest or furthest zoom, or the lowest or highest view, gives a little and springs back; a wheel notch eases in. A press catches any of it mid-flight. Reduced motion keeps the 1:1 drag and drops the throw and the give. e2e: `e2e/gestures.spec.ts`.
 - `explore-breeze` sways the tree gently in a breeze unless motion is reduced: the crown's top by about a hundredth of the tree's height, each leaf fluttering faintly on its stem, and the grass and flowers from their roots. The trunk stays put. Under reduced motion the scene holds still. Journeys run with reduced motion, so check it with motion allowed.
-- `explore-hint` shows `Drag to orbit · scroll to zoom · click a branch to pin` beside the desktop controls until the first drag or click on the tree, then fades it out and keeps it hidden on later visits (localStorage `repo-tree:hint-seen`). e2e covers it in `the orbit hint fades after the first drag and stays gone`.
+- `explore-hint` shows `Drag to orbit · scroll to zoom · click a branch to pin` beside the desktop controls with a `Close tip` button. Drags and clicks on the tree leave it up; closing it fades it out and keeps it hidden on later visits (localStorage `repo-tree:hint-closed`). e2e covers it in `the orbit hint stays through drags until closed, then stays gone`.
 
 ## How to get to it (user POV)
 

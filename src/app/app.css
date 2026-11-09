@@ -1588,6 +1588,9 @@ body:not([data-shell]) :is(.bar, .title) {
   animation: pop 0.18s var(--ease);
 }
 .help {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   margin: 0 0 0 6px;
   color: var(--muted);
   font-size: 12.5px;
@@ -1595,9 +1598,31 @@ body:not([data-shell]) :is(.bar, .title) {
     opacity 0.3s var(--ease),
     visibility 0.3s;
 }
-.help[data-seen] {
+.help[data-closed] {
   opacity: 0;
   visibility: hidden;
+}
+.help-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .help-close:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
+}
+.help-close svg {
+  width: 13px;
+  height: 13px;
 }
 
 /* Timeline: the button among the controls and the scrubber above them. */

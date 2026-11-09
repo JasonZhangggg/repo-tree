@@ -627,7 +627,10 @@ test('a shared highlight comes back, and a pinned folder replaces it', async ({ 
   await expect(page).toHaveURL(/colorBy=language&pin=[^&]+$/);
 });
 
-test('the orbit hint fades after the first drag and stays gone', async ({ page, isMobile }) => {
+test('the orbit hint stays through drags until closed, then stays gone', async ({
+  page,
+  isMobile,
+}) => {
   test.skip(isMobile, 'the hint only shows on desktop');
   await page.goto('./');
   await ready(page, 'vitejs/vite');
@@ -638,6 +641,9 @@ test('the orbit hint fades after the first drag and stays gone', async ({ page, 
   await page.mouse.down();
   await page.mouse.move(box.width / 2 + 60, box.height / 2, { steps: 4 });
   await page.mouse.up();
+  await page.mouse.click(box.width / 2, box.height / 2);
+  await expect(hint).toBeVisible();
+  await page.getByRole('button', { name: 'Close tip' }).click();
   await expect(hint).toBeHidden();
   await page.reload();
   await ready(page, 'vitejs/vite');

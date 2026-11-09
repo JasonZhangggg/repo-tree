@@ -1,34 +1,30 @@
 import { byId } from '../dom';
 
-const KEY = 'repo-tree:hint-seen';
+const KEY = 'repo-tree:hint-closed';
 
 /**
- * The "drag to orbit" hint fades out after the first gesture on the tree and stays gone. It keeps
- * its box, so the controls' footprint and the tree's framing don't jump when it goes.
+ * The "drag to orbit" tip stays beside the controls until its close button is pressed, and then
+ * stays gone on later visits. Closed, it keeps its box, so the controls' footprint and the tree's
+ * framing don't jump.
  */
 export function mountHint(): void {
   const hint = byId('help');
-  const seen = () => {
-    try {
-      return localStorage.getItem(KEY) === '1';
-    } catch {
-      return false;
-    }
-  };
-  if (seen()) {
-    hint.dataset.seen = '';
+  let closed = false;
+  try {
+    closed = localStorage.getItem(KEY) === '1';
+  } catch {
+    // Private mode: the tip shows, and closing it lasts until the page reloads.
+  }
+  if (closed) {
+    hint.dataset.closed = '';
     return;
   }
-  const done = (event: PointerEvent) => {
-    const target = event.target as Element | null;
-    if (!target?.closest('#view, #labels')) return;
-    window.removeEventListener('pointerup', done);
+  byId('help-close').addEventListener('click', () => {
+    hint.dataset.closed = '';
     try {
       localStorage.setItem(KEY, '1');
     } catch {
-      // Private mode: the hint just comes back next visit.
+      // Private mode: the tip comes back next visit.
     }
-    hint.dataset.seen = '';
-  };
-  window.addEventListener('pointerup', done);
+  });
 }

@@ -136,7 +136,8 @@ async function open() {
     phone: devices['Pixel 7'],
     'phone-390': { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } },
   }[viewport];
-  if (!device) throw new Error(`unknown --viewport ${viewport}; use desktop, wide, phone or phone-390`);
+  if (!device)
+    throw new Error(`unknown --viewport ${viewport}; use desktop, wide, phone or phone-390`);
   const context = await browser.newContext({
     ...device,
     ...(values.scale ? { deviceScaleFactor: Number(values.scale) } : {}),

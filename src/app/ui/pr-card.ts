@@ -12,6 +12,8 @@ export function mountPrCard(app: App): { open(bird: number): boolean } {
   const { store } = app;
   const card = byId('pr-card');
   const scrim = byId('pr-scrim');
+  /** The side panel, which the card stands in for while it is open. */
+  const side = byId('side');
   let opener: Element | null = null;
   /** Whether opening glided the camera to the perch, so closing glides back. */
   let glided = false;
@@ -19,6 +21,7 @@ export function mountPrCard(app: App): { open(bird: number): boolean } {
   const close = () => {
     if (card.hidden) return;
     card.hidden = scrim.hidden = true;
+    side.removeAttribute('data-under-card');
     app.showPull(null, true);
     if (glided) app.view.frameFolder(0);
     glided = false;
@@ -125,6 +128,7 @@ export function mountPrCard(app: App): { open(bird: number): boolean } {
     );
     opener = document.activeElement;
     card.hidden = scrim.hidden = false;
+    side.setAttribute('data-under-card', '');
     app.showPull(index, true);
     // Nearer the perch the lit leaves read; a pin's own framing stays as it is.
     glided = folder !== 0 && !state.selection;

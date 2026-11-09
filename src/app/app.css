@@ -3405,7 +3405,7 @@ body:has(.scrubber:not([hidden])) .toast {
     width: min(360px, calc(100% - 32px));
   }
   /* The card takes the panel's place: the panel fades out under it, so neither peeks past the other. */
-  body:has(#pr-card:not([hidden])) .side {
+  .side[data-under-card] {
     opacity: 0;
     visibility: hidden;
   }

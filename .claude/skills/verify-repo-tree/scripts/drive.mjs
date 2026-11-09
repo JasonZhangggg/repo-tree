@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Usage: node .claude/skills/verify-repo-tree/scripts/drive.mjs <command> [--port 4175]
-//          [--out dir] [--viewport desktop|phone|phone-390] [--scale 2] [--history]
+//          [--out dir] [--viewport desktop|wide|phone|phone-390] [--scale 2] [--history]
 // Commands: launch, doctor, cleanup, or a journey: load-repo, explore, search, settings,
 // share-and-export, phone-layout, tree-sizes, timeline, compare, weather, birds, branch, hover, activity, changes, busiest,
 // history-compute.
@@ -132,10 +132,11 @@ async function open() {
   });
   const device = {
     desktop: { viewport: { width: 1280, height: 800 } },
+    wide: { viewport: { width: 1920, height: 1000 } },
     phone: devices['Pixel 7'],
     'phone-390': { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } },
   }[viewport];
-  if (!device) throw new Error(`unknown --viewport ${viewport}; use desktop, phone or phone-390`);
+  if (!device) throw new Error(`unknown --viewport ${viewport}; use desktop, wide, phone or phone-390`);
   const context = await browser.newContext({
     ...device,
     ...(values.scale ? { deviceScaleFactor: Number(values.scale) } : {}),
@@ -875,6 +876,8 @@ const JOURNEYS = {
       // Its changed files light on the tree while the card is open.
       await expect(card).toContainText(/lit on the tree/);
       await expect.poll(() => page.evaluate(() => window.__repoTree.litPull)).not.toBeNull();
+      // On a desktop the card takes the side panel's place: the panel hides under it.
+      if (!phone) await expect(page.locator('.side')).toBeHidden();
       await settle(page);
     });
     await step('off', async () => {

@@ -97,9 +97,15 @@ const SHEET_DECELERATION = 0.995;
  * content once that is scrolled to the top, and snaps open or closed on release. While a drag
  * or the spring after it runs, the sheet carries `data-dragging` and its content shows.
  */
+/**
+ * The phone sheet. `grip` is the slim strip that stays pinned on top; `scroller` holds the title,
+ * the picker and `body`, and scrolls as one, so only the grip stays put.
+ */
 function dragSheet(
   side: HTMLElement,
   toggle: HTMLElement,
+  grip: HTMLElement,
+  scroller: HTMLElement,
   body: HTMLElement,
   setOpen: (open: boolean) => void,
 ): void {
@@ -124,6 +130,8 @@ function dragSheet(
   let settle: { run: Run; open: boolean; travel: number } | null = null;
 
   // Past open or past shut the sheet gives a little under the finger instead of stopping dead.
+  /** How far the sheet moves between open and shut: shut, only the grip and the title show. */
+  const travelOf = () => scroller.offsetHeight - toggle.offsetHeight;
   const offsetFor = (p: Press, y: number) => band(p.from + y - p.y0, 0, p.travel, SHEET_GIVE);
   // The bar's controls ride on the sheet on a phone (main.ts moves them in).
   const controls = document.querySelector<HTMLElement>('.controls');
@@ -143,6 +151,7 @@ function dragSheet(
     controls?.style.removeProperty('opacity');
     body.style.animation = open ? 'none' : '';
     setOpen(open);
+    if (!open) scroller.scrollTop = 0;
     // Let the sheet land while transitions are still off: dropping `data-dragging` first started
     // a transition back from the drag's offset, which held the sheet there until the next frame.
     void side.offsetHeight;
@@ -170,8 +179,8 @@ function dragSheet(
   };
 
   /** Lets the content scroll natively except a downward drag from its top, which closes the sheet. */
-  const markTop = () => body.toggleAttribute('data-top', body.scrollTop <= 0);
-  body.addEventListener('scroll', markTop, { passive: true });
+  const markTop = () => scroller.toggleAttribute('data-top', scroller.scrollTop <= 0);
+  scroller.addEventListener('scroll', markTop, { passive: true });
   /**
    * A tap on the bar slides the sheet open or shut with a spring, without bounce (a tap throws
    * nothing), from wherever it is if it is still moving. Shutting is quicker than opening.
@@ -193,19 +202,23 @@ function dragSheet(
     } else {
       body.style.animation = 'none';
       side.setAttribute('data-dragging', '');
-      travel = body.offsetHeight;
+      travel = travelOf();
       from = open ? travel : 0;
       show(from, travel);
     }
     springOpen(from, open, travel, 0, open ? 0.42 : 0.32);
   });
   markTop();
+  grip.addEventListener('click', () => toggle.click());
 
   side.addEventListener('pointerdown', (event) => {
     if (!phone.matches || press || !event.isPrimary || event.button > 0) return;
     const target = event.target as Element;
-    const fromBody = body.contains(target);
-    if (!fromBody && !toggle.contains(target)) return;
+    // The grip always moves the sheet. Shut, so does the title; open, everything under the grip
+    // scrolls, and moves the sheet only by a downward drag from the top.
+    const fromGrip = grip.contains(target);
+    const fromBody = !fromGrip && side.hasAttribute('data-open') && scroller.contains(target);
+    if (!fromGrip && !fromBody && !toggle.contains(target)) return;
     // A sheet still moving is caught where it is, and follows the finger from there. Speed is
     // read from moves alone: a press can carry a different clock than the moves after it.
     if (settle) {
@@ -228,7 +241,7 @@ function dragSheet(
       };
       return;
     }
-    if (fromBody && (!side.hasAttribute('data-open') || body.scrollTop > 0)) return;
+    if (fromBody && scroller.scrollTop > 0) return;
     swallowClick = false;
     press = {
       id: event.pointerId,
@@ -254,7 +267,7 @@ function dragSheet(
         return;
       }
       side.setAttribute('data-dragging', '');
-      p.travel = body.offsetHeight;
+      p.travel = travelOf();
       p.from = p.wasOpen ? 0 : p.travel;
       p.dragging = true;
       p.y0 += Math.sign(dy) * DRAG_SLOP;
@@ -353,7 +366,7 @@ export function mountSide(app: App): void {
     side.toggleAttribute('data-open', open);
     toggle.setAttribute('aria-expanded', String(open));
   };
-  dragSheet(side, toggle, byId('side-body'), setOpen);
+  dragSheet(side, toggle, byId('sheet-grip'), byId('sheet-scroll'), byId('side-body'), setOpen);
   sheetClear.addEventListener('click', () => app.select(null));
 
   const pick = (folder: number) => app.select({ folder }, true);

@@ -1237,6 +1237,11 @@ body:not([data-shell]) :is(.bar, .title) {
   padding: 2px;
   margin: -2px;
 }
+/* The phone sheet's scrolling part; on a desktop its children lay out as if it weren't there. */
+.sheet-scroll {
+  display: contents;
+}
+.sheet-grip,
 .sheet-handle,
 .close.sheet-clear {
   display: none;
@@ -3033,8 +3038,36 @@ body:has(.scrubber:not([hidden])) .toast {
   .quick {
     display: block;
     position: absolute;
-    top: 20px;
+    top: 0;
     right: 14px;
+  }
+  /* Open, the title, the picker and the lists scroll as one, under a slim grip that stays put
+     to tap or drag the sheet shut. A downward drag from the top of the list shuts it too. */
+  .sheet-grip {
+    display: grid;
+    place-items: center;
+    flex: none;
+    height: 28px;
+  }
+  .sheet-scroll {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    min-height: 0;
+    overscroll-behavior: contain;
+  }
+  .side[data-open] .sheet-scroll {
+    overflow-y: auto;
+    touch-action: pan-y;
+  }
+  .side[data-open] .sheet-scroll[data-top] {
+    touch-action: pan-down;
+  }
+  /* Open, the picker's menu opens downward: above it is the grip, where it would be cut off. */
+  .side[data-open] .quick .pick-menu {
+    top: calc(100% + 8px);
+    bottom: auto;
+    transform-origin: top right;
   }
   .side:has(.sheet-clear:not([hidden])) .quick,
   .side:not(:has(.sheet-clear:not([hidden]))) .color-by {
@@ -3072,10 +3105,10 @@ body:has(.scrubber:not([hidden])) .toast {
   .sheet-handle {
     display: grid;
     justify-items: center;
-    gap: 8px;
+    flex: none;
     width: 100%;
-    min-height: 64px;
-    padding: 8px 64px 12px;
+    min-height: 44px;
+    padding: 0 64px 10px;
     border: 0;
     background: none;
   }
@@ -3108,7 +3141,7 @@ body:has(.scrubber:not([hidden])) .toast {
   /* Its right edge lines up with the cards below it. */
   .close.sheet-clear {
     display: grid;
-    top: 12px;
+    top: 0;
     right: 12px;
   }
   .detail .close,
@@ -3128,13 +3161,18 @@ body:has(.scrubber:not([hidden])) .toast {
     background: color-mix(in srgb, var(--ink) 20%, transparent);
   }
   .side-body {
+    flex: none;
+    overflow: visible;
     padding: 0 12px 12px;
     margin: 0;
     gap: 10px;
-    touch-action: pan-y;
   }
-  .side-body[data-top] {
-    touch-action: pan-down;
+  /* In the sheet, leaf colors come before the folder list: the legend is what explains the tree
+     the sheet half covers. */
+  #legend-title,
+  #legend,
+  #legend-note {
+    order: -1;
   }
   .panel {
     box-shadow: none;

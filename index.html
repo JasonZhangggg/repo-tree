@@ -191,51 +191,53 @@
     </section>
 
     <aside class="side" id="side" aria-label="Repository details">
-      <button
-        type="button"
-        class="sheet-handle"
-        id="sheet-toggle"
-        aria-expanded="false"
-        aria-controls="side-body"
-      >
-        <span class="grip" aria-hidden="true"></span>
-        <span class="peek">
-          <strong id="sheet-title">Folders and leaf colors</strong>
-          <small id="sheet-stat"></small>
-        </span>
-      </button>
-      <button
-        type="button"
-        class="close sheet-clear"
-        id="sheet-clear"
-        aria-label="Clear selection"
-        hidden
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
-      </button>
-      <div class="quick" id="quick"></div>
-      <div class="side-body" id="side-body">
-        <section class="panel color-by" id="color-by" aria-label="Color leaves by"></section>
-        <section class="panel pins" id="pins" aria-label="Pinned folders" hidden></section>
-        <article class="panel detail" id="detail" hidden aria-label="Pinned folder"></article>
-        <section
-          class="panel cmp-panel"
-          id="compare-panel"
-          aria-label="Side by side"
+      <div class="sheet-grip" id="sheet-grip" aria-hidden="true"><span class="grip"></span></div>
+      <div class="sheet-scroll" id="sheet-scroll">
+        <button
+          type="button"
+          class="sheet-handle"
+          id="sheet-toggle"
+          aria-expanded="false"
+          aria-controls="side-body"
+        >
+          <span class="peek">
+            <strong id="sheet-title">Folders and leaf colors</strong>
+            <small id="sheet-stat"></small>
+          </span>
+        </button>
+        <button
+          type="button"
+          class="close sheet-clear"
+          id="sheet-clear"
+          aria-label="Clear selection"
           hidden
-        ></section>
-        <section class="panel" id="overview">
-          <h2 class="h">Top-level folders</h2>
-          <ul id="folders" class="folders"></ul>
-          <h2 class="h" id="legend-title">Leaf colors</h2>
-          <ul id="legend" class="legend"></ul>
-          <p class="more" id="legend-note" aria-live="polite"></p>
-          <div class="hot" id="hot" hidden>
-            <h2 class="h" id="hot-title">Busiest files</h2>
-            <p class="more" id="hot-note" aria-live="polite"></p>
-            <ol class="hot-files" id="hot-files" aria-labelledby="hot-title"></ol>
-          </div>
-        </section>
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+        </button>
+        <div class="quick" id="quick"></div>
+        <div class="side-body" id="side-body">
+          <section class="panel color-by" id="color-by" aria-label="Color leaves by"></section>
+          <section class="panel pins" id="pins" aria-label="Pinned folders" hidden></section>
+          <article class="panel detail" id="detail" hidden aria-label="Pinned folder"></article>
+          <section
+            class="panel cmp-panel"
+            id="compare-panel"
+            aria-label="Side by side"
+            hidden
+          ></section>
+          <section class="panel" id="overview">
+            <h2 class="h">Top-level folders</h2>
+            <ul id="folders" class="folders"></ul>
+            <h2 class="h" id="legend-title">Leaf colors</h2>
+            <ul id="legend" class="legend"></ul>
+            <p class="more" id="legend-note" aria-live="polite"></p>
+            <div class="hot" id="hot" hidden>
+              <h2 class="h" id="hot-title">Busiest files</h2>
+              <p class="more" id="hot-note" aria-live="polite"></p>
+              <ol class="hot-files" id="hot-files" aria-labelledby="hot-title"></ol>
+            </div>
+          </section>
+        </div>
       </div>
     </aside>
 

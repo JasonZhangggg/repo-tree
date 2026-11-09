@@ -114,6 +114,7 @@ test('a PR whose files are new says so on its card', async ({ page, isMobile }) 
 
 test('two PRs on one folder share its branch, and the card says they may conflict', async ({
   page,
+  isMobile,
 }) => {
   const pair = VITE_PULLS.filter((p) => p.number === 2101 || p.number === 2087);
   await servePulls(page, 'vitejs/vite', pair);
@@ -129,6 +130,12 @@ test('two PRs on one folder share its branch, and the card says they may conflic
         `Also perched here: #${number === 2101 ? 2087 : 2101}. PRs that change the same folder may conflict.`,
       );
       await expect(card).toContainText('most in packages/vite/src/node/optimizer/');
+      if (!isMobile) {
+        // On a desktop the card takes the side panel's place, so the panel never peeks out under it.
+        await expect(page.locator('.side')).toBeHidden();
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.side')).toBeVisible();
+      }
       return;
     } catch {
       const box = (await page.locator('#view').boundingBox())!;

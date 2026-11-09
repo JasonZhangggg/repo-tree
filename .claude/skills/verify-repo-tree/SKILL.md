@@ -45,7 +45,7 @@ Run doctor first, and again whenever a journey fails in a way that looks like th
 ## Drive
 
 ```sh
-node .claude/skills/verify-repo-tree/scripts/drive.mjs <journey> --port 4175 [--viewport desktop|phone|phone-390] [--out dir]
+node .claude/skills/verify-repo-tree/scripts/drive.mjs <journey> --port 4175 [--viewport desktop|wide|phone|phone-390] [--out dir]
 ```
 
 Journeys are `load-repo`, `explore`, `search`, `settings`, `share-and-export`, `phone-layout`, `tree-sizes`, `timeline`, `compare`, `weather`, `birds`, `branch`, `hover`, `activity`, `changes`, `busiest`, `owner` and `history-compute`. `history-compute` needs `launch --history`, which also serves the history Worker and a fake GitHub on the next two ports (see [`features/history-compute.md`](features/history-compute.md)). `--scale 2` sets the device scale factor for sharper screenshots. Each one is a Playwright recipe for one file of the feature map in [`features/`](features/README.md). Read the matching feature file before changing a journey or proving a feature it does not cover.
@@ -53,7 +53,7 @@ Journeys are `load-repo`, `explore`, `search`, `settings`, `share-and-export`, `
 Every journey sets these up before the first navigation.
 
 - Chromium with `--use-angle=swiftshader --enable-unsafe-swiftshader`, so WebGL works headless.
-- Desktop is 1280 by 800. Phone is Playwright's `Pixel 7` (412 px wide, touch). `phone-390` is the same phone at 390 by 844.
+- Desktop is 1280 by 800, `wide` is 1920 by 1000. Phone is Playwright's `Pixel 7` (412 px wide, touch). `phone-390` is the same phone at 390 by 844.
 - `reducedMotion: 'reduce'`, so trees appear grown at once instead of animating.
 - `quietSettings` from `e2e/github.ts`. Stored settings start as `{ quality: 'low', spin: false }` and every request to `api.github.com` is aborted.
 - A stand-in GitHub API where a step needs one. `serveRepo(page, 'acme/widgets')` answers the repo and tree endpoints from a bundled sample, `serveRuns(page, 'acme/widgets', '..x')` answers its Actions runs, and `failRepo(page, status, headers)` answers every API call with an error. Real `api.github.com` is unreachable from this sandbox. The app's network boundaries are `fetchSnapshot` in `src/repo/github.ts` and `fetchRuns` in `src/repo/ci.ts`, so a `page.route` stand-in exercises the same code path a live response would.

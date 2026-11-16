@@ -29,6 +29,11 @@ export const treeUniforms = {
    */
   uGlow: { value: 0 },
   /**
+   * At night every leaf catches the moon: its own color adds on as emission this much, so the
+   * crown keeps the palette's colors bright against the dimmed island. 0 by day.
+   */
+  uMoonlit: { value: 0 },
+  /**
    * How far dead-wood leaves (`aFall` 1) have fallen, 0 to 1: each tumbles down to `uFloor`
    * after its own small delay and shrinks away as it lands.
    */
@@ -278,7 +283,7 @@ if (aFall > 0.5 && fallBy > 0.0) {
  */
 const HOT_GLOW = /* glsl */ `
 #include <emissivemap_fragment>
-totalEmissiveRadiance += vLeaf * (step(0.001, vHeat) * (0.55 + 0.45 * vHeat) * uGlow * SELF_LIT);
+totalEmissiveRadiance += vLeaf * (step(0.001, vHeat) * (0.55 + 0.45 * vHeat) * uGlow * SELF_LIT + uMoonlit);
 // A compared branch's new files shine in their own color.
 if (uMatch > 0.5 && ${NEW_LEAF}) totalEmissiveRadiance += vLeaf * NEW_LIT;
 `;
@@ -337,7 +342,7 @@ export const leafShader = <M extends Material>(m: M, slots: number) =>
       LEAF_TUNING +
       FADE_UNIFORMS +
       'varying vec3 vLeaf;\nvarying float vSlot;\nvarying float vHeat;\nvarying float vMatch;\n' +
-      '#define SELF_LIT 0.5\nuniform float uGlow;\nuniform vec3 uWither;\n' +
+      '#define SELF_LIT 0.5\nuniform float uGlow;\nuniform float uMoonlit;\nuniform vec3 uWither;\n' +
       HSL +
       shader.fragmentShader
         .replace(

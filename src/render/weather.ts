@@ -136,10 +136,10 @@ const FROZEN_AT = 37.3;
 const DECK_RATE = 2.5;
 
 /**
- * The night sky in dark mode, the same for every palette: a near-neutral charcoal behind the
- * crown fading to near black at the corners. A weather's tint darkens `dim` of the way to `edge` at night.
+ * The night sky in dark mode, the same for every palette: a deep moonlit indigo behind the crown
+ * fading to near-black navy at the corners. A weather's tint darkens `dim` of the way to `edge` at night.
  */
-export const NIGHT = { center: '#15171c', edge: '#040405', dim: 0.9 };
+export const NIGHT = { center: '#1a2440', edge: '#05070e', dim: 0.85 };
 
 /**
  * The palette's sky center and edge with the weather mixed in, as sRGB; at `night` the night
@@ -166,7 +166,12 @@ export function weatherSky(
  * ground fall into shadow, but the same hue so leaf colors stay the palette's. Glowing leaves
  * light themselves, so they stand out.
  */
-export const MOONLIGHT = { key: 0.05, sky: 0.16, fill: 0.2 };
+export const MOONLIGHT = { key: 0.1, sky: 0.26, fill: 0.3 };
+/**
+ * How much of its own color each leaf shines with at night, on top of the moonlight, so the
+ * crown reads close to its legend swatches while bark and ground stay in shadow.
+ */
+export const MOONLIT_LEAVES = 0.14;
 
 /** How much of the palette's key and hemisphere light the weather lets through. */
 export const weatherLight = (sky: Sky | null) => LOOKS[sky ?? 'clear'].light;
@@ -618,11 +623,11 @@ const SUN_LAYERS = [
  */
 const MOON_LAYERS = [
   { alpha: 0, tone: 0 },
-  { alpha: 0.08, tone: 0.5 },
-  { alpha: 0.1, tone: 0.65 },
+  { alpha: 0.12, tone: 0.5 },
+  { alpha: 0.16, tone: 0.65 },
   { alpha: 1, tone: 1 },
 ];
-const MOON = { color: '#eef1fa', shade: 0.16, clouds: 0.6 };
+const MOON = { color: '#eef2ff', shade: 0.16, clouds: 0.5 };
 /**
  * Stars in dark mode: `count` points on a dome `radius` round the island, from `low` to `high`
  * radians over the horizon, more of them low; `through` is how much of them each weather lets

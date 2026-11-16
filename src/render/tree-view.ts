@@ -78,6 +78,7 @@ import {
 import {
   createWeather,
   MOONLIGHT,
+  MOONLIT_LEAVES,
   type SkyTarget,
   SUN_BEARING,
   weatherLight,
@@ -1178,6 +1179,7 @@ export function createTreeView(container: HTMLElement, options: TreeViewOptions)
     treeUniforms.uFade.value = [0, 1, 2].map((i) => (center[i]! + edge[i]!) / 2) as Vec3;
     key.intensity = LIGHT.key * weatherLight(kind).key * moonlight().key;
     fill.intensity = LIGHT.fill * moonlight().fill;
+    treeUniforms.uMoonlit.value = night ? MOONLIT_LEAVES : 0;
     weather.set({ sky: kind, palette, quality, still: weatherShown?.still ?? true, night });
     requestRender();
   };
